@@ -1,0 +1,15 @@
+[package]
+name = "nexql-conn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Connection resolution ladder, pool, credential providers"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"

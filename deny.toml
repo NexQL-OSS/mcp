@@ -1,0 +1,18 @@
+# See https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"

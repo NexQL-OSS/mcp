@@ -1,0 +1,12 @@
+{
+  "name": "nexql-mcp",
+  "version": "0.1.0",
+  "description": "Postgres MCP server with schema-aware tooling",
+  "author": "NexQL",
+  "license": "Apache-2.0",
+  "server": {
+    "type": "stdio",
+    "command": "nexql-mcp",
+    "args": []
+  }
+}

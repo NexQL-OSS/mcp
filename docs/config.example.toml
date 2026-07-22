@@ -1,0 +1,27 @@
+# Example nexql-mcp config
+# Install at: ~/.config/nexql-mcp/config.toml
+# Override path: NEXQL_MCP_CONFIG=/path/to/config.toml
+
+default_profile = "local"
+
+[profiles.local]
+url = "postgres://dev@localhost:5432/appdb"
+access_mode = "read"
+
+[profiles.prod]
+host = "prod.example.com"
+dbname = "app"
+user = "readonly_agent"
+# Never store plaintext secrets — use indirection:
+password_command = "op read op://vault/pg/password"
+sslmode = "verify-full"
+access_mode = "read"
+schemas = ["public", "billing"]
+deny_tables = ["auth.*"]
+pii_columns = ["public.users.ssn", "public.users.email"]
+max_rows = 200
+
+[profiles.rds]
+host = "x.rds.amazonaws.com"
+user = "iam_agent"
+credential_provider = "aws-iam"

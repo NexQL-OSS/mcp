@@ -1,0 +1,15 @@
+[package]
+name = "nexql-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Access modes, allow/deny, PII, caps, timeouts, audit"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
