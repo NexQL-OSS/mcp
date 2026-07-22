@@ -1,39 +1,40 @@
 # CLAUDE.md — nexql-mcp
 
-Rust workspace for the standalone NexQL Postgres MCP server. **This session scope is initialization only** — see README roadmap for implementation phases.
+Rust workspace for the standalone NexQL Postgres MCP server. Implementation follows the phased roadmap in `README.md`; crates are scaffolds until their phase lands.
+
+**Agent skill:** `.claude/skills/nexql-mcp-dev/SKILL.md` — read first for session bootstrap, phase discipline, and testing gates.
 
 ## Layout
 
-| Path | Role |
-|------|------|
-| `crates/nexql-mcp/` | Binary: CLI (`clap`), subcommands, wiring |
-| `crates/nexql-proto/` | MCP JSON-RPC; no tool logic |
-| `crates/nexql-tools/` | Tools return typed results; **must not** depend on `nexql-proto` |
-| `crates/nexql-index/` | dbindex port; on-disk format byte-compatible with TS |
-| `crates/nexql-conn/` | libpq-style resolution ladder, pool, credentials |
-| `crates/nexql-policy/` | access modes, deny lists, caps, audit |
-| `npm/` | `npx -y nexql-mcp` shim (esbuild optionalDeps pattern) |
-| `mcpb/` | Claude Desktop one-click bundle |
-| `docs/` | client setup snippets, tool reference |
+Crate roles and one-directional layering (`policy` + `conn` → `index` → `tools` → binary): see `README.md`. `nexql-tools` must never depend on `nexql-proto`.
 
 ## Commands
 
 ```bash
-cargo check
+cargo check --workspace
 cargo run -p nexql-mcp
-cargo fmt --all
-cargo clippy --workspace --all-targets
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
+
+These four are exactly what `.github/workflows/ci.yml` gates on. Clippy warnings fail CI.
 
 ## Conventions
 
 - **Edition:** 2024, MSRV pinned in root `Cargo.toml` (`rust-version`)
+- **Deps:** add to root `[workspace.dependencies]` first, then `{ workspace = true }` in the member crate. Same for `version`/`edition`/`license`/`repository`.
 - **Config:** `~/.config/nexql-mcp/`, env prefix `NEXQL_MCP_*`
 - **Data:** `~/.local/share/nexql-mcp/`
 - **Resource URIs:** `nexql://<profile>/<database>/…` (unchanged from TS)
 - **SQL validation:** `pg_query.rs` — never prefix-string checks
 - **Read-only default:** `SET default_transaction_read_only = ON` on every pool connection
 - **Index format:** keep compatible with `pro/src/features/dbindex/indexFormat.ts`
+- **Licenses:** new deps must satisfy `deny.toml`'s allowlist. Run `cargo deny check` manually — CI does not.
+
+## Git
+
+Feature branches (`feat/…`) → PR to `main`. CI runs on PRs to `main` only.
 
 ## Porting map
 
