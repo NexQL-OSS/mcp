@@ -7,14 +7,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use clap::{Parser, Subcommand};
 use nexql_conn::{
-    ConnectionParams, PoolOptions, ResolveInputs, apply_session_guards, connect_once, resolve,
+    ConnectionParams, PoolOptions, ResolveInputs, ResolvedConnection, apply_session_guards,
+    connect_once, resolve,
 };
 use nexql_index::{
-    BuildDepth, BuildMode, BuildRequest, IndexScope, IndexStore, PgCatalogDb, build_index,
+    BuildDepth, BuildMode, BuildRequest, CatalogDb, IndexScope, IndexStore, PgCatalogDb,
+    build_index,
 };
 use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
 use nexql_proto::{StdioServer, ToolBackend, ToolCallResult, ToolDescriptor};
-use nexql_tools::{ToolRouter, ToolSession};
+use nexql_tools::{ToolRouter, ToolSession, default_index_root};
 use serde_json::Value;
 use tracing_subscriber::EnvFilter;
 
@@ -117,7 +119,11 @@ enum IndexAction {
     Build,
     Status,
     Refresh,
-    Clear,
+    Clear {
+        /// Clear every index under the index root
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -260,42 +266,29 @@ async fn run_index_action(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         IndexAction::Build => run_index_build(cli).await,
-        IndexAction::Status => {
-            eprintln!("index status: not yet implemented");
-            Ok(())
-        }
-        IndexAction::Refresh => {
-            eprintln!("index refresh: not yet implemented");
-            Ok(())
-        }
-        IndexAction::Clear => {
-            eprintln!("index clear: not yet implemented");
-            Ok(())
-        }
+        IndexAction::Status => run_index_status(cli).await,
+        IndexAction::Refresh => run_index_refresh(cli).await,
+        IndexAction::Clear { all } => run_index_clear(cli, *all).await,
     }
 }
 
-async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let resolved = resolve(&resolve_inputs(cli))?;
+fn index_ids(resolved: &ResolvedConnection) -> (String, String) {
     let database = resolved
         .params
         .dbname
         .clone()
         .unwrap_or_else(|| "postgres".into());
-    let connection_id = resolved
-        .profile_name
-        .clone()
-        .unwrap_or_else(|| {
-            let host = resolved.params.host.as_deref().unwrap_or("localhost");
-            format!("{host}/{database}")
-        });
+    let connection_id = resolved.profile_name.clone().unwrap_or_else(|| {
+        let host = resolved.params.host.as_deref().unwrap_or("localhost");
+        format!("{host}/{database}")
+    });
+    (connection_id, database)
+}
 
-    let client = connect_once(&resolved.params).await?;
-    let store = IndexStore::new(default_index_root());
-    let db = PgCatalogDb::new(&client);
-    let req = BuildRequest {
-        connection_id: connection_id.clone(),
-        database: database.clone(),
+fn default_build_request(connection_id: String, database: String) -> BuildRequest {
+    BuildRequest {
+        connection_id,
+        database,
         scope: IndexScope {
             included_schemas: vec!["public".into()],
             excluded_objects: vec![],
@@ -304,7 +297,18 @@ async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         depth: BuildDepth::Structure,
         build_mode: BuildMode::Guided,
         environment: "development".into(),
-    };
+    }
+}
+
+async fn run_build_request(
+    resolved: &ResolvedConnection,
+    req: BuildRequest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let connection_id = req.connection_id.clone();
+    let database = req.database.clone();
+    let client = connect_once(&resolved.params).await?;
+    let store = IndexStore::new(default_index_root());
+    let db = PgCatalogDb::new(&client);
 
     let mut on_progress = |ev: nexql_index::BuildProgress| {
         eprintln!("index build: {ev:?}");
@@ -330,12 +334,128 @@ async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn default_index_root() -> PathBuf {
-    if let Ok(p) = std::env::var("NEXQL_MCP_INDEX_DIR") {
-        return PathBuf::from(p);
+async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = resolve(&resolve_inputs(cli))?;
+    let (connection_id, database) = index_ids(&resolved);
+    let req = default_build_request(connection_id, database);
+    run_build_request(&resolved, req).await
+}
+
+async fn run_index_status(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let store = IndexStore::new(default_index_root());
+    let indexed = store.list_indexed_databases()?;
+    if indexed.is_empty() {
+        eprintln!(
+            "index status: no indexes under {}",
+            store.root().display()
+        );
+        return Ok(());
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".local/share/nexql-mcp")
+
+    // Optional live fingerprint when a connection can be resolved + opened.
+    let live: Option<(String, String, String)> = match resolve(&resolve_inputs(cli)) {
+        Ok(resolved) => {
+            let (connection_id, database) = index_ids(&resolved);
+            match connect_once(&resolved.params).await {
+                Ok(client) => {
+                    let db = PgCatalogDb::new(&client);
+                    match db.schema_fingerprint().await {
+                        Ok(fp) => Some((connection_id, database, fp)),
+                        Err(e) => {
+                            eprintln!("index status: live fingerprint unavailable: {e}");
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("index status: connect skipped: {e}");
+                    None
+                }
+            }
+        }
+        Err(_) => None,
+    };
+
+    for (conn_id, database) in &indexed {
+        let base = store.base_dir(conn_id, database);
+        let Some(manifest) = store.read_manifest(&base)? else {
+            continue;
+        };
+        let drift = live.as_ref().and_then(|(live_conn, live_db, fp)| {
+            if live_conn == &manifest.connection_id && live_db == &manifest.database {
+                Some(fp != &manifest.schema_fingerprint)
+            } else {
+                None
+            }
+        });
+        let drift_part = match drift {
+            Some(d) => format!(" drift={d}"),
+            None => String::new(),
+        };
+        eprintln!(
+            "index: connectionId={} database={} indexed_at={} fingerprint={} tables={} views={} functions={} enums={} build_ms={}{drift_part}",
+            manifest.connection_id,
+            manifest.database,
+            manifest.indexed_at,
+            manifest.schema_fingerprint,
+            manifest.counts.tables,
+            manifest.counts.views,
+            manifest.counts.functions,
+            manifest.counts.enums,
+            manifest.stats.build_ms,
+        );
+    }
+    Ok(())
+}
+
+async fn run_index_refresh(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = resolve(&resolve_inputs(cli))?;
+    let (connection_id, database) = index_ids(&resolved);
+    let store = IndexStore::new(default_index_root());
+    let base = store.base_dir(&connection_id, &database);
+    let req = match store.read_manifest(&base)? {
+        Some(manifest) => {
+            eprintln!(
+                "index refresh: reusing scope/depth/mode from manifest (indexed_at={})",
+                manifest.indexed_at
+            );
+            BuildRequest {
+                connection_id,
+                database,
+                scope: manifest.scope,
+                depth: manifest.build_depth,
+                build_mode: manifest.build_mode,
+                environment: manifest.environment,
+            }
+        }
+        None => {
+            eprintln!("index refresh: no manifest; using build defaults");
+            default_build_request(connection_id, database)
+        }
+    };
+    run_build_request(&resolved, req).await
+}
+
+async fn run_index_clear(cli: &Cli, all: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let store = IndexStore::new(default_index_root());
+    if all {
+        let indexed = store.list_indexed_databases()?;
+        if indexed.is_empty() {
+            eprintln!("index clear: nothing to clear");
+            return Ok(());
+        }
+        for (conn_id, database) in indexed {
+            store.clear_index(&conn_id, &database)?;
+            eprintln!("index cleared: conn={conn_id} db={database}");
+        }
+        return Ok(());
+    }
+
+    let resolved = resolve(&resolve_inputs(cli))?;
+    let (connection_id, database) = index_ids(&resolved);
+    store.clear_index(&connection_id, &database)?;
+    eprintln!("index cleared: conn={connection_id} db={database}");
+    Ok(())
 }
 
 async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {

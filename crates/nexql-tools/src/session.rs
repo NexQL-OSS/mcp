@@ -1,6 +1,7 @@
-//! Session state: resolved profiles + active pool.
+//! Session state: resolved profiles + active pool + optional schema index.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use deadpool_postgres::{Object, Pool};
@@ -8,10 +9,20 @@ use nexql_conn::{
     ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded,
     create_pool,
 };
+use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter};
 use tokio::sync::RwLock;
 
 use crate::error::ToolError;
+
+/// Index root: `NEXQL_MCP_INDEX_DIR`, else `~/.local/share/nexql-mcp` (same as CLI).
+pub fn default_index_root() -> PathBuf {
+    if let Ok(p) = std::env::var("NEXQL_MCP_INDEX_DIR") {
+        return PathBuf::from(p);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".local/share/nexql-mcp")
+}
 
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
@@ -29,6 +40,8 @@ pub struct ToolSession {
     pub caps: PolicyCaps,
     pub filter: PolicyFilter,
     pub pool_opts: PoolOptions,
+    /// Schema index root; `None` disables Phase 3 tools with an actionable error.
+    pub index_store: Option<IndexStore>,
     inner: RwLock<SessionInner>,
 }
 
@@ -120,6 +133,7 @@ impl ToolSession {
             caps,
             filter,
             pool_opts,
+            index_store: Some(IndexStore::new(default_index_root())),
             inner: RwLock::new(SessionInner {
                 active_id: active,
                 database,
@@ -166,6 +180,34 @@ impl ToolSession {
             .get(&g.active_id)
             .ok_or_else(|| ToolError::Execution("no active pool".into()))?;
         Ok(checkout_guarded(pool, &self.pool_opts).await?)
+    }
+
+    /// Test helper: session with no live pools (index tools only).
+    #[cfg(test)]
+    pub fn for_tests(
+        connections: Vec<ConnectionInfo>,
+        filter: PolicyFilter,
+        index_store: Option<IndexStore>,
+    ) -> Arc<Self> {
+        assert!(!connections.is_empty());
+        let active = connections[0].id.clone();
+        let database = connections[0]
+            .database
+            .clone()
+            .unwrap_or_else(|| "postgres".into());
+        Arc::new(Self {
+            connections,
+            access_mode: AccessMode::Read,
+            caps: PolicyCaps::default(),
+            filter,
+            pool_opts: PoolOptions::default(),
+            index_store,
+            inner: RwLock::new(SessionInner {
+                active_id: active,
+                database,
+                pools: HashMap::new(),
+            }),
+        })
     }
 }
 

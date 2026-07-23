@@ -1,0 +1,43 @@
+{
+  "buildDepth": "structure",
+  "buildMode": "auto",
+  "connectionId": "golden-conn",
+  "counts": {
+    "enums": 0,
+    "functions": 0,
+    "tables": 2,
+    "views": 0
+  },
+  "database": "postgres",
+  "derived": {
+    "joinGraph": "joingraph.json",
+    "tokens": "tokens.json",
+    "values": "values.json"
+  },
+  "environment": "test",
+  "formatVersion": 1,
+  "indexedAt": "1970-01-01T00:00:00.000Z",
+  "pgVersion": "GOLDEN",
+  "schemaFingerprint": "GOLDEN",
+  "scope": {
+    "excludedObjects": [],
+    "includedSchemas": [
+      "public"
+    ],
+    "piiExcludedColumns": []
+  },
+  "shards": [
+    {
+      "bytes": 0,
+      "file": "objects-public-0.json",
+      "hash": "GOLDEN",
+      "objects": 2,
+      "schema": "public"
+    }
+  ],
+  "stats": {
+    "buildMs": 0,
+    "queriesRun": 0,
+    "warnings": []
+  }
+}

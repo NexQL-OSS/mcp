@@ -12,5 +12,5 @@ pub mod session;
 pub use error::ToolError;
 pub use exec::{ToolOutcome, ToolRouter};
 pub use registry::ToolName;
-pub use schema::{ToolSpec, phase2_catalog_tools};
-pub use session::{ConnectionInfo, ToolSession};
+pub use schema::{ToolSpec, active_tools, phase2_catalog_tools, phase3_index_tools};
+pub use session::{ConnectionInfo, ToolSession, default_index_root};

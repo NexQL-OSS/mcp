@@ -36,6 +36,30 @@ impl ToolName {
         Self::ExplainQuery,
     ];
 
+    /// Index-backed tools (require `nexql-mcp index build`).
+    pub const PHASE3: &'static [ToolName] = &[
+        Self::SearchSchema,
+        Self::DescribeObject,
+        Self::GetJoinPath,
+        Self::SampleValues,
+    ];
+
+    /// Phase 2 catalog + Phase 3 index tools currently exposed via tools/list.
+    pub const ACTIVE: &'static [ToolName] = &[
+        Self::ListConnections,
+        Self::ListDatabases,
+        Self::ListSchemas,
+        Self::ListObjects,
+        Self::GetCurrentContext,
+        Self::SwitchConnection,
+        Self::RunSelect,
+        Self::ExplainQuery,
+        Self::SearchSchema,
+        Self::DescribeObject,
+        Self::GetJoinPath,
+        Self::SampleValues,
+    ];
+
     pub const READ_ONLY: &'static [ToolName] = &[
         Self::SearchSchema,
         Self::DescribeObject,
@@ -103,5 +127,19 @@ mod tests {
     #[test]
     fn phase2_has_eight_tools() {
         assert_eq!(ToolName::PHASE2.len(), 8);
+    }
+
+    #[test]
+    fn phase3_has_four_tools() {
+        assert_eq!(ToolName::PHASE3.len(), 4);
+    }
+
+    #[test]
+    fn active_surface_is_twelve_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 12);
+        assert_eq!(
+            ToolName::ACTIVE.len(),
+            ToolName::PHASE2.len() + ToolName::PHASE3.len()
+        );
     }
 }

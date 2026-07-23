@@ -3,7 +3,7 @@
 //! Catalog access is abstracted behind [`CatalogDb`] so unit tests can inject
 //! fixtures without Postgres. Live builds use [`PgCatalogDb`].
 //!
-//! TODO (Phase 3 exit gate): golden-file byte parity vs committed TS fixtures.
+//! Phase 3 golden gate: `tests/golden_parity.rs` + `tests/golden/expected/`.
 //! TODO (Phase 5): embeddings generation.
 //! TODO: value profiling when `BuildDepth::Profiles`.
 
@@ -29,16 +29,13 @@ use crate::model::{
     ObjectShard, TokenIndex,
 };
 use crate::object_hash::{compute_definition_hash, compute_object_hash};
-use crate::store::{IndexStore, JOIN_GRAPH_FILE, TOKENS_FILE};
+use crate::store::{IndexStore, JOIN_GRAPH_FILE, TOKENS_FILE, VALUES_FILE};
 
 /// Max objects per shard — matches TS IndexBuilder.
 pub const MAX_OBJECTS_PER_SHARD: usize = 64;
 
 /// Max shard UTF-8 size before flush — matches TS (`256 * 1024`).
 pub const MAX_SHARD_BYTES: usize = 256 * 1024;
-
-/// Derived value-index filename (written even when empty).
-pub const VALUES_FILE: &str = "values.json";
 
 /// Progress events for MCP / CLI reporting (Phase 4 wires these to MCP progress).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,12 +91,17 @@ impl CatalogDb for PgCatalogDb<'_> {
     async fn set_statement_timeout_ms(&self, ms: u32) -> Result<(), IndexError> {
         self.client
             .execute(&format!("SET statement_timeout = {ms}"), &[])
-            .await?;
+            .await
+            .map_err(|e| IndexError::Db(format!("SET statement_timeout: {e}")))?;
         Ok(())
     }
 
     async fn schema_fingerprint(&self) -> Result<String, IndexError> {
-        let row = self.client.query_one(SCHEMA_FINGERPRINT_QUERY, &[]).await?;
+        let row = self
+            .client
+            .query_one(SCHEMA_FINGERPRINT_QUERY, &[])
+            .await
+            .map_err(|e| IndexError::Db(format!("SCHEMA_FINGERPRINT_QUERY: {e}")))?;
         Ok(format_schema_fingerprint(
             &row.get::<_, String>(0),
             &row.get::<_, String>(1),
@@ -110,7 +112,11 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn server_version(&self) -> Result<String, IndexError> {
-        let row = self.client.query_one("SHOW server_version", &[]).await?;
+        let row = self
+            .client
+            .query_one("SHOW server_version", &[])
+            .await
+            .map_err(|e| IndexError::Db(format!("SHOW server_version: {e}")))?;
         let full: String = row.get(0);
         Ok(full
             .split_whitespace()
@@ -120,14 +126,22 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn relations(&self, schemas: &[String]) -> Result<Vec<RawRelationRow>, IndexError> {
-        let schemas = schemas.to_vec();
-        let rows = self.client.query(RELATIONS_QUERY, &[&schemas]).await?;
+        let schemas: Vec<&str> = schemas.iter().map(String::as_str).collect();
+        let rows = self
+            .client
+            .query(RELATIONS_QUERY, &[&schemas])
+            .await
+            .map_err(|e| IndexError::Db(format!("RELATIONS_QUERY: {e}")))?;
         Ok(rows.iter().map(map_relation_row).collect())
     }
 
     async fn columns(&self, oids: &[i32]) -> Result<Vec<RawColumnRow>, IndexError> {
-        let oids = oids.to_vec();
-        let rows = self.client.query(COLUMNS_QUERY, &[&oids]).await?;
+        let oids: Vec<u32> = oids.iter().map(|&o| o as u32).collect();
+        let rows = self
+            .client
+            .query(COLUMNS_QUERY, &[&oids])
+            .await
+            .map_err(|e| IndexError::Db(format!("COLUMNS_QUERY: {e}")))?;
         Ok(rows
             .iter()
             .map(|r| RawColumnRow {
@@ -137,20 +151,27 @@ impl CatalogDb for PgCatalogDb<'_> {
                 not_null: r.get("not_null"),
                 default_value: r.get("default_value"),
                 comment: r.get("comment"),
-                ordinal: r.get("ordinal"),
+                ordinal: {
+                    let n: i16 = r.get("ordinal");
+                    i32::from(n)
+                },
             })
             .collect())
     }
 
     async fn constraints(&self, oids: &[i32]) -> Result<Vec<RawConstraintRow>, IndexError> {
-        let oids = oids.to_vec();
-        let rows = self.client.query(CONSTRAINTS_QUERY, &[&oids]).await?;
+        let oids: Vec<u32> = oids.iter().map(|&o| o as u32).collect();
+        let rows = self
+            .client
+            .query(CONSTRAINTS_QUERY, &[&oids])
+            .await
+            .map_err(|e| IndexError::Db(format!("CONSTRAINTS_QUERY: {e}")))?;
         Ok(rows
             .iter()
             .map(|r| RawConstraintRow {
                 table_oid: r.get("table_oid"),
                 name: r.get("name"),
-                type_name: r.get("type"),
+                type_name: pg_char_col(r, "type"),
                 definition: r.get("definition"),
                 ref_table_oid: r.get("ref_table_oid"),
                 key_positions: r.get("key_positions"),
@@ -160,8 +181,12 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn indexes(&self, oids: &[i32]) -> Result<Vec<RawIndexRow>, IndexError> {
-        let oids = oids.to_vec();
-        let rows = self.client.query(INDEXES_QUERY, &[&oids]).await?;
+        let oids: Vec<u32> = oids.iter().map(|&o| o as u32).collect();
+        let rows = self
+            .client
+            .query(INDEXES_QUERY, &[&oids])
+            .await
+            .map_err(|e| IndexError::Db(format!("INDEXES_QUERY: {e}")))?;
         Ok(rows
             .iter()
             .map(|r| RawIndexRow {
@@ -176,8 +201,12 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn view_definitions(&self, oids: &[i32]) -> Result<Vec<RawViewRow>, IndexError> {
-        let oids = oids.to_vec();
-        let rows = self.client.query(VIEW_DEFINITIONS_QUERY, &[&oids]).await?;
+        let oids: Vec<u32> = oids.iter().map(|&o| o as u32).collect();
+        let rows = self
+            .client
+            .query(VIEW_DEFINITIONS_QUERY, &[&oids])
+            .await
+            .map_err(|e| IndexError::Db(format!("VIEW_DEFINITIONS_QUERY: {e}")))?;
         Ok(rows
             .iter()
             .map(|r| RawViewRow {
@@ -188,7 +217,7 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn functions(&self, schemas: &[String]) -> Result<Vec<RawFunctionRow>, IndexError> {
-        let schemas = schemas.to_vec();
+        let schemas: Vec<&str> = schemas.iter().map(String::as_str).collect();
         let rows = self.client.query(FUNCTIONS_QUERY, &[&schemas]).await?;
         Ok(rows
             .iter()
@@ -207,7 +236,7 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn enums(&self, schemas: &[String]) -> Result<Vec<RawEnumRow>, IndexError> {
-        let schemas = schemas.to_vec();
+        let schemas: Vec<&str> = schemas.iter().map(String::as_str).collect();
         let rows = self.client.query(ENUMS_QUERY, &[&schemas]).await?;
         Ok(rows
             .iter()
@@ -222,7 +251,7 @@ impl CatalogDb for PgCatalogDb<'_> {
     }
 
     async fn domains(&self, schemas: &[String]) -> Result<Vec<RawDomainRow>, IndexError> {
-        let schemas = schemas.to_vec();
+        let schemas: Vec<&str> = schemas.iter().map(String::as_str).collect();
         let rows = self.client.query(DOMAINS_QUERY, &[&schemas]).await?;
         Ok(rows
             .iter()
@@ -455,6 +484,12 @@ fn check_cancel(cancel: Option<&dyn Fn() -> bool>) -> Result<(), IndexError> {
     Ok(())
 }
 
+/// Postgres `"char"` (e.g. `relkind`, `contype`) arrives as `i8` via tokio-postgres.
+fn pg_char_col(r: &tokio_postgres::Row, col: &str) -> String {
+    let b: i8 = r.get(col);
+    char::from(b as u8).to_string()
+}
+
 fn map_relation_row(r: &tokio_postgres::Row) -> RawRelationRow {
     let row_estimate: i64 = r.get("row_estimate");
     let size_bytes: i64 = r.get("size_bytes");
@@ -462,7 +497,7 @@ fn map_relation_row(r: &tokio_postgres::Row) -> RawRelationRow {
         oid: r.get("oid"),
         schema_name: r.get("schema_name"),
         name: r.get("name"),
-        kind: r.get("kind"),
+        kind: pg_char_col(r, "kind"),
         comment: r.get("comment"),
         row_estimate: serde_json::json!(row_estimate),
         size_bytes: serde_json::json!(size_bytes),

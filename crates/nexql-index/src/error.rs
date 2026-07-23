@@ -26,6 +26,10 @@ pub enum IndexError {
     #[error("index build error: {0}")]
     Build(String),
 
+    /// Query-service / tool-facing message (missing object, unreachable join, …).
+    #[error("{0}")]
+    Query(String),
+
     #[error("database error: {0}")]
     Db(String),
 

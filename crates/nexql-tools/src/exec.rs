@@ -1,14 +1,21 @@
-//! Tool dispatch for the Phase 2 catalog surface.
+//! Tool dispatch for catalog (Phase 2) + index (Phase 3) surfaces.
 
 use std::sync::Arc;
 
-use nexql_policy::{SqlDecision, validate_readonly_sql};
+use nexql_index::{IndexQueryService, IndexStore, QueryPolicyFilter};
+use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
 use serde_json::{Value, json};
 
 use crate::error::ToolError;
 use crate::registry::ToolName;
-use crate::schema::{ToolSpec, phase2_catalog_tools};
+use crate::schema::{ToolSpec, active_tools};
 use crate::session::ToolSession;
+
+/// Default hit cap for `search_schema` (matches TS ToolExecutor).
+const SEARCH_SCHEMA_LIMIT: usize = 10;
+
+const NO_INDEX_HINT: &str =
+    "No schema index configured — set NEXQL_MCP_INDEX_DIR or run `nexql-mcp index build`.";
 
 #[derive(Debug, Clone)]
 pub struct ToolOutcome {
@@ -39,6 +46,8 @@ impl ToolOutcome {
 
 pub struct ToolRouter {
     session: Arc<ToolSession>,
+    /// Optional override; when `None`, uses `session.index_store`.
+    index_override: Option<Option<IndexStore>>,
     specs: Vec<ToolSpec>,
 }
 
@@ -46,12 +55,33 @@ impl ToolRouter {
     pub fn new(session: Arc<ToolSession>) -> Self {
         Self {
             session,
-            specs: phase2_catalog_tools(),
+            index_override: None,
+            specs: active_tools(),
+        }
+    }
+
+    /// Build with an explicit index store (or `None` to force the no-index error path).
+    pub fn with_index_store(session: Arc<ToolSession>, store: Option<IndexStore>) -> Self {
+        Self {
+            session,
+            index_override: Some(store),
+            specs: active_tools(),
         }
     }
 
     pub fn specs(&self) -> &[ToolSpec] {
         &self.specs
+    }
+
+    fn index_store(&self) -> Option<&IndexStore> {
+        match &self.index_override {
+            Some(inner) => inner.as_ref(),
+            None => self.session.index_store.as_ref(),
+        }
+    }
+
+    fn query_filter(&self) -> QueryPolicyFilter {
+        policy_to_query_filter(&self.session.filter)
     }
 
     pub async fn call(&self, name: &str, args: Value) -> ToolOutcome {
@@ -72,10 +102,104 @@ impl ToolRouter {
             ToolName::SwitchConnection => self.switch_connection(&args).await,
             ToolName::RunSelect => self.run_select(&args).await,
             ToolName::ExplainQuery => self.explain_query(&args).await,
+            ToolName::SearchSchema => self.search_schema(&args).await,
+            ToolName::DescribeObject => self.describe_object(&args).await,
+            ToolName::GetJoinPath => self.get_join_path(&args).await,
+            ToolName::SampleValues => self.sample_values(&args).await,
             _ => Err(ToolError::Unknown(format!(
                 "{name} is not available until a later phase"
             ))),
         }
+    }
+
+    async fn index_service(&self) -> Result<(&IndexStore, String, String), ToolError> {
+        let store = self
+            .index_store()
+            .ok_or_else(|| ToolError::Execution(NO_INDEX_HINT.into()))?;
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        if store.read_manifest(&base)?.is_none() {
+            return Err(ToolError::Execution(format!(
+                "No schema index for database \"{database}\" — run `nexql-mcp index build`."
+            )));
+        }
+        Ok((store, connection_id, database))
+    }
+
+    async fn search_schema(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if query.is_empty() {
+            return Ok(ToolOutcome::ok_json(json!([])));
+        }
+        let (store, connection_id, database) = self.index_service().await?;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let filter = self.query_filter();
+        let hits = svc.search_schema(query, SEARCH_SCHEMA_LIMIT, Some(&filter))?;
+        let rows: Vec<Value> = hits
+            .into_iter()
+            .map(|h| {
+                json!({
+                    "ref": h.ref_,
+                    "score": h.score,
+                    "kind": h.kind,
+                })
+            })
+            .collect();
+        Ok(ToolOutcome::ok_json(json!(rows)))
+    }
+
+    async fn describe_object(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ref_ = args
+            .get("ref")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let (store, connection_id, database) = self.index_service().await?;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let filter = self.query_filter();
+        let entry = svc.describe_object(ref_, Some(&filter))?;
+        let value = serde_json::to_value(entry).map_err(|e| ToolError::Execution(e.to_string()))?;
+        Ok(ToolOutcome::ok_json(value))
+    }
+
+    async fn get_join_path(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let a = args
+            .get("a")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("a is required".into()))?;
+        let b = args
+            .get("b")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("b is required".into()))?;
+        let (store, connection_id, database) = self.index_service().await?;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let path = svc.get_join_path(a, b)?;
+        let value = serde_json::to_value(path).map_err(|e| ToolError::Execution(e.to_string()))?;
+        Ok(ToolOutcome::ok_json(value))
+    }
+
+    async fn sample_values(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ref_ = args
+            .get("ref")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let col = args
+            .get("col")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("col is required".into()))?;
+        let (store, connection_id, database) = self.index_service().await?;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let filter = self.query_filter();
+        // Index-only this phase — live DB sampling stays Phase 4+.
+        let result = svc.sample_values(ref_, col, Some(&filter), None)?;
+        let mut payload = json!({ "values": result.values });
+        if let Some(message) = result.message {
+            payload["message"] = json!(message);
+        }
+        Ok(ToolOutcome::ok_json(payload))
     }
 
     fn list_connections(&self) -> ToolOutcome {
@@ -370,6 +494,15 @@ impl ToolRouter {
     }
 }
 
+fn policy_to_query_filter(filter: &PolicyFilter) -> QueryPolicyFilter {
+    QueryPolicyFilter {
+        allow_schemas: filter.allow_schemas.clone(),
+        deny_schemas: filter.deny_schemas.clone(),
+        deny_tables: filter.deny_tables.clone(),
+        pii_columns: filter.pii_columns.clone(),
+    }
+}
+
 fn rows_to_json(rows: &[tokio_postgres::Row]) -> Value {
     let arr: Vec<Value> = rows
         .iter()
@@ -416,4 +549,87 @@ fn cell_to_json(row: &tokio_postgres::Row, idx: usize) -> Value {
         };
     }
     Value::Null
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexql_policy::PolicyFilter;
+    use serde_json::json;
+
+    use crate::session::{ConnectionInfo, ToolSession};
+
+    fn test_conn() -> ConnectionInfo {
+        ConnectionInfo {
+            id: "conn-1".into(),
+            name: "conn-1".into(),
+            host: Some("127.0.0.1".into()),
+            port: Some(5432),
+            database: Some("appdb".into()),
+            params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn policy_maps_one_to_one() {
+        let f = PolicyFilter {
+            allow_schemas: vec!["public".into()],
+            deny_schemas: vec!["pgboss".into()],
+            deny_tables: vec!["auth.*".into()],
+            pii_columns: vec!["public.users.ssn".into()],
+        };
+        let q = policy_to_query_filter(&f);
+        assert_eq!(q.allow_schemas, f.allow_schemas);
+        assert_eq!(q.deny_schemas, f.deny_schemas);
+        assert_eq!(q.deny_tables, f.deny_tables);
+        assert_eq!(q.pii_columns, f.pii_columns);
+    }
+
+    #[test]
+    fn router_specs_include_phase3() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        assert_eq!(router.specs().len(), 12);
+        let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"search_schema"));
+        assert!(names.contains(&"describe_object"));
+        assert!(names.contains(&"get_join_path"));
+        assert!(names.contains(&"sample_values"));
+    }
+
+    #[tokio::test]
+    async fn missing_index_returns_actionable_error() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let out = router
+            .call("search_schema", json!({ "query": "users" }))
+            .await;
+        assert!(out.is_error, "{}", out.text);
+        assert!(
+            out.text.contains("nexql-mcp index build"),
+            "expected actionable hint, got: {}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_index_dir_returns_build_hint() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let session = ToolSession::for_tests(
+            vec![test_conn()],
+            PolicyFilter::default(),
+            Some(IndexStore::new(tmp.path())),
+        );
+        let router = ToolRouter::with_index_store(session, Some(store));
+        let out = router
+            .call("describe_object", json!({ "ref": "public.users" }))
+            .await;
+        assert!(out.is_error, "{}", out.text);
+        assert!(
+            out.text.contains("nexql-mcp index build"),
+            "expected build hint, got: {}",
+            out.text
+        );
+    }
 }

@@ -18,7 +18,7 @@ pub mod store;
 
 pub use builder::{
     BuildProgress, BuildRequest, CatalogDb, MAX_OBJECTS_PER_SHARD, MAX_SHARD_BYTES, PgCatalogDb,
-    VALUES_FILE, build_index, format_schema_fingerprint,
+    build_index, format_schema_fingerprint,
 };
 pub use catalog::{
     COLUMNS_QUERY, CONSTRAINTS_QUERY, DOMAINS_QUERY, ENUMS_QUERY, FUNCTIONS_QUERY, INDEXES_QUERY,
@@ -39,12 +39,15 @@ pub use model::{
     BuildDepth, BuildMode, CheckEntry, ColumnEntry, ColumnOverride, ColumnProfile, DbObjectKind,
     EmbeddingMetaEntry, ForeignKeyEntry, IndexCounts, IndexDerived, IndexEntry, IndexManifest,
     IndexOverrides, IndexScope, IndexStats, JoinEdge, JoinGraph, ObjectEntry, ObjectOverride,
-    ObjectShard, TokenIndex,
+    ObjectShard, TokenIndex, ValueHit, ValueIndex,
 };
 pub use object_hash::{compute_definition_hash, compute_object_hash};
-pub use query::search_schema_lexical;
+pub use query::{
+    IndexQueryService, QueryPolicyFilter, RankedHit, SampleValuesResult, missing_object_message,
+    no_samples_message, search_schema_lexical,
+};
 pub use store::{
     DBINDEX_DIR, EMBEDDINGS_BIN, EMBEDDINGS_META, JOIN_GRAPH_FILE, LOCK_FILE, MANIFEST_FILE,
-    OVERRIDES_FILE, STALE_LOCK, TOKENS_FILE, IndexStore, deserialize_embedding, safe_segment,
-    serialize_embeddings,
+    OVERRIDES_FILE, STALE_LOCK, TOKENS_FILE, VALUES_FILE, IndexStore, deserialize_embedding,
+    safe_segment, serialize_embeddings,
 };

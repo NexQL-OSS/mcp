@@ -18,5 +18,8 @@ pub enum ToolError {
     Policy(#[from] nexql_policy::PolicyError),
 
     #[error(transparent)]
+    Index(#[from] nexql_index::IndexError),
+
+    #[error(transparent)]
     Postgres(#[from] tokio_postgres::Error),
 }

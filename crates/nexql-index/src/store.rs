@@ -16,7 +16,8 @@ use std::time::{Duration, SystemTime};
 use crate::error::IndexError;
 use crate::migrate::migrate_manifest;
 use crate::model::{
-    EmbeddingMetaEntry, IndexManifest, JoinGraph, ObjectEntry, TokenIndex,
+    EmbeddingMetaEntry, ForeignKeyEntry, IndexManifest, IndexOverrides, JoinGraph, ObjectEntry,
+    TokenIndex, ValueIndex,
 };
 
 /// Filename constants matching the TS builder/store.
@@ -28,6 +29,7 @@ pub const JOIN_GRAPH_FILE: &str = "joingraph.json";
 pub const EMBEDDINGS_BIN: &str = "embeddings.bin";
 pub const EMBEDDINGS_META: &str = "embeddings-meta.json";
 pub const OVERRIDES_FILE: &str = "overrides.json";
+pub const VALUES_FILE: &str = "values.json";
 
 /// Abandoned build locks older than this are overwritten (matches TS).
 pub const STALE_LOCK: Duration = Duration::from_secs(10 * 60);
@@ -226,6 +228,66 @@ impl IndexStore {
         self.write_atomic(&base_dir.join(JOIN_GRAPH_FILE), &bytes)
     }
 
+    pub fn read_overrides(&self, base_dir: &Path) -> Result<Option<IndexOverrides>, IndexError> {
+        self.read_json_opt(&base_dir.join(OVERRIDES_FILE))
+    }
+
+    pub fn write_overrides(
+        &self,
+        base_dir: &Path,
+        overrides: &IndexOverrides,
+    ) -> Result<(), IndexError> {
+        let bytes = serde_json::to_vec_pretty(overrides)?;
+        self.write_atomic(&base_dir.join(OVERRIDES_FILE), &bytes)
+    }
+
+    /// Read the value inverted index (`values.json`). Returns `None` when the
+    /// manifest has no `derived.values` path or the file is missing.
+    pub fn read_values(
+        &self,
+        base_dir: &Path,
+        manifest: &IndexManifest,
+    ) -> Result<Option<ValueIndex>, IndexError> {
+        let Some(name) = &manifest.derived.values else {
+            return Ok(None);
+        };
+        self.read_json_opt(&base_dir.join(name))
+    }
+
+    pub fn write_values(&self, base_dir: &Path, values: &ValueIndex) -> Result<(), IndexError> {
+        let bytes = serde_json::to_vec(values)?;
+        self.write_atomic(&base_dir.join(VALUES_FILE), &bytes)
+    }
+
+    /// Lazily load one object entry from its schema shard, applying overrides.
+    ///
+    /// Key is `schema.object_name`. Returns `None` when the shard or entry is
+    /// missing (matches TS `getObjectEntry`).
+    pub fn get_object_entry(
+        &self,
+        base_dir: &Path,
+        manifest: &IndexManifest,
+        schema: &str,
+        object_name: &str,
+    ) -> Result<Option<ObjectEntry>, IndexError> {
+        let ref_ = format!("{schema}.{object_name}");
+        let Some(shard_info) = manifest.shards.iter().find(|s| s.schema == schema) else {
+            return Ok(None);
+        };
+        let Some(entries) = self.read_shard_entries(base_dir, &shard_info.file)? else {
+            return Ok(None);
+        };
+        let Some(entry) = entries.get(&ref_) else {
+            return Ok(None);
+        };
+
+        let Some(overrides) = self.read_overrides(base_dir)? else {
+            return Ok(Some(entry.clone()));
+        };
+
+        Ok(Some(apply_overrides(entry.clone(), &ref_, &overrides)))
+    }
+
     /// Read embeddings meta + raw Float32 LE bytes. Returns `None` when manifest
     /// has no embeddings paths or files are missing.
     pub fn read_embeddings(
@@ -352,6 +414,66 @@ impl IndexStore {
         };
         Ok(Some(serde_json::from_slice(&data)?))
     }
+}
+
+/// Apply `overrides.json` overlay onto a cloned [`ObjectEntry`] (TS `getObjectEntry`).
+fn apply_overrides(mut entry: ObjectEntry, ref_: &str, overrides: &IndexOverrides) -> ObjectEntry {
+    if let Some(objects) = &overrides.objects
+        && let Some(obj) = objects.get(ref_)
+    {
+        if let Some(comment) = &obj.comment {
+            entry.comment = comment.clone();
+        }
+        if let Some(excluded) = obj.excluded {
+            entry.excluded = Some(excluded);
+        }
+        if let Some(col_overrides) = &obj.columns {
+            for col in &mut entry.columns {
+                if let Some(co) = col_overrides.get(&col.name) {
+                    if let Some(comment) = &co.comment {
+                        col.comment = comment.clone();
+                    }
+                    if let Some(pii) = co.pii {
+                        col.pii = Some(pii);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(joins) = &overrides.joins {
+        let fks = entry.foreign_keys.get_or_insert_with(Vec::new);
+        for edge in joins {
+            if edge.disabled == Some(true) {
+                fks.retain(|fk| {
+                    let col0 = edge.cols.first().map(|(a, _)| a.as_str());
+                    !(fk.columns.first().map(String::as_str) == col0 && fk.ref_table == edge.to)
+                });
+                continue;
+            }
+            if edge.from != ref_ {
+                continue;
+            }
+            let new_fk = ForeignKeyEntry {
+                columns: edge.cols.iter().map(|(a, _)| a.clone()).collect(),
+                ref_table: edge.to.clone(),
+                ref_columns: edge.cols.iter().map(|(_, b)| b.clone()).collect(),
+                name: edge.via.clone(),
+                on_delete: None,
+                inferred: edge.inferred,
+            };
+            if let Some(idx) = fks.iter().position(|fk| {
+                fk.ref_table == edge.to
+                    && fk.columns.first() == edge.cols.first().map(|(a, _)| a)
+            }) {
+                fks[idx] = new_fk;
+            } else {
+                fks.push(new_fk);
+            }
+        }
+    }
+
+    entry
 }
 
 #[cfg(test)]

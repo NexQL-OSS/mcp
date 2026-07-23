@@ -304,6 +304,34 @@ pub struct ColumnOverride {
     pub pii: Option<bool>,
 }
 
+/// One hit in the value inverted index (`values.json`) — matches TS `readValues` entries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValueHit {
+    /// Object ref (`schema.table`); wire key is `ref`.
+    #[serde(rename = "ref")]
+    pub ref_: String,
+    pub col: String,
+}
+
+/// Token → value postings — matches TS `IndexStore.readValues` return type.
+pub type ValueIndex = HashMap<String, Vec<ValueHit>>;
+
+impl DbObjectKind {
+    /// Lowercase wire / tool kind string (`"table"`, `"view"`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Table => "table",
+            Self::View => "view",
+            Self::Matview => "matview",
+            Self::Function => "function",
+            Self::Enum => "enum",
+            Self::Domain => "domain",
+            Self::Sequence => "sequence",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

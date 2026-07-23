@@ -1,0 +1,15 @@
+{
+  "edges": [
+    {
+      "cols": [
+        [
+          "user_id",
+          "id"
+        ]
+      ],
+      "from": "public.orders",
+      "to": "public.users",
+      "via": "orders_user_id_fkey"
+    }
+  ]
+}
