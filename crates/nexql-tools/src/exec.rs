@@ -30,7 +30,13 @@ pub struct ToolOutcome {
 }
 
 impl ToolOutcome {
+    /// Success payload for MCP `structuredContent`.
+    ///
+    /// Cursor (and some other clients) require `structuredContent` to be a JSON
+    /// **object**. Bare arrays are dropped before the model sees them — always
+    /// wrap: `{ "rows": [ ... ] }`.
     pub fn ok_json(value: Value) -> Self {
+        let value = ensure_structured_object(value);
         let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
         Self {
             text,
@@ -46,6 +52,14 @@ impl ToolOutcome {
             structured: Some(json!({ "error": message })),
             is_error: true,
         }
+    }
+}
+
+/// Cursor MCP rejects non-object `structuredContent`. Wrap arrays as `{ "rows": … }`.
+fn ensure_structured_object(value: Value) -> Value {
+    match value {
+        Value::Array(rows) => json!({ "rows": rows }),
+        other => other,
     }
 }
 
@@ -998,13 +1012,15 @@ impl ToolRouter {
         let Some(max_rows) = max_rows else {
             let rows = client.query(sql, &[]).await?;
             let values = rows_to_json(&rows);
-            let text = serde_json::to_string_pretty(&values)
+            // Always object-shaped for Cursor structuredContent (bare arrays are dropped).
+            let payload = ensure_structured_object(values);
+            let text = serde_json::to_string_pretty(&payload)
                 .map_err(|e| ToolError::Execution(e.to_string()))?;
             let (trunc, text) = self.session.caps.truncate_chars(&text);
             let structured = if trunc {
-                json!({ "truncated_chars": true, "rows": values })
+                json!({ "truncated_chars": true, "data": payload })
             } else {
-                values
+                payload
             };
             return Ok(ToolOutcome {
                 text: text.to_string(),
@@ -1029,11 +1045,14 @@ impl ToolRouter {
             &rows[..]
         };
         let values = rows_to_json(keep);
-        let payload = if truncated {
-            json!({ "rows": values, "truncated": true, "maxRows": max_rows })
-        } else {
-            values
-        };
+        // Always `{ "rows": [...] }` — truncation flags are extra fields on the object.
+        let mut payload = ensure_structured_object(values);
+        if truncated {
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("truncated".into(), json!(true));
+                obj.insert("maxRows".into(), json!(max_rows));
+            }
+        }
         let text = serde_json::to_string_pretty(&payload)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
         let (char_trunc, text) = self.session.caps.truncate_chars(&text);
@@ -1158,6 +1177,24 @@ mod tests {
         assert_eq!(q.deny_schemas, f.deny_schemas);
         assert_eq!(q.deny_tables, f.deny_tables);
         assert_eq!(q.pii_columns, f.pii_columns);
+    }
+
+    #[test]
+    fn ok_json_wraps_arrays_for_cursor_structured_content() {
+        let out = ToolOutcome::ok_json(json!([{ "id": 1 }, { "id": 2 }]));
+        assert!(!out.is_error);
+        let s = out.structured.as_ref().unwrap();
+        assert!(s.is_object(), "structuredContent must be object, got {s}");
+        assert_eq!(s["rows"].as_array().unwrap().len(), 2);
+        assert!(out.text.contains("\"rows\""));
+    }
+
+    #[test]
+    fn ok_json_leaves_objects_unchanged() {
+        let out = ToolOutcome::ok_json(json!({ "kind": "table", "name": "orders" }));
+        let s = out.structured.as_ref().unwrap();
+        assert_eq!(s["kind"], "table");
+        assert!(s.get("rows").is_none());
     }
 
     #[test]
