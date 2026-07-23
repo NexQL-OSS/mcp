@@ -1,0 +1,15 @@
+target/
+.git/
+.github/
+graphify-out/
+**/tests/
+**/*_test.rs
+**/*.md
+!README.md
+npm/
+mcpb/
+docs/
+.cursor/
+*.plan.md
+.env
+.env.*

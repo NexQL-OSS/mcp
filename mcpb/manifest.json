@@ -1,12 +1,42 @@
 {
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-latest.schema.json",
+  "manifest_version": "0.3",
   "name": "nexql-mcp",
+  "display_name": "NexQL Postgres MCP",
   "version": "0.1.0",
-  "description": "Postgres MCP server with schema-aware tooling",
-  "author": "NexQL",
+  "description": "Standalone Postgres MCP server with schema-aware tooling, offline index, and read-only defaults.",
+  "long_description": "NexQL MCP connects to PostgreSQL over stdio, exposes catalog/monitoring/index tools, and uses a local schema index so agents stop hallucinating table names. Prefer a least-privilege DB role (e.g. GRANT pg_read_all_data).",
+  "author": {
+    "name": "NexQL",
+    "url": "https://github.com/NexQL-OSS/mcp"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NexQL-OSS/mcp"
+  },
   "license": "Apache-2.0",
+  "keywords": ["postgres", "postgresql", "sql", "mcp", "database", "schema"],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  },
   "server": {
-    "type": "stdio",
-    "command": "nexql-mcp",
-    "args": []
+    "type": "binary",
+    "entry_point": "server/nexql-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/nexql-mcp",
+      "args": [],
+      "env": {
+        "DATABASE_URL": "${user_config.database_url}"
+      }
+    }
+  },
+  "user_config": {
+    "database_url": {
+      "type": "string",
+      "title": "Database URL",
+      "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Also accepted as argv to nexql-mcp.",
+      "required": true,
+      "sensitive": true
+    }
   }
 }

@@ -1,0 +1,32 @@
+# cargo-dist workspace config (https://axodotdev.github.io/cargo-dist/)
+#
+# Bootstrap:
+#   cargo install cargo-dist
+#   dist init --yes   # regenerates .github/workflows/release.yml from this file
+#
+# Release: push a semver tag (v0.1.0). CI builds archives for [dist].targets.
+#
+# Musl: not enabled yet — pg_query needs clang/C toolchain; prefer gnu Linux
+# targets until a musl builder image + github-build-setup is validated.
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Pin when running `dist init`; bump after successful releases.
+cargo-dist-version = "0.28.7"
+ci = ["github"]
+installers = ["shell", "powershell"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+# Build only the CLI binary crate (workspace leaves stay unpublished).
+precise-builds = true
+create-release = true
+
+# clang for pg_query on Linux runners — provide via github-build-setup later:
+# github-build-setup = "build-setup.yml"

@@ -4,7 +4,7 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–5 landed — **28 tools**, resources/prompts/completions, index CLI, Rust golden parity, RRF + optional `--embeddings local` (candle feature). Next: Phase 6 ship (cargo-dist, npm, Docker, doctor polish).
+**Status:** Phases 0–5 landed + **Phase 6 distribution scaffolding** — `init` client matrix, doctor polish, npm shim + platform stubs, Docker, MCPB manifest, cargo-dist config / release stub. Full cross-platform release CI and musl still TBD.
 
 ## Why this exists
 
@@ -27,25 +27,55 @@ docs/               per-client setup, tool reference
 
 Layering is one-directional: `policy` + `conn` are leaves → `index` → `tools` → binary. `nexql-tools` never depends on `nexql-proto`.
 
-## Quick start (once implemented)
+## Quick start
+
+### From source
 
 ```bash
-cargo build --release
+# pg_query needs clang + libclang
+export LIBCLANG_PATH="${LIBCLANG_PATH:-/usr/lib}"   # or your llvm lib dir
+cargo build --release -p nexql-mcp
 ./target/release/nexql-mcp postgres://dev@localhost:5432/appdb
+```
 
-# or
+### npx (once platform packages are published)
+
+```bash
 npx -y nexql-mcp postgres://dev@localhost:5432/appdb
 ```
 
-Config: `~/.config/nexql-mcp/config.toml` (override with `NEXQL_MCP_CONFIG`).
+Shim: [`npm/bin/nexql-mcp.js`](npm/bin/nexql-mcp.js) resolves `@nexql/mcp-<os>-<arch>` optionalDependencies (stubs under [`npm/packages/`](npm/packages/)).
 
-See [docs/config.example.toml](docs/config.example.toml).
+### Docker
+
+```bash
+docker build -t nexql-mcp:0.1.0 .
+docker run --rm -i nexql-mcp:0.1.0 postgres://dev@host.docker.internal:5432/appdb
+```
+
+### Wire a client
+
+```bash
+nexql-mcp init cursor postgres://dev@localhost:5432/appdb
+nexql-mcp doctor postgres://dev@localhost:5432/appdb
+```
+
+Supported `init` clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `continue` | `jetbrains` | `openai-agents`.
+
+Per-client paste blocks: [docs/clients/README.md](docs/clients/README.md).
+
+Config: `~/.config/nexql-mcp/config.toml` (override with `NEXQL_MCP_CONFIG`). See [docs/config.example.toml](docs/config.example.toml).
+
+### Releases (cargo-dist)
+
+[`dist-workspace.toml`](dist-workspace.toml) targets darwin arm64/x64, linux gnu arm64/x64, windows x64. Regenerate CI with `dist generate` (see [`.github/workflows/release.yml`](.github/workflows/release.yml) stub). Musl deferred until pg_query + clang builder setup is validated.
 
 ## Development
 
 ```bash
 cargo check          # workspace compile
 cargo run -p nexql-mcp -- doctor
+cargo test -p nexql-mcp -- init_clients
 cargo fmt --all
 cargo clippy --workspace --all-targets
 ```

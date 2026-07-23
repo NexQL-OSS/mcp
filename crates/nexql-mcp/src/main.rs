@@ -1,5 +1,7 @@
 //! CLI entrypoint for the standalone NexQL Postgres MCP server.
 
+mod init_clients;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -300,7 +302,13 @@ async fn main() -> ExitCode {
                 }
             },
             Commands::Init { client } => {
-                println!("{}", init_snippet(client, cli.connection_string.as_deref()));
+                match init_clients::init_snippet(client, cli.connection_string.as_deref()) {
+                    Ok(snippet) => println!("{snippet}"),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
             }
             Commands::Index { action } => {
                 return match run_index_action(&cli, action).await {
@@ -666,38 +674,60 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .get(0);
     println!("session default_transaction_read_only={ro} statement_timeout={timeout}");
+
+    // Best-effort catalog grants (non-fatal).
+    match client
+        .query_one("SELECT 1 FROM information_schema.tables LIMIT 1", &[])
+        .await
+    {
+        Ok(_) => println!("grants: can SELECT information_schema.tables"),
+        Err(e) => eprintln!("warning: cannot SELECT information_schema ({e})"),
+    }
+
+    // Best-effort pg_stat_statements presence (non-fatal).
+    match client
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
+            &[],
+        )
+        .await
+    {
+        Ok(row) => {
+            let present: bool = row.get(0);
+            if present {
+                println!("pg_stat_statements: present");
+            } else {
+                eprintln!(
+                    "warning: pg_stat_statements extension not installed (slow_queries / index tools degraded)"
+                );
+            }
+        }
+        Err(e) => eprintln!("warning: could not check pg_stat_statements ({e})"),
+    }
+
+    // Best-effort local index freshness for this connection.
+    let (connection_id, database) = index_ids(&resolved);
+    let store = IndexStore::new(default_index_root());
+    let base = store.base_dir(&connection_id, &database);
+    match store.read_manifest(&base) {
+        Ok(Some(manifest)) => {
+            println!(
+                "index: present indexed_at={} fingerprint={} (conn={} db={})",
+                manifest.indexed_at,
+                manifest.schema_fingerprint,
+                manifest.connection_id,
+                manifest.database
+            );
+        }
+        Ok(None) => {
+            eprintln!(
+                "warning: no local index for conn={connection_id} db={database} under {} — run `nexql-mcp index build`",
+                store.root().display()
+            );
+        }
+        Err(e) => eprintln!("warning: index manifest read failed ({e})"),
+    }
+
     println!("doctor: ok");
     Ok(())
-}
-
-fn init_snippet(client: &str, url: Option<&str>) -> String {
-    let cmd = match url {
-        Some(u) => format!("nexql-mcp {u}"),
-        None => "nexql-mcp".into(),
-    };
-    match client {
-        "claude" | "claude-desktop" => format!(
-            r#"{{
-  "mcpServers": {{
-    "nexql": {{
-      "command": "nexql-mcp",
-      "args": [{args}]
-    }}
-  }}
-}}"#,
-            args = url.map(|u| format!("\"{u}\"")).unwrap_or_default()
-        ),
-        "cursor" => format!(
-            r#"{{
-  "mcpServers": {{
-    "nexql": {{
-      "command": "nexql-mcp",
-      "args": [{args}]
-    }}
-  }}
-}}"#,
-            args = url.map(|u| format!("\"{u}\"")).unwrap_or_default()
-        ),
-        other => format!("# paste-ready config for '{other}' — use command: {cmd}"),
-    }
 }
