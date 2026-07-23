@@ -19,3 +19,12 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# npm shim (phase 6)
+npm/node_modules/
+
+# Local config / data (never commit secrets)
+config.local.toml
+.env
+.env.*
+graphify-out/

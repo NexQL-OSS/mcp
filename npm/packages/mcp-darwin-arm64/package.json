@@ -1,0 +1,11 @@
+{
+  "name": "@nexql/mcp-darwin-arm64",
+  "version": "0.1.0",
+  "description": "nexql-mcp macOS arm64 binary (optionalDependency of nexql-mcp)",
+  "license": "Apache-2.0",
+  "repository": "github:NexQL-OSS/mcp",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin", "README.md"],
+  "preferUnplugged": true
+}

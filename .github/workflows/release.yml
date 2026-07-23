@@ -1,0 +1,58 @@
+# Stub release workflow for nexql-mcp.
+#
+# Preferred path: install cargo-dist and regenerate this file from dist-workspace.toml:
+#   cargo install cargo-dist --version 0.28.7
+#   dist generate
+#
+# Until then, this placeholder builds a Linux x64 release binary on version tags
+# so GitHub Releases have something attachable. Expand to the full cargo-dist
+# matrix (darwin/windows/arm64) once `dist generate` is run.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Placeholder — replace with cargo-dist plan/build/host jobs via `dist generate`.
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install clang (pg_query bindgen)
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release -p nexql-mcp
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          STAGE="nexql-mcp-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          mkdir -p "$STAGE"
+          cp target/release/nexql-mcp "$STAGE/"
+          cp README.md LICENSE* "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+
+      - name: Upload GitHub Release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nexql-mcp-*-x86_64-unknown-linux-gnu.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

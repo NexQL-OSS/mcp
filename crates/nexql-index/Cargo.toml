@@ -1,0 +1,43 @@
+[package]
+name = "nexql-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Schema index: builder, store, lexical search, joins, embeddings"
+
+[features]
+default = []
+# Local MiniLM via candle (optional — default CI `cargo test -p nexql-index` stays candle-free).
+embeddings = [
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:hf-hub",
+    "dep:tokenizers",
+]
+
+[dependencies]
+async-trait = "0.1"
+nexql-conn = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha1 = "0.10"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+
+# Optional — versions match crates/nexql-spike/Cargo.toml
+candle-core = { version = "0.11", optional = true }
+candle-nn = { version = "0.11", optional = true }
+candle-transformers = { version = "0.11", optional = true }
+hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"], optional = true }
+tokenizers = { version = "0.21", default-features = false, features = ["onig"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lib]
+path = "src/lib.rs"

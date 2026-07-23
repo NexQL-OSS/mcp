@@ -1,0 +1,11 @@
+{
+  "name": "@nexql/mcp-win32-x64",
+  "version": "0.1.0",
+  "description": "nexql-mcp Windows x64 binary (optionalDependency of nexql-mcp)",
+  "license": "Apache-2.0",
+  "repository": "github:NexQL-OSS/mcp",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin", "README.md"],
+  "preferUnplugged": true
+}

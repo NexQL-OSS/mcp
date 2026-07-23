@@ -1,0 +1,20 @@
+//! Connection resolution and pooling.
+//!
+//! Precedence (highest first): CLI arg → profile → flags → DATABASE_URL → PG* env →
+//! default_profile → ~/.pgpass → --env-file (opt-in).
+
+pub mod config;
+pub mod error;
+pub mod pgpass;
+pub mod pool;
+pub mod resolve;
+pub mod secret;
+
+pub use config::{ConfigFile, ProfileConfig};
+pub use error::ConnError;
+pub use pool::{PoolOptions, apply_session_guards, checkout_guarded, connect_once, create_pool};
+pub use resolve::{
+    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url,
+    resolve,
+};
+pub use secret::{CommandRunner, ProcessCommandRunner};
