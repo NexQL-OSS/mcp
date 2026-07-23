@@ -8,9 +8,18 @@ rust-version.workspace = true
 description = "Schema index: builder, store, lexical search, joins, embeddings"
 
 [dependencies]
+async-trait = "0.1"
 nexql-conn = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+sha1 = "0.10"
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lib]
 path = "src/lib.rs"

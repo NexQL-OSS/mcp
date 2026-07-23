@@ -1,11 +1,17 @@
 //! MCP protocol layer — JSON-RPC types and transports.
 //!
+//! Decision: hand-rolled for Phase 2 (see `docs/PROTO_DECISION.md`).
 //! Reference: `nexql-pro/pro/src/mcp/NexqlMcpServer.ts`
 
+pub mod backend;
 pub mod error;
+pub mod stdio;
 pub mod types;
 
+pub use backend::{ToolBackend, ToolCallResult, ToolDescriptor};
 pub use error::ProtoError;
+pub use stdio::StdioServer;
+pub use types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, negotiate_protocol_version};
 
 /// MCP protocol versions negotiated at `initialize` (newest first).
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];

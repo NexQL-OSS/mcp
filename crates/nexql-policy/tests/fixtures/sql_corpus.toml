@@ -1,0 +1,222 @@
+# SQL injection / bypass corpus for nexql-policy::validate_readonly_sql
+# expect = "allow" | "reject"
+
+[[case]]
+sql = "SELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "select 1"
+expect = "allow"
+
+[[case]]
+sql = "WITH cte AS (SELECT 1 AS n) SELECT * FROM cte"
+expect = "allow"
+
+[[case]]
+sql = "EXPLAIN SELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "EXPLAIN (FORMAT JSON) SELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "SELECT * FROM users WHERE id = 1"
+expect = "allow"
+
+[[case]]
+sql = "SELECT a, b FROM t1 JOIN t2 ON t1.id = t2.id"
+expect = "allow"
+
+[[case]]
+sql = "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n+1 FROM r WHERE n < 3) SELECT * FROM r"
+expect = "allow"
+
+[[case]]
+sql = "SELECT 1 WHERE EXISTS (SELECT 1 FROM t)"
+expect = "allow"
+
+[[case]]
+sql = "SELECT COUNT(*) FROM (SELECT 1) AS s"
+expect = "allow"
+
+[[case]]
+sql = "/* leading comment */ SELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "-- comment\nSELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "SELECT 1 /* mid */ + 2"
+expect = "allow"
+
+[[case]]
+sql = "VALUES (1), (2)"
+expect = "allow"
+
+[[case]]
+sql = "TABLE users"
+expect = "allow"
+note = "TABLE is sugar for SELECT * FROM"
+
+[[case]]
+sql = "SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 5"
+expect = "allow"
+
+[[case]]
+sql = "SELECT * FROM users FOR UPDATE"
+expect = "allow"
+note = "row lock in SELECT — still SelectStmt; policy may tighten later"
+
+[[case]]
+sql = "EXPLAIN ANALYZE SELECT 1"
+expect = "allow"
+
+[[case]]
+sql = "WITH x AS (SELECT 1) SELECT * FROM x UNION ALL SELECT 2"
+expect = "allow"
+
+[[case]]
+sql = "SELECT current_setting('server_version')"
+expect = "allow"
+
+# --- must reject ---
+
+[[case]]
+sql = "SELECT 1; DROP TABLE t"
+expect = "reject"
+note = "stacked statements"
+
+[[case]]
+sql = "SELECT 1; SELECT 2"
+expect = "reject"
+note = "stacked even if both read"
+
+[[case]]
+sql = "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x"
+expect = "reject"
+note = "CTE DML — passes TS prefix check today"
+
+[[case]]
+sql = "WITH x AS (INSERT INTO t DEFAULT VALUES RETURNING *) SELECT * FROM x"
+expect = "reject"
+
+[[case]]
+sql = "WITH x AS (UPDATE t SET a = 1 RETURNING *) SELECT * FROM x"
+expect = "reject"
+
+[[case]]
+sql = "/* c */ DELETE FROM t"
+expect = "reject"
+
+[[case]]
+sql = "--\nDELETE FROM t"
+expect = "reject"
+
+[[case]]
+sql = "EXPLAIN DELETE FROM t"
+expect = "reject"
+
+[[case]]
+sql = "EXPLAIN ANALYZE DELETE FROM t"
+expect = "reject"
+
+[[case]]
+sql = "INSERT INTO t VALUES (1)"
+expect = "reject"
+
+[[case]]
+sql = "UPDATE t SET a = 1"
+expect = "reject"
+
+[[case]]
+sql = "DELETE FROM t"
+expect = "reject"
+
+[[case]]
+sql = "TRUNCATE t"
+expect = "reject"
+
+[[case]]
+sql = "CREATE TABLE t (id int)"
+expect = "reject"
+
+[[case]]
+sql = "ALTER TABLE t ADD COLUMN x int"
+expect = "reject"
+
+[[case]]
+sql = "DROP TABLE t"
+expect = "reject"
+
+[[case]]
+sql = "COPY t TO STDOUT"
+expect = "reject"
+
+[[case]]
+sql = "COPY t FROM STDIN"
+expect = "reject"
+
+[[case]]
+sql = "SELECT 1 INTO t"
+expect = "reject"
+note = "SELECT INTO writes"
+
+[[case]]
+sql = "SELECT * INTO TEMP TABLE tmp FROM users"
+expect = "reject"
+
+[[case]]
+sql = "VACUUM FULL"
+expect = "reject"
+
+[[case]]
+sql = "GRANT SELECT ON t TO u"
+expect = "reject"
+
+[[case]]
+sql = "REVOKE ALL ON t FROM u"
+expect = "reject"
+
+[[case]]
+sql = "SET role postgres"
+expect = "reject"
+
+[[case]]
+sql = "BEGIN; SELECT 1; COMMIT"
+expect = "reject"
+
+[[case]]
+sql = "CALL some_proc()"
+expect = "reject"
+
+[[case]]
+sql = "DO $$ BEGIN DELETE FROM t; END $$"
+expect = "reject"
+
+[[case]]
+sql = "CREATE INDEX ON t (a)"
+expect = "reject"
+
+[[case]]
+sql = "REINDEX TABLE t"
+expect = "reject"
+
+[[case]]
+sql = "LOCK TABLE t IN ACCESS EXCLUSIVE MODE"
+expect = "reject"
+
+[[case]]
+sql = "NOTIFY channel"
+expect = "reject"
+
+[[case]]
+sql = "LISTEN channel"
+expect = "reject"
+
+[[case]]
+sql = "SELECT 1; --\nDELETE FROM t"
+expect = "reject"

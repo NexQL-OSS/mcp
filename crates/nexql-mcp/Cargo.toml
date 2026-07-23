@@ -9,12 +9,15 @@ description = "Standalone Postgres MCP server — CLI, subcommands, wiring"
 publish = false
 
 [dependencies]
+async-trait = "0.1"
 clap = { workspace = true }
 nexql-conn = { workspace = true }
 nexql-index = { workspace = true }
 nexql-policy = { workspace = true }
 nexql-proto = { workspace = true }
 nexql-tools = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

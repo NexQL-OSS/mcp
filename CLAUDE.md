@@ -12,13 +12,27 @@ Crate roles and one-directional layering (`policy` + `conn` → `index` → `too
 
 ```bash
 cargo check --workspace
-cargo run -p nexql-mcp
+cargo run -p nexql-mcp -- doctor   # resolve + connect + session guards
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-These four are exactly what `.github/workflows/ci.yml` gates on. Clippy warnings fail CI.
+These are what `.github/workflows/ci.yml` gates on. Clippy warnings fail CI.
+
+**Build deps:** `pg_query` needs clang/libclang (`sudo pacman -S clang` on Arch, or `apt install clang libclang-dev` on Debian/Ubuntu). CI installs clang on ubuntu-latest.
+
+If using a user-local LLVM (e.g. `~/.local/llvm`) without system `clang`:
+
+```bash
+export LIBCLANG_PATH=$HOME/.local/llvm/lib
+export PATH=$HOME/.local/llvm/bin:$PATH
+export BINDGEN_EXTRA_CLANG_ARGS="-resource-dir=$($HOME/.local/llvm/bin/clang -print-resource-dir) -I$HOME/.local/llvm/lib/clang/18/include"
+# libclang 18 may need real ncurses5 ABI (not a symlink to libtinfo.so.6):
+#   curl -fsSL -o /tmp/libtinfo5.deb http://deb.debian.org/debian/pool/main/n/ncurses/libtinfo5_6.4-4_amd64.deb
+#   extract libtinfo.so.5* into ~/.local/lib and:
+export LD_LIBRARY_PATH=$HOME/.local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+```
 
 ## Conventions
 
@@ -30,7 +44,7 @@ These four are exactly what `.github/workflows/ci.yml` gates on. Clippy warnings
 - **SQL validation:** `pg_query.rs` — never prefix-string checks
 - **Read-only default:** `SET default_transaction_read_only = ON` on every pool connection
 - **Index format:** keep compatible with `pro/src/features/dbindex/indexFormat.ts`
-- **Licenses:** new deps must satisfy `deny.toml`'s allowlist. Run `cargo deny check` manually — CI does not.
+- **Licenses:** new deps must satisfy `deny.toml`'s allowlist. CI runs `cargo-deny`.
 
 ## Git
 

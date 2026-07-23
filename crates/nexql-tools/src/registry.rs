@@ -25,6 +25,17 @@ pub enum ToolName {
 }
 
 impl ToolName {
+    pub const PHASE2: &'static [ToolName] = &[
+        Self::ListConnections,
+        Self::ListDatabases,
+        Self::ListSchemas,
+        Self::ListObjects,
+        Self::GetCurrentContext,
+        Self::SwitchConnection,
+        Self::RunSelect,
+        Self::ExplainQuery,
+    ];
+
     pub const READ_ONLY: &'static [ToolName] = &[
         Self::SearchSchema,
         Self::DescribeObject,
@@ -74,6 +85,10 @@ impl ToolName {
             Self::AnalyzeQueryPlan => "analyze_query_plan",
         }
     }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::READ_ONLY.iter().copied().find(|t| t.as_str() == s)
+    }
 }
 
 #[cfg(test)]
@@ -83,5 +98,10 @@ mod tests {
     #[test]
     fn read_only_catalog_has_twenty_one_tools() {
         assert_eq!(ToolName::READ_ONLY.len(), 21);
+    }
+
+    #[test]
+    fn phase2_has_eight_tools() {
+        assert_eq!(ToolName::PHASE2.len(), 8);
     }
 }
