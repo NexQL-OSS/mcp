@@ -144,15 +144,19 @@ Extension spawns `nexql-mcp` binary as MCP client. Delete `pro/src/mcp/*`, `Tool
 
 ---
 
-## Phase 8 — HTTP + OAuth (~2.5 wk)
+## Phase 8 — HTTP + OAuth (~2.5 wk) — PARTIAL
 
-Streamable HTTP from `NexqlMcpServer.ts`: sessions, `Mcp-Session-Id`, LRU 32, idle TTL 30min, bearer auth, 200/min rate limit, 1MB body cap. `--bind 0.0.0.0` requires `--auth`.
+**Landed:** Streamable HTTP (`POST /` + `/mcp`) via axum; shared `McpHandler` with stdio; bearer via `--http-token` / `NEXQL_MCP_HTTP_TOKEN`; refuse non-loopback without token; 1MB body cap.
+
+**Deferred (pro / later):** OAuth authorization-server gateway, `Mcp-Session-Id` sessions, rate limiting.
 
 ---
 
-## Phase 9 — write/admin (~2.5 wk)
+## Phase 9 — write/admin (~2.5 wk) — LANDED (core)
 
-`run_write` (elicitation + EXPLAIN preview), `apply_ddl`, `create_index_concurrently`, admin tools. JSONL audit log. Superuser guard.
+`validate_write_sql` + write injection corpus. Tools (gated at call): `execute_sql`, `edit_row`, `import_data`, `apply_ddl`, `create_index_concurrently`, `run_maintenance`, `terminate_query`. Pool flips `default_transaction_read_only` off when mode allows writes. Superuser guard unchanged.
+
+**Deferred:** elicitation UX, JSONL audit log polish.
 
 ---
 

@@ -12,8 +12,10 @@ pub mod prompts;
 pub mod registry;
 pub mod resources;
 pub mod schema;
+pub mod schema_diff;
 pub mod session;
 pub mod sql;
+pub mod write;
 
 pub use completions::{CompletionResult, CompletionsProvider};
 pub use error::ToolError;
@@ -26,5 +28,6 @@ pub use resources::{
 };
 pub use schema::{
     ToolSpec, active_tools, phase2_catalog_tools, phase3_index_tools, phase4_tools, phase4b_tools,
+    phase9_write_tools,
 };
 pub use session::{ConnectionInfo, ToolSession, default_index_root};

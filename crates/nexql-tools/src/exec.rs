@@ -21,6 +21,10 @@ use crate::registry::ToolName;
 use crate::schema::{ToolSpec, active_tools};
 use crate::session::ToolSession;
 use crate::sql::{self, REPORT_LIMIT_DEFAULT, SLOW_QUERIES_DEFAULT, parse_ref};
+use crate::write::{
+    apply_ddl, create_index_concurrently, edit_row, execute_sql, import_data, run_maintenance,
+    terminate_query,
+};
 
 /// Default hit cap for `search_schema` (matches TS ToolExecutor).
 const SEARCH_SCHEMA_LIMIT: usize = 10;
@@ -169,7 +173,89 @@ impl ToolRouter {
             ToolName::ListRoles => self.list_roles(&args).await,
             ToolName::DbDashboard => self.db_dashboard().await,
             ToolName::DeepPlanAnalysis => self.deep_plan_analysis(&args).await,
+            ToolName::SchemaDiff => self.schema_diff(&args).await,
+            ToolName::GenerateMigration => self.generate_migration(&args).await,
+            ToolName::ExecuteSql => self.execute_sql_tool(&args).await,
+            ToolName::EditRow => self.edit_row_tool(&args).await,
+            ToolName::ImportData => self.import_data_tool(&args).await,
+            ToolName::ApplyDdl => self.apply_ddl_tool(&args).await,
+            ToolName::CreateIndexConcurrently => self.create_index_concurrently_tool(&args).await,
+            ToolName::RunMaintenance => self.run_maintenance_tool(&args).await,
+            ToolName::TerminateQuery => self.terminate_query_tool(&args).await,
         }
+    }
+
+    fn require_write(&self) -> Result<(), ToolError> {
+        if !self.session.access_mode.allows_writes() {
+            return Err(ToolError::Execution(
+                "write tools require --access-mode write or admin (current session: read)".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_admin(&self) -> Result<(), ToolError> {
+        if !self.session.access_mode.allows_admin() {
+            return Err(ToolError::Execution(
+                "admin tools require --access-mode admin".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn execute_sql_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_write()?;
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        let dry_run = args
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        execute_sql(&self.session, sql, dry_run).await
+    }
+
+    async fn edit_row_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_write()?;
+        edit_row(&self.session, args).await
+    }
+
+    async fn import_data_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_write()?;
+        import_data(&self.session, args).await
+    }
+
+    async fn apply_ddl_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_admin()?;
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        let dry_run = args
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        apply_ddl(&self.session, sql, dry_run).await
+    }
+
+    async fn create_index_concurrently_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_admin()?;
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        create_index_concurrently(&self.session, sql).await
+    }
+
+    async fn run_maintenance_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_admin()?;
+        run_maintenance(&self.session, args).await
+    }
+
+    async fn terminate_query_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        self.require_admin()?;
+        terminate_query(&self.session, args).await
     }
 
     async fn index_service(&self) -> Result<(&IndexStore, String, String), ToolError> {
@@ -1223,6 +1309,67 @@ impl ToolRouter {
         })))
     }
 
+    async fn schema_diff(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let source_schema = args
+            .get("sourceSchema")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sourceSchema is required".into()))?;
+        let target_schema = args
+            .get("targetSchema")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("targetSchema is required".into()))?;
+        crate::schema_diff::require_safe_schema(source_schema)?;
+        crate::schema_diff::require_safe_schema(target_schema)?;
+
+        let client = self.session.checkout().await?;
+        let source = crate::schema_diff::load_schema_snapshot(&client, source_schema).await?;
+        let target = crate::schema_diff::load_schema_snapshot(&client, target_schema).await?;
+        let diffs = crate::schema_diff::compute_schema_diff(&source, &target);
+        let changed = diffs
+            .iter()
+            .filter(|d| d.status != crate::schema_diff::DiffStatus::Unchanged)
+            .count();
+        Ok(ToolOutcome::ok_json(json!({
+            "sourceSchema": source_schema,
+            "targetSchema": target_schema,
+            "tableCount": diffs.len(),
+            "changedCount": changed,
+            "diffs": crate::schema_diff::diffs_to_json(&diffs),
+        })))
+    }
+
+    async fn generate_migration(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let source_schema = args
+            .get("sourceSchema")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sourceSchema is required".into()))?;
+        let target_schema = args
+            .get("targetSchema")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("targetSchema is required".into()))?;
+        crate::schema_diff::require_safe_schema(source_schema)?;
+        crate::schema_diff::require_safe_schema(target_schema)?;
+
+        let client = self.session.checkout().await?;
+        let source = crate::schema_diff::load_schema_snapshot(&client, source_schema).await?;
+        let target = crate::schema_diff::load_schema_snapshot(&client, target_schema).await?;
+        let diffs = crate::schema_diff::compute_schema_diff(&source, &target);
+        let statements =
+            crate::schema_diff::build_migration_statements(source_schema, target_schema, &diffs);
+        let sql = if statements.is_empty() {
+            format!("-- No differences between {source_schema} and {target_schema}")
+        } else {
+            statements.join("\n\n")
+        };
+        Ok(ToolOutcome::ok_json(json!({
+            "sourceSchema": source_schema,
+            "targetSchema": target_schema,
+            "statementCount": statements.len(),
+            "sql": sql,
+            "hint": "Read-only: review and run via execute_sql / apply_ddl only with --access-mode write|admin. Destructive drops are commented out.",
+        })))
+    }
+
     async fn run_select_internal(
         &self,
         sql: &str,
@@ -1625,10 +1772,10 @@ mod tests {
     }
 
     #[test]
-    fn router_specs_include_phase4() {
+    fn router_specs_include_phase4_and_phase9() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 32);
+        assert_eq!(router.specs().len(), 41);
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));
@@ -1644,6 +1791,38 @@ mod tests {
         assert!(names.contains(&"list_roles"));
         assert!(names.contains(&"db_dashboard"));
         assert!(names.contains(&"deep_plan_analysis"));
+        assert!(names.contains(&"execute_sql"));
+        assert!(names.contains(&"edit_row"));
+        assert!(names.contains(&"import_data"));
+        assert!(names.contains(&"apply_ddl"));
+        assert!(names.contains(&"create_index_concurrently"));
+        assert!(names.contains(&"run_maintenance"));
+        assert!(names.contains(&"terminate_query"));
+    }
+
+    #[tokio::test]
+    async fn write_tools_refuse_read_mode() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        for tool in [
+            "execute_sql",
+            "edit_row",
+            "import_data",
+            "apply_ddl",
+            "create_index_concurrently",
+            "run_maintenance",
+            "terminate_query",
+        ] {
+            let out = router
+                .call(tool, json!({ "sql": "SELECT 1", "table": "public.t", "rows": [], "action": "insert", "values": {}, "pid": 1 }))
+                .await;
+            assert!(out.is_error, "{tool}: {}", out.text);
+            assert!(
+                out.text.contains("write") || out.text.contains("admin"),
+                "{tool}: {}",
+                out.text
+            );
+        }
     }
 
     #[tokio::test]

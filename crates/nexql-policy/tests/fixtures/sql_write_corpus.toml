@@ -1,0 +1,228 @@
+# Write/admin SQL corpus for nexql-policy::validate_write_sql
+# mode = "write" | "admin"
+# expect = "allow" | "reject"
+
+# --- write: allow DML ---
+
+[[case]]
+mode = "write"
+sql = "INSERT INTO t VALUES (1)"
+expect = "allow"
+
+[[case]]
+mode = "write"
+sql = "UPDATE t SET a = 1 WHERE id = 1"
+expect = "allow"
+
+[[case]]
+mode = "write"
+sql = "DELETE FROM t WHERE id = 1"
+expect = "allow"
+
+[[case]]
+mode = "write"
+sql = "WITH x AS (INSERT INTO t DEFAULT VALUES RETURNING *) SELECT * FROM x"
+expect = "allow"
+note = "CTE DML must be allowed in write mode"
+
+[[case]]
+mode = "write"
+sql = "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x"
+expect = "allow"
+
+[[case]]
+mode = "write"
+sql = "EXPLAIN INSERT INTO t VALUES (1)"
+expect = "allow"
+
+[[case]]
+mode = "write"
+sql = "/* c */ INSERT INTO t VALUES (1)"
+expect = "allow"
+note = "comment obfuscation must not bypass AST check"
+
+[[case]]
+mode = "write"
+sql = "SELECT 1"
+expect = "allow"
+note = "read queries still allowed in write mode"
+
+# --- write: reject DDL / admin utilities ---
+
+[[case]]
+mode = "write"
+sql = "CREATE TABLE t (id int)"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "ALTER TABLE t ADD COLUMN x int"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "DROP TABLE t"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "TRUNCATE t"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "CREATE INDEX ON t (a)"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "VACUUM FULL"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "GRANT SELECT ON t TO u"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "COPY t TO STDOUT"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "SELECT * INTO t FROM users"
+expect = "reject"
+note = "SELECT INTO is DDL"
+
+[[case]]
+mode = "write"
+sql = "INSERT INTO t VALUES (1); DROP TABLE t"
+expect = "reject"
+note = "stacked injection"
+
+[[case]]
+mode = "write"
+sql = "INSERT INTO t VALUES (1); SELECT 2"
+expect = "reject"
+note = "stacked even when second stmt is read"
+
+[[case]]
+mode = "write"
+sql = "DO $$ BEGIN DELETE FROM t; END $$"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "SET role postgres"
+expect = "reject"
+
+[[case]]
+mode = "write"
+sql = "CALL some_proc()"
+expect = "reject"
+
+# --- admin: allow DDL + maintenance ---
+
+[[case]]
+mode = "admin"
+sql = "CREATE TABLE t (id int)"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "ALTER TABLE t ADD COLUMN x int"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "DROP TABLE t"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "TRUNCATE t"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "CREATE INDEX ON t (a)"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "REINDEX TABLE t"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "VACUUM FULL"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "GRANT SELECT ON t TO u"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "REVOKE ALL ON t FROM u"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "COPY t FROM STDIN"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "SELECT * INTO t FROM users"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "INSERT INTO t VALUES (1)"
+expect = "allow"
+
+[[case]]
+mode = "admin"
+sql = "EXPLAIN DELETE FROM t"
+expect = "allow"
+
+# --- admin: still reject dangerous / stacked ---
+
+[[case]]
+mode = "admin"
+sql = "CREATE TABLE t (id int); DROP TABLE t"
+expect = "reject"
+note = "stacked injection"
+
+[[case]]
+mode = "admin"
+sql = "DO $$ BEGIN DELETE FROM t; END $$"
+expect = "reject"
+
+[[case]]
+mode = "admin"
+sql = "CREATE DATABASE x"
+expect = "reject"
+
+[[case]]
+mode = "admin"
+sql = "DROP DATABASE x"
+expect = "reject"
+
+[[case]]
+mode = "admin"
+sql = "SET role postgres"
+expect = "reject"
+
+[[case]]
+mode = "admin"
+sql = "CALL some_proc()"
+expect = "reject"
+
+[[case]]
+mode = "admin"
+sql = "NOTIFY channel"
+expect = "reject"

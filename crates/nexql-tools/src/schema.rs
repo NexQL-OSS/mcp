@@ -199,15 +199,86 @@ pub fn phase4b_tools() -> Vec<ToolSpec> {
             description: "Run EXPLAIN (ANALYZE by default) and return severity-graded findings: estimate skew, expensive function/CTE/subquery nodes, and recommendations. Set analyze=false for plan-only (no execution).",
             input_schema: object_schema(&[("sql", "string", true), ("analyze", "boolean", false)]),
         },
+        ToolSpec {
+            name: ToolName::SchemaDiff,
+            description: "Compare two schemas in the current database (or sourceSchema vs targetSchema). Returns structured table/column/constraint/index diffs. Read-only — does not apply changes.",
+            input_schema: object_schema(&[
+                ("sourceSchema", "string", true),
+                ("targetSchema", "string", true),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::GenerateMigration,
+            description: "Emit migration SQL to evolve sourceSchema toward targetSchema (from a live schema_diff). Read-only — returns SQL text, never executes it. Destructive drops are commented out.",
+            input_schema: object_schema(&[
+                ("sourceSchema", "string", true),
+                ("targetSchema", "string", true),
+            ]),
+        },
     ]
 }
 
-/// Full tools/list surface for the current phase (catalog + index + Phase 4 + 4b).
+/// Phase 9 write/admin tools (always listed; access-gated at dispatch).
+pub fn phase9_write_tools() -> Vec<ToolSpec> {
+    vec![
+        ToolSpec {
+            name: ToolName::ExecuteSql,
+            description: "Execute DML (and DDL in admin mode) inside an explicit transaction. Set dry_run=true to roll back after execution. Errors always roll back.",
+            input_schema: object_schema(&[("sql", "string", true), ("dry_run", "boolean", false)]),
+        },
+        ToolSpec {
+            name: ToolName::EditRow,
+            description: "Structured insert, update, or delete by primary key. The server builds parameterized SQL — pass table (schema.name), action, values, and pk for update/delete.",
+            input_schema: object_schema(&[
+                ("table", "string", true),
+                ("action", "string", true),
+                ("values", "object", false),
+                ("pk", "object", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::ImportData,
+            description: "Batch INSERT rows from a JSON array of objects into a table. Optional columns array fixes column order; otherwise keys from the first row are used.",
+            input_schema: object_schema(&[
+                ("table", "string", true),
+                ("rows", "array", true),
+                ("columns", "array", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::ApplyDdl,
+            description: "Apply a DDL statement (CREATE, ALTER, DROP, TRUNCATE, …) in admin mode inside a transaction. Set dry_run=true to roll back.",
+            input_schema: object_schema(&[("sql", "string", true), ("dry_run", "boolean", false)]),
+        },
+        ToolSpec {
+            name: ToolName::CreateIndexConcurrently,
+            description: "Run CREATE INDEX CONCURRENTLY outside a transaction (non-blocking index build). Admin mode only.",
+            input_schema: object_schema(&[("sql", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::RunMaintenance,
+            description: "Run VACUUM, ANALYZE, or REINDEX outside a transaction. Admin mode only. Optional table (schema.name); vacuum supports full=true.",
+            input_schema: object_schema(&[
+                ("action", "string", true),
+                ("table", "string", false),
+                ("full", "boolean", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::TerminateQuery,
+            description: "Cancel (pg_cancel_backend) or force-terminate (pg_terminate_backend) a backend by pid. Admin mode only. Refuses superuser targets and the current session.",
+            input_schema: object_schema(&[("pid", "number", true), ("force", "boolean", false)]),
+        },
+    ]
+}
+
+/// Full tools/list surface for the current phase (catalog + index + Phase 4 + 4b + 9).
 pub fn active_tools() -> Vec<ToolSpec> {
     let mut specs = phase2_catalog_tools();
     specs.extend(phase3_index_tools());
     specs.extend(phase4_tools());
     specs.extend(phase4b_tools());
+    specs.extend(phase9_write_tools());
     specs
 }
 
@@ -233,12 +304,17 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_thirty_two() {
+    fn active_tools_lists_forty_one() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 32);
+        assert_eq!(specs.len(), 41);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
         }
+    }
+
+    #[test]
+    fn phase9_write_tools_count() {
+        assert_eq!(phase9_write_tools().len(), ToolName::PHASE9.len());
     }
 }

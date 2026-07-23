@@ -18,8 +18,8 @@ use nexql_index::{
 };
 use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
 use nexql_proto::{
-    CompletionBackend, PromptBackend, ResourceBackend, RpcFailure, StdioServer, ToolBackend,
-    ToolCallResult, ToolDescriptor,
+    CompletionBackend, HttpAuth, HttpServer, McpHandler, PromptBackend, ResourceBackend,
+    RpcFailure, StdioServer, ToolBackend, ToolCallResult, ToolDescriptor,
 };
 use nexql_tools::{
     CompletionsProvider, PromptCatalog, ResourceProvider, ToolRouter, ToolSession,
@@ -110,6 +110,10 @@ struct TransportArgs {
 
     #[arg(long, default_value = "127.0.0.1")]
     bind: String,
+
+    /// Bearer token for HTTP transport. Env: `NEXQL_MCP_HTTP_TOKEN`.
+    #[arg(long = "http-token", env = "NEXQL_MCP_HTTP_TOKEN")]
+    http_token: Option<String>,
 }
 
 #[derive(clap::Args, Default)]
@@ -308,7 +312,7 @@ impl CompletionBackend for IndexCompletionBackend {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
     // MCP stdio: never log to stdout.
     tracing_subscriber::fmt()
@@ -362,8 +366,13 @@ async fn main() -> ExitCode {
     }
 
     if cli.transport.http {
-        eprintln!("HTTP transport lands in phase 8 — use default stdio for now");
-        return ExitCode::FAILURE;
+        match run_http_server(&cli).await {
+            Ok(()) => return ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("server error: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
     }
 
     match run_stdio_server(&cli).await {
@@ -394,7 +403,7 @@ fn resolve_inputs(cli: &Cli) -> ResolveInputs {
     }
 }
 
-async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
     let mode: AccessMode = cli.access.access_mode.parse()?;
     let resolved = resolve(&resolve_inputs(cli))?;
     let mut caps = PolicyCaps::default();
@@ -430,10 +439,10 @@ async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             .with_semantic(cli.embeddings.is_local(), embedder),
     });
 
-    let mut server = StdioServer::new(tools).with_prompts(Arc::new(StaticPromptBackend));
+    let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
 
     if let Some(store) = session.index_store.clone() {
-        server = server
+        handler = handler
             .with_resources(Arc::new(IndexResourceBackend {
                 provider: ResourceProvider::new(store.clone()),
             }))
@@ -443,10 +452,49 @@ async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             }));
     }
 
+    Ok(handler)
+}
+
+async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let handler = build_mcp_handler(cli).await?;
+    let server = StdioServer::from_handler(handler);
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     server.serve(stdin, stdout).await?;
     Ok(())
+}
+
+async fn run_http_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_loopback_bind(&cli.transport.bind) && cli.transport.http_token.is_none() {
+        return Err(
+            "refusing to bind non-loopback address without --http-token (set NEXQL_MCP_HTTP_TOKEN)"
+                .into(),
+        );
+    }
+
+    let handler = build_mcp_handler(cli).await?;
+    let auth = HttpAuth {
+        token: cli.transport.http_token.clone(),
+    };
+    if auth.token.is_none() {
+        eprintln!(
+            "warning: HTTP server has no bearer token; only safe on loopback (bind={})",
+            cli.transport.bind
+        );
+    }
+
+    let server = HttpServer::new(
+        handler,
+        cli.transport.bind.clone(),
+        cli.transport.http_port,
+        auth,
+    );
+    server.serve().await?;
+    Ok(())
+}
+
+fn is_loopback_bind(bind: &str) -> bool {
+    matches!(bind, "127.0.0.1" | "localhost" | "::1")
 }
 
 async fn run_index_action(

@@ -131,7 +131,7 @@ const PROMPTS: &[PromptDef] = &[
                 "1. Run find_blocking_locks to get blocked/blocking pid pairs with their queries.",
                 "2. Run list_running_queries to see the full activity picture (states, wait events, durations).",
                 "Then explain the lock chain: which pid is the root blocker, what query it is running, how long it has been running, and which sessions are waiting on it (directly or transitively).",
-                "Recommend an action: wait, or terminate the root blocker (give the exact pg_terminate_backend(pid) statement, but do NOT execute it — all tools are read-only).",
+                "Recommend an action: wait, or terminate the root blocker via terminate_query only if --access-mode admin and the user explicitly confirms.",
             ]
             .join("\n")
         },
@@ -149,9 +149,57 @@ const PROMPTS: &[PromptDef] = &[
             [
                 format!("Draft a PostgreSQL migration for: {change}"),
                 "1. Use search_schema and describe_object to ground every table/column you will touch in the live index.".into(),
-                "2. Prefer non-blocking patterns (CREATE INDEX CONCURRENTLY, ADD COLUMN nullable first, backfill, then constrain).".into(),
-                "3. Produce up and down SQL as separate scripts, with a short risk note (locks, rewrite, invalid indexes).".into(),
-                "Do not run write SQL — tools are read-only; only propose statements.".into(),
+                "2. If comparing two schemas, run schema_diff then generate_migration (read-only — emits SQL only).".into(),
+                "3. Prefer non-blocking patterns (CREATE INDEX CONCURRENTLY, ADD COLUMN nullable first, backfill, then constrain).".into(),
+                "4. Produce up and down SQL as separate scripts, with a short risk note (locks, rewrite, invalid indexes).".into(),
+                "Do not run write SQL unless the session is --access-mode write|admin and the user explicitly asked to apply.".into(),
+            ]
+            .join("\n")
+        },
+    },
+    PromptDef {
+        name: "diff-schemas",
+        description: "Compare two PostgreSQL schemas and summarize structural differences.",
+        arguments: &[
+            ArgDef {
+                name: "sourceSchema",
+                description: "Current / left schema name (e.g. public).",
+                required: true,
+            },
+            ArgDef {
+                name: "targetSchema",
+                description: "Desired / right schema name.",
+                required: true,
+            },
+        ],
+        build: |args| {
+            let source = args.get("sourceSchema").map(String::as_str).unwrap_or("");
+            let target = args.get("targetSchema").map(String::as_str).unwrap_or("");
+            [
+                format!("Compare schema \"{source}\" to \"{target}\":"),
+                "1. Run schema_diff with sourceSchema and targetSchema.".into(),
+                "2. Summarize added/removed/changed tables and the highest-risk column/constraint changes.".into(),
+                "3. Optionally run generate_migration for review-only SQL (do not execute).".into(),
+            ]
+            .join("\n")
+        },
+    },
+    PromptDef {
+        name: "plan-deep-dive",
+        description: "Deep-analyze a query plan with severity-graded findings.",
+        arguments: &[ArgDef {
+            name: "sql",
+            description: "The SELECT/WITH query to analyze.",
+            required: true,
+        }],
+        build: |args| {
+            let sql = args.get("sql").map(String::as_str).unwrap_or("");
+            [
+                "Deep-dive this query plan:".to_owned(),
+                format!("```sql\n{sql}\n```"),
+                "1. Ground referenced objects with search_schema / describe_object.".into(),
+                "2. Run deep_plan_analysis (analyze=true) for severity-graded skew / CTE / function / subquery findings.".into(),
+                "3. Cross-check with analyze_query_plan; propose indexes or rewrites with evidence.".into(),
             ]
             .join("\n")
         },
@@ -269,15 +317,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lists_seven_prompts_including_phase4() {
+    fn lists_nine_prompts_including_diff_and_deep_plan() {
         let names = PromptCatalog::names();
-        assert_eq!(names.len(), 7);
+        assert_eq!(names.len(), 9);
         for expected in [
             "health-check",
             "analyze-slow-queries",
             "explore-schema",
             "debug-blocking",
             "write-migration",
+            "diff-schemas",
+            "plan-deep-dive",
             "optimize-table",
             "explain-this-query",
         ] {

@@ -29,7 +29,8 @@ pub fn parse_ref(ref_: &str) -> Result<(String, String), String> {
     Ok((schema.to_owned(), name.to_owned()))
 }
 
-fn is_safe_ident(s: &str) -> bool {
+/// Validate a SQL identifier (table/column name).
+pub fn is_safe_ident(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}

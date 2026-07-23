@@ -5,6 +5,8 @@
 
 pub mod backend;
 pub mod error;
+pub mod handler;
+pub mod http;
 pub mod stdio;
 pub mod types;
 
@@ -13,6 +15,8 @@ pub use backend::{
     ToolDescriptor,
 };
 pub use error::ProtoError;
+pub use handler::McpHandler;
+pub use http::{HttpAuth, HttpServer};
 pub use stdio::StdioServer;
 pub use types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, negotiate_protocol_version};
 
