@@ -27,6 +27,10 @@ pub enum ToolName {
     GetIndexStatus,
     ListExtensions,
     ServerSettings,
+    SuggestIndexes,
+    FindUnusedIndexes,
+    BloatReport,
+    FindMissingFks,
 }
 
 impl ToolName {
@@ -49,7 +53,7 @@ impl ToolName {
         Self::SampleValues,
     ];
 
-    /// Phase 4 monitoring / DDL / index-status (+ straightforward free tools).
+    /// Phase 4 monitoring / DDL / index-status (+ free advisory tools).
     pub const PHASE4: &'static [ToolName] = &[
         Self::GetDdl,
         Self::TableStats,
@@ -63,6 +67,10 @@ impl ToolName {
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
+        Self::SuggestIndexes,
+        Self::FindUnusedIndexes,
+        Self::BloatReport,
+        Self::FindMissingFks,
     ];
 
     /// Full tools/list surface for the current phase.
@@ -91,6 +99,10 @@ impl ToolName {
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
+        Self::SuggestIndexes,
+        Self::FindUnusedIndexes,
+        Self::BloatReport,
+        Self::FindMissingFks,
     ];
 
     pub const READ_ONLY: &'static [ToolName] = Self::ACTIVE;
@@ -121,6 +133,10 @@ impl ToolName {
             Self::GetIndexStatus => "get_index_status",
             Self::ListExtensions => "list_extensions",
             Self::ServerSettings => "server_settings",
+            Self::SuggestIndexes => "suggest_indexes",
+            Self::FindUnusedIndexes => "find_unused_indexes",
+            Self::BloatReport => "bloat_report",
+            Self::FindMissingFks => "find_missing_fks",
         }
     }
 
@@ -150,13 +166,13 @@ mod tests {
     }
 
     #[test]
-    fn phase4_has_twelve_tools() {
-        assert_eq!(ToolName::PHASE4.len(), 12);
+    fn phase4_has_sixteen_tools() {
+        assert_eq!(ToolName::PHASE4.len(), 16);
     }
 
     #[test]
-    fn active_surface_is_twenty_four_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 24);
+    fn active_surface_is_twenty_eight_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 28);
         assert_eq!(
             ToolName::ACTIVE.len(),
             ToolName::PHASE2.len() + ToolName::PHASE3.len() + ToolName::PHASE4.len()

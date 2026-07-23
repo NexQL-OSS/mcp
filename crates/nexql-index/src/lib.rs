@@ -7,6 +7,7 @@
 
 pub mod builder;
 pub mod catalog;
+pub mod embed;
 pub mod error;
 pub mod joins;
 pub mod lexical;
@@ -14,12 +15,19 @@ pub mod migrate;
 pub mod model;
 pub mod object_hash;
 pub mod query;
+pub mod rrf;
 pub mod store;
 
 pub use builder::{
     BuildProgress, BuildRequest, CatalogDb, MAX_OBJECTS_PER_SHARD, MAX_SHARD_BYTES, PgCatalogDb,
     build_index, format_schema_fingerprint,
 };
+pub use embed::{
+    Embedder, HF_MODEL_ID, LOCAL_MODEL_ID, MODEL_DIM, build_object_doc, embeddings_env_local,
+    is_embeddable_kind,
+};
+#[cfg(feature = "embeddings")]
+pub use embed::MiniLmEmbedder;
 pub use catalog::{
     COLUMNS_QUERY, CONSTRAINTS_QUERY, DOMAINS_QUERY, ENUMS_QUERY, FUNCTIONS_QUERY, INDEXES_QUERY,
     NON_SYSTEM_SCHEMAS_QUERY, RELATIONS_QUERY, SCHEMA_FINGERPRINT_QUERY, VIEW_DEFINITIONS_QUERY,
@@ -43,9 +51,10 @@ pub use model::{
 };
 pub use object_hash::{compute_definition_hash, compute_object_hash};
 pub use query::{
-    IndexQueryService, QueryPolicyFilter, RankedHit, SampleValuesResult, missing_object_message,
-    no_samples_message, search_schema_lexical,
+    IndexQueryService, QueryPolicyFilter, RankedHit, SampleValuesResult, SearchOptions,
+    missing_object_message, no_samples_message, search_schema_lexical,
 };
+pub use rrf::{RRF_K, RRF_MISSING_RANK, cosine_similarity, fuse_rrf};
 pub use store::{
     DBINDEX_DIR, EMBEDDINGS_BIN, EMBEDDINGS_META, JOIN_GRAPH_FILE, LOCK_FILE, MANIFEST_FILE,
     OVERRIDES_FILE, STALE_LOCK, TOKENS_FILE, VALUES_FILE, IndexStore, deserialize_embedding,

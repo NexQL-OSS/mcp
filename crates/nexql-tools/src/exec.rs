@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use nexql_index::{CatalogDb, IndexQueryService, IndexStore, PgCatalogDb, QueryPolicyFilter};
+use nexql_index::{
+    CatalogDb, Embedder, IndexQueryService, IndexStore, PgCatalogDb, QueryPolicyFilter,
+    SearchOptions,
+};
 use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
 use serde_json::{Value, json};
 
@@ -11,7 +14,7 @@ use crate::plan::{build_explain_sql, extract_plan_metrics};
 use crate::registry::ToolName;
 use crate::schema::{ToolSpec, active_tools};
 use crate::session::ToolSession;
-use crate::sql::{self, SLOW_QUERIES_DEFAULT, parse_ref};
+use crate::sql::{self, REPORT_LIMIT_DEFAULT, SLOW_QUERIES_DEFAULT, parse_ref};
 
 /// Default hit cap for `search_schema` (matches TS ToolExecutor).
 const SEARCH_SCHEMA_LIMIT: usize = 10;
@@ -50,6 +53,9 @@ pub struct ToolRouter {
     session: Arc<ToolSession>,
     /// Optional override; when `None`, uses `session.index_store`.
     index_override: Option<Option<IndexStore>>,
+    /// When true and an embedder is set, `search_schema` fuses via RRF.
+    use_semantic: bool,
+    embedder: Option<Arc<dyn Embedder>>,
     specs: Vec<ToolSpec>,
 }
 
@@ -58,6 +64,8 @@ impl ToolRouter {
         Self {
             session,
             index_override: None,
+            use_semantic: false,
+            embedder: None,
             specs: active_tools(),
         }
     }
@@ -67,8 +75,21 @@ impl ToolRouter {
         Self {
             session,
             index_override: Some(store),
+            use_semantic: false,
+            embedder: None,
             specs: active_tools(),
         }
+    }
+
+    /// Enable semantic RRF fusion for `search_schema` (requires embeddings on disk + embedder).
+    pub fn with_semantic(
+        mut self,
+        use_semantic: bool,
+        embedder: Option<Arc<dyn Embedder>>,
+    ) -> Self {
+        self.use_semantic = use_semantic;
+        self.embedder = embedder;
+        self
     }
 
     pub fn specs(&self) -> &[ToolSpec] {
@@ -120,6 +141,10 @@ impl ToolRouter {
             ToolName::GetIndexStatus => self.get_index_status().await,
             ToolName::ListExtensions => self.list_extensions().await,
             ToolName::ServerSettings => self.server_settings().await,
+            ToolName::SuggestIndexes => self.suggest_indexes(&args).await,
+            ToolName::FindUnusedIndexes => self.find_unused_indexes(&args).await,
+            ToolName::BloatReport => self.bloat_report(&args).await,
+            ToolName::FindMissingFks => self.find_missing_fks(&args).await,
         }
     }
 
@@ -149,7 +174,15 @@ impl ToolRouter {
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
         let filter = self.query_filter();
-        let hits = svc.search_schema(query, SEARCH_SCHEMA_LIMIT, Some(&filter))?;
+        let hits = svc.search_schema(
+            query,
+            SEARCH_SCHEMA_LIMIT,
+            Some(&filter),
+            SearchOptions {
+                use_semantic: self.use_semantic,
+                embedder: self.embedder.as_deref(),
+            },
+        )?;
         let rows: Vec<Value> = hits
             .into_iter()
             .map(|h| {
@@ -749,6 +782,213 @@ impl ToolRouter {
         Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
     }
 
+    async fn suggest_indexes(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(REPORT_LIMIT_DEFAULT);
+        let client = self.session.checkout().await?;
+
+        let high_seq = client
+            .query(&sql::high_seq_scan_tables(limit), &[])
+            .await?;
+        let unindexed_fks = client
+            .query(&sql::unindexed_fk_columns(limit), &[])
+            .await?;
+
+        let mut pg_stat_available = false;
+        let mut slow_queries = Value::Null;
+        let mut pg_stat_note: Option<String> = None;
+        match client.query(&sql::slow_queries(limit.min(10)), &[]).await {
+            Ok(rows) => {
+                pg_stat_available = true;
+                slow_queries = rows_to_json(&rows);
+            }
+            Err(e) => {
+                let message = e.to_string();
+                if message.contains("pg_stat_statements") {
+                    pg_stat_note = Some(
+                        "pg_stat_statements is not installed — install with CREATE EXTENSION pg_stat_statements (requires shared_preload_libraries) for query-level suggestions.".into(),
+                    );
+                } else {
+                    return Err(ToolError::Postgres(e));
+                }
+            }
+        }
+
+        let mut plan_heuristics = Value::Null;
+        if let Some(sql_text) = args.get("sql").and_then(|v| v.as_str()) {
+            require_select_or_with(sql_text)?;
+            let explain = build_explain_sql(sql_text, false);
+            let outcome = self.run_explain_in_transaction(&explain).await?;
+            let rows = outcome.structured.unwrap_or(Value::Null);
+            let plan = rows
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|r| r.get("QUERY PLAN"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let metrics = extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
+            plan_heuristics = json!({
+                "metrics": metrics,
+                "hint": "Use analyze_query_plan with analyze=true for actual timings before creating indexes.",
+            });
+        }
+
+        let high_seq_json = rows_to_json(&high_seq);
+        let unindexed_json = rows_to_json(&unindexed_fks);
+        let has_candidates = high_seq_json
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+            || unindexed_json
+                .as_array()
+                .map(|a| !a.is_empty())
+                .unwrap_or(false)
+            || plan_heuristics != Value::Null;
+
+        if !has_candidates && !pg_stat_available {
+            return Ok(ToolOutcome::ok_json(json!({
+                "suggestions": [],
+                "message": "No index suggestions yet. Either table stats show healthy index use, or there is not enough scan history. Enable pg_stat_statements and/or pass a sql argument for EXPLAIN plan heuristics.",
+                "hint": pg_stat_note,
+            })));
+        }
+
+        if !has_candidates {
+            return Ok(ToolOutcome::ok_json(json!({
+                "high_seq_scan_tables": high_seq_json,
+                "unindexed_fk_columns": unindexed_json,
+                "slow_queries": slow_queries,
+                "plan_heuristics": plan_heuristics,
+                "message": "No strong index candidates from sequential-scan or unindexed-FK heuristics. Review slow_queries / pass sql for plan-level advice.",
+                "hint": "CREATE INDEX CONCURRENTLY after validating with EXPLAIN (ANALYZE, BUFFERS).",
+            })));
+        }
+
+        Ok(ToolOutcome::ok_json(json!({
+            "high_seq_scan_tables": high_seq_json,
+            "unindexed_fk_columns": unindexed_json,
+            "slow_queries": slow_queries,
+            "plan_heuristics": plan_heuristics,
+            "pg_stat_statements": pg_stat_available,
+            "hint": pg_stat_note.unwrap_or_else(|| {
+                "Validate candidates with analyze_query_plan / EXPLAIN before CREATE INDEX CONCURRENTLY.".into()
+            }),
+        })))
+    }
+
+    async fn find_unused_indexes(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(REPORT_LIMIT_DEFAULT);
+        let client = self.session.checkout().await?;
+        let rows = client
+            .query(&sql::find_unused_indexes(limit), &[])
+            .await?;
+        let indexes = rows_to_json(&rows);
+        if indexes.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+            return Ok(ToolOutcome::ok_json(json!({
+                "indexes": [],
+                "message": "No unused non-constraint indexes found (idx_scan = 0). Note: pg_stat_reset / server restart clears scan counts — treat never-scanned indexes cautiously on fresh stats.",
+            })));
+        }
+        Ok(ToolOutcome::ok_json(json!({
+            "indexes": indexes,
+            "hint": "Prefer DROP INDEX CONCURRENTLY after confirming the workload (and that stats are mature).",
+        })))
+    }
+
+    async fn bloat_report(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(REPORT_LIMIT_DEFAULT);
+        let client = self.session.checkout().await?;
+        let rows = client.query(&sql::bloat_report(limit), &[]).await?;
+        let tables = rows_to_json(&rows);
+        if tables.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+            return Ok(ToolOutcome::ok_json(json!({
+                "tables": [],
+                "method": "dead_tuple_ratio",
+                "message": "No tables with significant dead-tuple pressure (>1000 dead tuples). This is a simplified estimate from pg_stat_user_tables, not physical page bloat.",
+            })));
+        }
+        Ok(ToolOutcome::ok_json(json!({
+            "tables": tables,
+            "method": "dead_tuple_ratio",
+            "note": "Approximate bloat via n_dead_tup / (n_live_tup + n_dead_tup). Not a physical page-bloat estimate (pgstattuple / check_postgres). Consider VACUUM / VACUUM FULL only after confirming impact.",
+            "hint": "VACUUM ANALYZE on high bloat_pct tables; investigate autovacuum settings if last_autovacuum is stale.",
+        })))
+    }
+
+    async fn find_missing_fks(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(REPORT_LIMIT_DEFAULT);
+        let capped = limit.clamp(1, sql::REPORT_LIMIT_MAX) as usize;
+
+        // Prefer schema-index join-graph inferred edges when an index exists.
+        if let Ok((store, connection_id, database)) = self.index_service().await {
+            let base = store.base_dir(&connection_id, &database);
+            if let Ok(Some(manifest)) = store.read_manifest(&base) {
+                if let Ok(Some(graph)) = store.read_join_graph(&base, &manifest) {
+                    let candidates: Vec<Value> = graph
+                        .edges
+                        .into_iter()
+                        .filter(|e| e.inferred == Some(true) && e.disabled != Some(true))
+                        .take(capped)
+                        .map(|e| {
+                            let cols: Vec<Value> = e
+                                .cols
+                                .iter()
+                                .map(|(a, b)| json!({ "from": a, "to": b }))
+                                .collect();
+                            json!({
+                                "from_table": e.from,
+                                "to_table": e.to,
+                                "via": e.via,
+                                "columns": cols,
+                                "detection": "join_graph_inferred",
+                            })
+                        })
+                        .collect();
+                    if !candidates.is_empty() {
+                        return Ok(ToolOutcome::ok_json(json!({
+                            "candidates": candidates,
+                            "source": "join_graph",
+                            "hint": "These edges were inferred by naming convention and have no declared FK. Review before ALTER TABLE … ADD FOREIGN KEY.",
+                        })));
+                    }
+                }
+            }
+        }
+
+        let client = self.session.checkout().await?;
+        let rows = client
+            .query(&sql::find_missing_fks_catalog(limit), &[])
+            .await?;
+        let candidates = rows_to_json(&rows);
+        if candidates.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+            return Ok(ToolOutcome::ok_json(json!({
+                "candidates": [],
+                "source": "catalog",
+                "message": "No missing FK candidates found via join-graph inferred edges or *_id naming against single-column PKs.",
+            })));
+        }
+        Ok(ToolOutcome::ok_json(json!({
+            "candidates": candidates,
+            "source": "catalog",
+            "hint": "Naming-inferred only — verify referential integrity and nullability before adding constraints. Run `nexql-mcp index build` for join-graph inferred edges.",
+        })))
+    }
+
     async fn run_select_internal(
         &self,
         sql: &str,
@@ -924,7 +1164,7 @@ mod tests {
     fn router_specs_include_phase4() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 24);
+        assert_eq!(router.specs().len(), 28);
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));
@@ -932,6 +1172,10 @@ mod tests {
         assert!(names.contains(&"get_index_status"));
         assert!(names.contains(&"list_extensions"));
         assert!(names.contains(&"server_settings"));
+        assert!(names.contains(&"suggest_indexes"));
+        assert!(names.contains(&"find_unused_indexes"));
+        assert!(names.contains(&"bloat_report"));
+        assert!(names.contains(&"find_missing_fks"));
     }
 
     #[tokio::test]

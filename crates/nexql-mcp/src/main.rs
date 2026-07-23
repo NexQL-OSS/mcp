@@ -26,6 +26,19 @@ use nexql_tools::{
 use serde_json::{Value, json};
 use tracing_subscriber::EnvFilter;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+enum EmbeddingsMode {
+    #[default]
+    Off,
+    Local,
+}
+
+impl EmbeddingsMode {
+    fn is_local(self) -> bool {
+        matches!(self, Self::Local)
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "nexql-mcp",
@@ -45,6 +58,11 @@ struct Cli {
 
     #[command(flatten)]
     access: AccessArgs,
+
+    /// Local MiniLM embeddings for index build + semantic search_schema (RRF).
+    /// Env: `NEXQL_MCP_EMBEDDINGS=off|local` (default off).
+    #[arg(long, value_enum, default_value_t = EmbeddingsMode::Off, env = "NEXQL_MCP_EMBEDDINGS")]
+    embeddings: EmbeddingsMode,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -348,8 +366,32 @@ async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         caps = caps.with_max_rows(n);
     }
     let session = ToolSession::from_resolved(resolved, mode, caps).await?;
+
+    #[cfg(feature = "embeddings")]
+    let embedder: Option<std::sync::Arc<dyn nexql_index::Embedder>> = if cli.embeddings.is_local() {
+        match nexql_index::MiniLmEmbedder::load() {
+            Ok(m) => Some(std::sync::Arc::new(m)),
+            Err(e) => {
+                eprintln!("warning: embeddings local requested but MiniLM load failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "embeddings"))]
+    let embedder: Option<std::sync::Arc<dyn nexql_index::Embedder>> = {
+        if cli.embeddings.is_local() {
+            eprintln!(
+                "warning: --embeddings local ignored (nexql-mcp built without `embeddings` feature)"
+            );
+        }
+        None
+    };
+
     let tools = Arc::new(RouterBackend {
-        router: ToolRouter::new(session.clone()),
+        router: ToolRouter::new(session.clone())
+            .with_semantic(cli.embeddings.is_local(), embedder),
     });
 
     let mut server = StdioServer::new(tools).with_prompts(Arc::new(StaticPromptBackend));
@@ -396,7 +438,7 @@ fn index_ids(resolved: &ResolvedConnection) -> (String, String) {
     (connection_id, database)
 }
 
-fn default_build_request(connection_id: String, database: String) -> BuildRequest {
+fn default_build_request(connection_id: String, database: String, embeddings: bool) -> BuildRequest {
     BuildRequest {
         connection_id,
         database,
@@ -408,6 +450,7 @@ fn default_build_request(connection_id: String, database: String) -> BuildReques
         depth: BuildDepth::Structure,
         build_mode: BuildMode::Guided,
         environment: "development".into(),
+        embeddings,
     }
 }
 
@@ -425,7 +468,26 @@ async fn run_build_request(
         eprintln!("index build: {ev:?}");
     };
 
-    let manifest = build_index(&store, &db, &req, Some(&mut on_progress), None).await?;
+    #[cfg(feature = "embeddings")]
+    let owned = if req.embeddings {
+        Some(nexql_index::MiniLmEmbedder::load()?)
+    } else {
+        None
+    };
+    #[cfg(feature = "embeddings")]
+    let embedder = owned.as_ref().map(|e| e as &dyn nexql_index::Embedder);
+    #[cfg(not(feature = "embeddings"))]
+    let embedder: Option<&dyn nexql_index::Embedder> = None;
+
+    let manifest = build_index(
+        &store,
+        &db,
+        &req,
+        Some(&mut on_progress),
+        None,
+        embedder,
+    )
+    .await?;
     eprintln!(
         "index built: conn={connection_id} db={database} tables={} views={} functions={} enums={} shards={} fingerprint={} ({}ms, {} queries)",
         manifest.counts.tables,
@@ -448,7 +510,7 @@ async fn run_build_request(
 async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let resolved = resolve(&resolve_inputs(cli))?;
     let (connection_id, database) = index_ids(&resolved);
-    let req = default_build_request(connection_id, database);
+    let req = default_build_request(connection_id, database, cli.embeddings.is_local());
     run_build_request(&resolved, req).await
 }
 
@@ -537,11 +599,12 @@ async fn run_index_refresh(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> 
                 depth: manifest.build_depth,
                 build_mode: manifest.build_mode,
                 environment: manifest.environment,
+                embeddings: cli.embeddings.is_local(),
             }
         }
         None => {
             eprintln!("index refresh: no manifest; using build defaults");
-            default_build_request(connection_id, database)
+            default_build_request(connection_id, database, cli.embeddings.is_local())
         }
     };
     run_build_request(&resolved, req).await

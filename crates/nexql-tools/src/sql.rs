@@ -349,8 +349,195 @@ ORDER BY name
     .trim()
 }
 
-// TODO(phase4+): suggest_indexes, find_unused_indexes, bloat_report, find_missing_fks
-// — deferred (larger advisory SQL + heuristics).
+/// Max rows for advisory reports (`suggest_indexes`, unused indexes, bloat, missing FKs).
+pub const REPORT_LIMIT_MAX: u32 = 50;
+pub const REPORT_LIMIT_DEFAULT: u32 = 20;
+
+fn clamp_report_limit(limit: u32) -> u32 {
+    limit.clamp(1, REPORT_LIMIT_MAX)
+}
+
+/// Tables with high sequential-scan ratio — primary `suggest_indexes` heuristic
+/// (ported from Pro dashboard `highSeqScanTables`).
+pub fn high_seq_scan_tables(limit: u32) -> String {
+    let capped = clamp_report_limit(limit);
+    format!(
+        r#"
+SELECT schemaname || '.' || relname AS table_name,
+       seq_scan,
+       COALESCE(idx_scan, 0) AS idx_scan,
+       CASE WHEN seq_scan + COALESCE(idx_scan, 0) > 0
+            THEN ROUND(100.0 * seq_scan / (seq_scan + COALESCE(idx_scan, 0)), 1)
+            ELSE 0 END AS seq_scan_pct,
+       n_live_tup AS row_count,
+       'High sequential scan ratio — consider indexes on frequently filtered/joined columns' AS rationale
+FROM pg_stat_user_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+  AND seq_scan + COALESCE(idx_scan, 0) > 100
+ORDER BY seq_scan_pct DESC, seq_scan DESC
+LIMIT {capped}
+"#
+    )
+    .trim()
+    .to_owned()
+}
+
+/// Foreign-key columns lacking a covering btree index — classic missing-index heuristic.
+pub fn unindexed_fk_columns(limit: u32) -> String {
+    let capped = clamp_report_limit(limit);
+    format!(
+        r#"
+SELECT
+  n.nspname || '.' || c.relname AS table_name,
+  a.attname AS column_name,
+  confrelid::regclass::text AS references_table,
+  'FK column without supporting index — CREATE INDEX ON ' ||
+    quote_ident(n.nspname) || '.' || quote_ident(c.relname) ||
+    ' (' || quote_ident(a.attname) || ')' AS suggestion
+FROM pg_constraint con
+JOIN pg_class c ON c.oid = con.conrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ck.attnum
+WHERE con.contype = 'f'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    WHERE i.indrelid = c.oid
+      AND i.indkey[0] = a.attnum
+  )
+ORDER BY n.nspname, c.relname, a.attname
+LIMIT {capped}
+"#
+    )
+    .trim()
+    .to_owned()
+}
+
+/// Unused indexes: `idx_scan = 0`, excluding PK / UNIQUE / constraint-backed
+/// (matches Pro `DashboardData` unusedIndexes query).
+pub fn find_unused_indexes(limit: u32) -> String {
+    let capped = clamp_report_limit(limit);
+    format!(
+        r#"
+SELECT s.schemaname || '.' || s.indexrelname AS index_name,
+       s.schemaname || '.' || s.relname AS table_name,
+       pg_size_pretty(pg_relation_size(s.indexrelid)) AS index_size,
+       pg_relation_size(s.indexrelid) AS raw_size,
+       pg_get_indexdef(s.indexrelid) AS index_definition
+FROM pg_stat_user_indexes s
+JOIN pg_index i
+  ON i.indexrelid = s.indexrelid
+LEFT JOIN pg_constraint c
+  ON c.conindid = s.indexrelid
+WHERE s.idx_scan = 0
+  AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
+  AND c.oid IS NULL
+  AND NOT i.indisprimary
+  AND NOT i.indisunique
+ORDER BY raw_size DESC
+LIMIT {capped}
+"#
+    )
+    .trim()
+    .to_owned()
+}
+
+/// Approximate table bloat via dead-tuple ratio (not physical page bloat).
+/// Documented simplified estimate — avoids heavy pgstattuple / check_postgres SQL.
+pub fn bloat_report(limit: u32) -> String {
+    let capped = clamp_report_limit(limit);
+    format!(
+        r#"
+SELECT schemaname || '.' || relname AS table_name,
+       n_live_tup AS live_tuples,
+       n_dead_tup AS dead_tuples,
+       CASE WHEN n_live_tup + n_dead_tup > 0
+            THEN ROUND(100.0 * n_dead_tup / (n_live_tup + n_dead_tup), 1)
+            ELSE 0 END AS bloat_pct,
+       pg_size_pretty(pg_relation_size(relid)) AS table_size,
+       last_autovacuum,
+       last_vacuum
+FROM pg_stat_user_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+  AND n_dead_tup > 1000
+ORDER BY bloat_pct DESC, n_dead_tup DESC
+LIMIT {capped}
+"#
+    )
+    .trim()
+    .to_owned()
+}
+
+/// Catalog fallback: `*_id` columns with no FK that name-match another table's PK.
+pub fn find_missing_fks_catalog(limit: u32) -> String {
+    let capped = clamp_report_limit(limit);
+    format!(
+        r#"
+WITH pk_tables AS (
+  SELECT
+    n.nspname AS schema_name,
+    c.relname AS table_name,
+    a.attname AS pk_column,
+    lower(c.relname) AS table_lower
+  FROM pg_constraint con
+  JOIN pg_class c ON c.oid = con.conrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
+  JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ck.attnum
+  WHERE con.contype = 'p'
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND array_length(con.conkey, 1) = 1
+),
+candidates AS (
+  SELECT
+    n.nspname AS schema_name,
+    c.relname AS table_name,
+    a.attname AS column_name,
+    left(a.attname, length(a.attname) - 3) AS name_prefix
+  FROM pg_attribute a
+  JOIN pg_class c ON c.oid = a.attrelid AND c.relkind = 'r'
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE a.attnum > 0
+    AND NOT a.attisdropped
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND a.attname ~* '_id$'
+    AND a.attname <> 'id'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint con
+      JOIN LATERAL unnest(con.conkey) AS ck(attnum) ON true
+      WHERE con.conrelid = c.oid
+        AND con.contype = 'f'
+        AND ck.attnum = a.attnum
+    )
+)
+SELECT
+  cand.schema_name || '.' || cand.table_name AS from_table,
+  cand.column_name,
+  pk.schema_name || '.' || pk.table_name AS suggested_ref_table,
+  pk.pk_column AS suggested_ref_column,
+  'naming_convention' AS detection
+FROM candidates cand
+JOIN pk_tables pk
+  ON pk.schema_name = cand.schema_name
+ AND (
+      pk.table_lower = lower(cand.name_prefix)
+   OR pk.table_lower = lower(cand.name_prefix) || 's'
+   OR pk.table_lower = lower(cand.name_prefix) || 'es'
+   OR (right(lower(cand.name_prefix), 1) = 'y'
+       AND pk.table_lower = left(lower(cand.name_prefix), -1) || 'ies')
+ )
+WHERE cand.schema_name || '.' || cand.table_name
+   <> pk.schema_name || '.' || pk.table_name
+ORDER BY from_table, column_name
+LIMIT {capped}
+"#
+    )
+    .trim()
+    .to_owned()
+}
 
 #[cfg(test)]
 mod tests {

@@ -587,9 +587,10 @@ async fn golden_parity_build_against_temp_pg() {
         depth: BuildDepth::Structure,
         build_mode: BuildMode::Auto,
         environment: "test".into(),
+        embeddings: false,
     };
 
-    let manifest = build_index(&store, &catalog, &req, None, None)
+    let manifest = build_index(&store, &catalog, &req, None, None, None)
         .await
         .expect("build_index");
 

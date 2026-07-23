@@ -149,6 +149,26 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
             description: "Return key PostgreSQL server settings from pg_settings (memory, connections, timeouts, autovacuum, version).",
             input_schema: object_schema(&[]),
         },
+        ToolSpec {
+            name: ToolName::SuggestIndexes,
+            description: "Suggest indexes from high sequential-scan tables, unindexed FK columns, and optional pg_stat_statements / EXPLAIN plan heuristics. Pass sql to analyze a specific query plan.",
+            input_schema: object_schema(&[("limit", "number", false), ("sql", "string", false)]),
+        },
+        ToolSpec {
+            name: ToolName::FindUnusedIndexes,
+            description: "List indexes with idx_scan = 0 (never used since stats reset), excluding primary keys, unique indexes, and constraint-backed indexes.",
+            input_schema: object_schema(&[("limit", "number", false)]),
+        },
+        ToolSpec {
+            name: ToolName::BloatReport,
+            description: "Approximate table bloat via dead-tuple ratio from pg_stat_user_tables (simplified estimate — not physical page bloat). Tables with >1000 dead tuples, ordered by bloat %.",
+            input_schema: object_schema(&[("limit", "number", false)]),
+        },
+        ToolSpec {
+            name: ToolName::FindMissingFks,
+            description: "Find likely missing foreign keys: prefers schema-index join-graph inferred edges; falls back to catalog naming (*_id columns without an FK matching a PK).",
+            input_schema: object_schema(&[("limit", "number", false)]),
+        },
     ]
 }
 
@@ -182,9 +202,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_twenty_four() {
+    fn active_tools_lists_twenty_eight() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 24);
+        assert_eq!(specs.len(), 28);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);

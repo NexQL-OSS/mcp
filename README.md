@@ -4,7 +4,7 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–4 landed — stdio MCP with **24 tools**, resources (`nexql://…`), 7 prompts, ref completions, `index build|status|refresh|clear`, Rust golden parity. Deferred free tools: suggest_indexes / unused indexes / bloat / missing FKs. Next: Phase 5 embeddings or those deferred tools.
+**Status:** Phases 0–5 landed — **28 tools**, resources/prompts/completions, index CLI, Rust golden parity, RRF + optional `--embeddings local` (candle feature). Next: Phase 6 ship (cargo-dist, npm, Docker, doctor polish).
 
 ## Why this exists
 

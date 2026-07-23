@@ -8,6 +8,10 @@ rust-version.workspace = true
 description = "Standalone Postgres MCP server — CLI, subcommands, wiring"
 publish = false
 
+[features]
+default = []
+embeddings = ["nexql-index/embeddings"]
+
 [dependencies]
 async-trait = "0.1"
 clap = { workspace = true }

@@ -4,11 +4,11 @@
 //! fixtures without Postgres. Live builds use [`PgCatalogDb`].
 //!
 //! Phase 3 golden gate: `tests/golden_parity.rs` + `tests/golden/expected/`.
-//! TODO (Phase 5): embeddings generation.
-//! TODO: value profiling when `BuildDepth::Profiles`.
+//! Phase 5: optional embeddings via [`Embedder`] / feature `embeddings`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -20,16 +20,24 @@ use crate::catalog::{
     RawConstraintRow, RawDomainRow, RawEnumRow, RawFunctionRow, RawIndexRow, RawRelationRow,
     RawViewRow, map_relkind_to_db_object_kind,
 };
+use crate::embed::{
+    build_object_doc, embeddings_env_local, is_embeddable_kind, Embedder, LOCAL_MODEL_ID,
+};
 use crate::error::IndexError;
 use crate::lexical::{extract_synonyms_from_comment, tokenize};
 use crate::migrate::CURRENT_FORMAT_VERSION;
 use crate::model::{
-    BuildDepth, BuildMode, CheckEntry, ColumnEntry, ForeignKeyEntry, IndexCounts, IndexDerived,
-    IndexEntry, IndexManifest, IndexScope, IndexStats, JoinEdge, JoinGraph, ObjectEntry,
-    ObjectShard, TokenIndex,
+    BuildDepth, BuildMode, CheckEntry, ColumnEntry, EmbeddingMetaEntry, ForeignKeyEntry,
+    IndexCounts, IndexDerived, IndexEntry, IndexManifest, IndexScope, IndexStats, JoinEdge,
+    JoinGraph, ObjectEntry, ObjectShard, TokenIndex,
 };
 use crate::object_hash::{compute_definition_hash, compute_object_hash};
-use crate::store::{IndexStore, JOIN_GRAPH_FILE, TOKENS_FILE, VALUES_FILE};
+use crate::store::{
+    serialize_embeddings, IndexStore, EMBEDDINGS_BIN, EMBEDDINGS_META, JOIN_GRAPH_FILE, TOKENS_FILE,
+    VALUES_FILE,
+};
+
+static EMBEDDINGS_FEATURE_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Max objects per shard — matches TS IndexBuilder.
 pub const MAX_OBJECTS_PER_SHARD: usize = 64;
@@ -57,6 +65,8 @@ pub struct BuildRequest {
     pub depth: BuildDepth,
     pub build_mode: BuildMode,
     pub environment: String,
+    /// When true (or `NEXQL_MCP_EMBEDDINGS=local`), attempt to write embeddings.
+    pub embeddings: bool,
 }
 
 /// Catalog query surface used by the builder.
@@ -279,12 +289,18 @@ pub fn format_schema_fingerprint(
 }
 
 /// Build a full schema index under `store` for `req`.
+///
+/// When embeddings are requested (`req.embeddings` or env `NEXQL_MCP_EMBEDDINGS=local`)
+/// and `embedder` is provided (or the `embeddings` feature can load MiniLM), writes
+/// `embeddings.bin` + `embeddings-meta.json`. Without the feature and without an
+/// injected embedder, skips with a one-time warning.
 pub async fn build_index<D: CatalogDb + ?Sized>(
     store: &IndexStore,
     db: &D,
     req: &BuildRequest,
     mut progress: Option<&mut dyn FnMut(BuildProgress)>,
     cancel: Option<&dyn Fn() -> bool>,
+    embedder: Option<&dyn Embedder>,
 ) -> Result<IndexManifest, IndexError> {
     let base_dir = store.base_dir(&req.connection_id, &req.database);
     let started = Instant::now();
@@ -422,6 +438,9 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
     let counts = count_objects(&entries);
     let build_ms = started.elapsed().as_millis() as u64;
 
+    let (embeddings_ref, embeddings_meta_ref) =
+        maybe_write_embeddings(store, &base_dir, &entries, req, embedder, &mut warnings)?;
+
     let manifest = IndexManifest {
         format_version: CURRENT_FORMAT_VERSION,
         connection_id: req.connection_id.clone(),
@@ -439,8 +458,8 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
             tokens: TOKENS_FILE.to_owned(),
             join_graph: JOIN_GRAPH_FILE.to_owned(),
             values: Some(VALUES_FILE.to_owned()),
-            embeddings: None,
-            embeddings_meta: None,
+            embeddings: embeddings_ref,
+            embeddings_meta: embeddings_meta_ref,
         },
         stats: IndexStats {
             build_ms,
@@ -482,6 +501,99 @@ fn check_cancel(cancel: Option<&dyn Fn() -> bool>) -> Result<(), IndexError> {
         return Err(IndexError::Cancelled);
     }
     Ok(())
+}
+
+fn want_embeddings(req: &BuildRequest) -> bool {
+    req.embeddings || embeddings_env_local()
+}
+
+/// Write embeddings.bin + meta when requested. Returns (embeddings, embeddings_meta) paths.
+fn maybe_write_embeddings(
+    store: &IndexStore,
+    base_dir: &Path,
+    entries: &BTreeMap<String, ObjectEntry>,
+    req: &BuildRequest,
+    embedder: Option<&dyn Embedder>,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), IndexError> {
+    if !want_embeddings(req) {
+        return Ok((None, None));
+    }
+
+    if let Some(e) = embedder {
+        return write_embeddings_with(store, base_dir, entries, e, warnings);
+    }
+
+    #[cfg(feature = "embeddings")]
+    {
+        match crate::embed::MiniLmEmbedder::load() {
+            Ok(m) => write_embeddings_with(store, base_dir, entries, &m, warnings),
+            Err(e) => {
+                warnings.push(format!("Generating embeddings failed: {e}"));
+                Ok((None, None))
+            }
+        }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = LOCAL_MODEL_ID;
+        if !EMBEDDINGS_FEATURE_WARNED.swap(true, Ordering::Relaxed) {
+            let msg = "embeddings requested but nexql-index was built without the `embeddings` feature — skipping";
+            warnings.push(msg.into());
+            eprintln!("warning: {msg}");
+        }
+        Ok((None, None))
+    }
+}
+
+fn write_embeddings_with(
+    store: &IndexStore,
+    base_dir: &Path,
+    entries: &BTreeMap<String, ObjectEntry>,
+    embedder: &dyn Embedder,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), IndexError> {
+    let mut candidates: Vec<(String, String)> = entries
+        .iter()
+        .filter(|(_, e)| is_embeddable_kind(e.kind))
+        .map(|(ref_, e)| (ref_.clone(), build_object_doc(ref_, e)))
+        .collect();
+    candidates.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if candidates.is_empty() {
+        return Ok((None, None));
+    }
+
+    let texts: Vec<&str> = candidates.iter().map(|(_, d)| d.as_str()).collect();
+    let vectors = match embedder.embed_batch(&texts) {
+        Ok(v) => v,
+        Err(e) => {
+            warnings.push(format!("generating embeddings failed: {e}"));
+            return Ok((None, None));
+        }
+    };
+
+    let dim = embedder.dim();
+    let model = embedder.model_id().to_owned();
+    let bin = serialize_embeddings(&vectors, dim);
+    let meta: Vec<EmbeddingMetaEntry> = candidates
+        .iter()
+        .map(|(ref_, _)| EmbeddingMetaEntry {
+            ref_: ref_.clone(),
+            object_hash: entries
+                .get(ref_)
+                .map(|e| e.object_hash.clone())
+                .unwrap_or_default(),
+            model: model.clone(),
+            dim: dim as u32,
+        })
+        .collect();
+
+    store.write_embeddings(base_dir, &meta, &bin)?;
+    Ok((
+        Some(EMBEDDINGS_BIN.to_owned()),
+        Some(EMBEDDINGS_META.to_owned()),
+    ))
 }
 
 /// Postgres `"char"` (e.g. `relkind`, `contype`) arrives as `i8` via tokio-postgres.
@@ -1404,12 +1516,13 @@ mod tests {
             depth: BuildDepth::Structure,
             build_mode: BuildMode::Guided,
             environment: "development".into(),
+            embeddings: false,
         };
 
         let mut events = Vec::new();
         let mut on_progress = |e: BuildProgress| events.push(e);
 
-        let manifest = build_index(&store, &db, &req, Some(&mut on_progress), None)
+        let manifest = build_index(&store, &db, &req, Some(&mut on_progress), None, None)
             .await
             .expect("build");
 
@@ -1483,8 +1596,9 @@ mod tests {
             depth: BuildDepth::Structure,
             build_mode: BuildMode::Auto,
             environment: "dev".into(),
+            embeddings: false,
         };
-        let err = build_index(&store, &db, &req, None, None)
+        let err = build_index(&store, &db, &req, None, None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, IndexError::Locked(_)));

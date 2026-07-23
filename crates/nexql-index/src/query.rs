@@ -1,21 +1,31 @@
 //! Index query service — port of `pro/src/features/dbindex/IndexQueryService.ts`.
 //!
-//! Phase 3g: lexical search, describe, join path, index-only sample values.
-//! Embeddings / RRF fusion land in Phase 5.
+//! Lexical TF-IDF + optional semantic RRF fusion (Phase 5).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::embed::Embedder;
 use crate::error::IndexError;
 use crate::joins;
 use crate::lexical::{TableCounts, candidate_refs_from_postings, score_object, tokenize};
 use crate::model::{
-    IndexOverrides, JoinEdge, JoinGraph, ObjectEntry, TokenIndex, ValueIndex,
+    EmbeddingMetaEntry, IndexOverrides, JoinEdge, JoinGraph, ObjectEntry, TokenIndex, ValueIndex,
 };
-use crate::store::IndexStore;
+use crate::rrf::{cosine_similarity, fuse_rrf};
+use crate::store::{deserialize_embedding, IndexStore};
 
 /// Boost applied when a query token hits the value inverted index (TS: `+ 2.0`).
 const VALUE_HIT_BOOST: f64 = 2.0;
+
+/// Options for [`IndexQueryService::search_schema`].
+#[derive(Clone, Copy, Default)]
+pub struct SearchOptions<'a> {
+    /// When true and embeddings.bin + meta exist, fuse lexical + semantic via RRF.
+    pub use_semantic: bool,
+    /// Required for the semantic path (query embedding). Inject a fake in tests.
+    pub embedder: Option<&'a dyn Embedder>,
+}
 
 /// Ranked schema hit — matches TS `RankedHit`.
 #[derive(Debug, Clone, PartialEq)]
@@ -203,9 +213,39 @@ fn allows_ref(filter: Option<&QueryPolicyFilter>, ref_: &str) -> bool {
     filter.allows_table(&schema, &name)
 }
 
-/// Loads index artifacts from [`IndexStore`] and answers schema queries.
+/// Cosine-rank all embedding rows against the query vector.
 ///
-/// Lexical-only this phase — pass no semantic opts (RRF is Phase 5).
+/// Returns `None` when embedding the query fails or no positive similarities.
+fn compute_semantic_hits(
+    query: &str,
+    meta: &[EmbeddingMetaEntry],
+    bin: &[u8],
+    excluded: &HashSet<String>,
+    embedder: &dyn Embedder,
+) -> Option<Vec<(String, f64)>> {
+    let query_vec = embedder.embed(query).ok()?;
+    let mut semantic_hits: Vec<(String, f64)> = Vec::new();
+    for (i, entry) in meta.iter().enumerate() {
+        if excluded.contains(&entry.ref_) {
+            continue;
+        }
+        let dim = entry.dim as usize;
+        let Ok(doc_vec) = deserialize_embedding(bin, i, dim) else {
+            continue;
+        };
+        let sim = cosine_similarity(&query_vec, &doc_vec);
+        if sim > 0.0 {
+            semantic_hits.push((entry.ref_.clone(), f64::from(sim)));
+        }
+    }
+    if semantic_hits.is_empty() {
+        return None;
+    }
+    semantic_hits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    Some(semantic_hits)
+}
+
+/// Loads index artifacts from [`IndexStore`] and answers schema queries.
 pub struct IndexQueryService<'a> {
     store: &'a IndexStore,
     connection_id: String,
@@ -229,14 +269,16 @@ impl<'a> IndexQueryService<'a> {
         self.store.base_dir(&self.connection_id, &self.database)
     }
 
-    /// Lexical schema search (no embeddings / RRF).
+    /// Schema search: lexical TF-IDF, optionally fused with embedding cosine via RRF.
     ///
-    /// Respects `overrides.json` exclusions and an optional [`QueryPolicyFilter`].
+    /// When `opts.use_semantic` is false, or embeddings/meta/embedder are missing,
+    /// behaviour matches Phase 3 lexical-only search.
     pub fn search_schema(
         &self,
         query: &str,
         limit: usize,
         filter: Option<&QueryPolicyFilter>,
+        opts: SearchOptions<'_>,
     ) -> Result<Vec<RankedHit>, IndexError> {
         let base = self.base_dir();
         let Some(manifest) = self.store.read_manifest(&base)? else {
@@ -263,7 +305,20 @@ impl<'a> IndexQueryService<'a> {
         );
 
         scored.retain(|(ref_, _)| allows_ref(filter, ref_));
-        if scored.len() > limit {
+
+        if opts.use_semantic
+            && let Some(embedder) = opts.embedder
+            && let Some((meta, bin)) = self.store.read_embeddings(&base, &manifest)?
+            && !meta.is_empty()
+        {
+            if let Some(semantic) =
+                compute_semantic_hits(query, &meta, &bin, &excluded, embedder)
+            {
+                scored = fuse_rrf(&scored, &semantic, limit);
+            } else if scored.len() > limit {
+                scored.truncate(limit);
+            }
+        } else if scored.len() > limit {
             scored.truncate(limit);
         }
 
@@ -603,7 +658,9 @@ mod tests {
         write_fixture(&store);
         let svc = IndexQueryService::new(&store, CONN, DB);
 
-        let hits = svc.search_schema("order customer", 10, None).unwrap();
+        let hits = svc
+            .search_schema("order customer", 10, None, SearchOptions::default())
+            .unwrap();
         assert_eq!(
             hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
             vec!["public.orders", "public.customers"]
@@ -632,7 +689,9 @@ mod tests {
         store.write_overrides(&base, &overrides).unwrap();
 
         let svc = IndexQueryService::new(&store, CONN, DB);
-        let hits = svc.search_schema("order customer", 10, None).unwrap();
+        let hits = svc
+            .search_schema("order customer", 10, None, SearchOptions::default())
+            .unwrap();
         assert_eq!(
             hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
             vec!["public.customers"]
@@ -651,7 +710,7 @@ mod tests {
             ..Default::default()
         };
         let hits = svc
-            .search_schema("order customer", 10, Some(&filter))
+            .search_schema("order customer", 10, Some(&filter), SearchOptions::default())
             .unwrap();
         assert_eq!(
             hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
@@ -667,7 +726,9 @@ mod tests {
         let svc = IndexQueryService::new(&store, CONN, DB);
 
         // Token "active" only appears in values.json → boosts customers.
-        let hits = svc.search_schema("active", 10, None).unwrap();
+        let hits = svc
+            .search_schema("active", 10, None, SearchOptions::default())
+            .unwrap();
         assert_eq!(hits[0].ref_, "public.customers");
         assert!((hits[0].score - VALUE_HIT_BOOST).abs() < 1e-9);
     }
@@ -820,5 +881,188 @@ mod tests {
         );
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, "public.orders");
+    }
+
+    /// Fake embedder: maps known strings to fixed 2-d unit vectors.
+    struct FakeEmbedder {
+        query_vec: Vec<f32>,
+    }
+
+    impl crate::embed::Embedder for FakeEmbedder {
+        fn model_id(&self) -> &str {
+            "fake"
+        }
+        fn dim(&self) -> usize {
+            2
+        }
+        fn embed(&self, _text: &str) -> Result<Vec<f32>, IndexError> {
+            Ok(self.query_vec.clone())
+        }
+    }
+
+    fn write_embeddings_fixture(store: &IndexStore, base: &std::path::Path) {
+        use crate::model::EmbeddingMetaEntry;
+        use crate::store::{serialize_embeddings, EMBEDDINGS_BIN, EMBEDDINGS_META};
+
+        // customers ≈ [1,0], orders ≈ [0,1], payments ≈ [0.7, 0.7]
+        let vectors = vec![
+            vec![1.0_f32, 0.0],
+            vec![0.0_f32, 1.0],
+            vec![0.70710677_f32, 0.70710677],
+        ];
+        let bin = serialize_embeddings(&vectors, 2);
+        let meta = vec![
+            EmbeddingMetaEntry {
+                ref_: "public.customers".into(),
+                object_hash: "h2".into(),
+                model: "fake".into(),
+                dim: 2,
+            },
+            EmbeddingMetaEntry {
+                ref_: "public.orders".into(),
+                object_hash: "h1".into(),
+                model: "fake".into(),
+                dim: 2,
+            },
+            EmbeddingMetaEntry {
+                ref_: "public.payments".into(),
+                object_hash: "h3".into(),
+                model: "fake".into(),
+                dim: 2,
+            },
+        ];
+        store.write_embeddings(base, &meta, &bin).unwrap();
+
+        let mut manifest = sample_manifest(10);
+        manifest.derived.embeddings = Some(EMBEDDINGS_BIN.into());
+        manifest.derived.embeddings_meta = Some(EMBEDDINGS_META.into());
+        // Add payments to shard so kind resolves.
+        let mut shard = HashMap::new();
+        shard.insert(
+            "public.orders".into(),
+            table_entry(1, vec![col("id", None), col("status", None)]),
+        );
+        shard.insert(
+            "public.customers".into(),
+            table_entry(2, vec![col("status", None)]),
+        );
+        shard.insert(
+            "public.payments".into(),
+            ObjectEntry {
+                kind: DbObjectKind::View,
+                ..table_entry(3, vec![col("amount", None)])
+            },
+        );
+        store
+            .write_shard_entries(base, "objects-public-0.json", &shard)
+            .unwrap();
+        store.write_manifest(base, &manifest).unwrap();
+    }
+
+    #[test]
+    fn search_schema_stays_lexical_without_semantic_opts() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = write_fixture(&store);
+        write_embeddings_fixture(&store, &base);
+        let fake = FakeEmbedder {
+            query_vec: vec![1.0, 0.0],
+        };
+        let svc = IndexQueryService::new(&store, CONN, DB);
+        let hits = svc
+            .search_schema(
+                "order customer",
+                10,
+                None,
+                SearchOptions {
+                    use_semantic: false,
+                    embedder: Some(&fake),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
+            vec!["public.orders", "public.customers"]
+        );
+    }
+
+    #[test]
+    fn search_schema_rrf_fuses_semantic_and_surfaces_semantic_only() {
+        // Port of IndexQueryService.test.ts semantic RRF case.
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = write_fixture(&store);
+        write_embeddings_fixture(&store, &base);
+        let fake = FakeEmbedder {
+            query_vec: vec![1.0, 0.0], // closest to customers, then payments
+        };
+        let svc = IndexQueryService::new(&store, CONN, DB);
+        let hits = svc
+            .search_schema(
+                "order customer",
+                10,
+                None,
+                SearchOptions {
+                    use_semantic: true,
+                    embedder: Some(&fake),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
+            vec!["public.customers", "public.orders", "public.payments"]
+        );
+        let payments = hits.iter().find(|h| h.ref_ == "public.payments").unwrap();
+        assert_eq!(payments.kind, "view");
+    }
+
+    #[test]
+    fn search_schema_semantic_synonym_outranks_lexical_only() {
+        // Synonym-style query: "client" has no lexical postings; FakeEmbedder
+        // aligns with customers → RRF surfaces customers above lexical-only empty/miss.
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = write_fixture(&store);
+        write_embeddings_fixture(&store, &base);
+
+        let fake = FakeEmbedder {
+            query_vec: vec![1.0, 0.0],
+        };
+        let svc = IndexQueryService::new(&store, CONN, DB);
+
+        let lexical = svc
+            .search_schema(
+                "client",
+                10,
+                None,
+                SearchOptions {
+                    use_semantic: false,
+                    embedder: None,
+                },
+            )
+            .unwrap();
+        let fused = svc
+            .search_schema(
+                "client",
+                10,
+                None,
+                SearchOptions {
+                    use_semantic: true,
+                    embedder: Some(&fake),
+                },
+            )
+            .unwrap();
+
+        assert!(
+            lexical.is_empty() || lexical[0].ref_ != "public.customers",
+            "lexical-only should not prefer customers for synonym query"
+        );
+        assert_eq!(fused[0].ref_, "public.customers");
+        let lex_rank = lexical.iter().position(|h| h.ref_ == "public.customers");
+        let sem_rank = fused.iter().position(|h| h.ref_ == "public.customers");
+        assert!(sem_rank.is_some());
+        if let (Some(l), Some(s)) = (lex_rank, sem_rank) {
+            assert!(s < l, "RRF should improve customers rank ({s} < {l})");
+        }
     }
 }
