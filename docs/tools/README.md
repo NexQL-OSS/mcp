@@ -1,10 +1,10 @@
 # Tool reference
 
-Active read-only catalog (28 tools — Phase 2–4):
+Active read-only catalog (32 tools — Phase 2–4b):
 
-- **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`
-- **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`
-- **Context:** `list_connections`, `get_current_context`, `switch_connection`, `get_index_status`, `server_settings`
+- **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`
+- **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`, `export_query`, `deep_plan_analysis`
+- **Context:** `list_connections`, `get_current_context`, `switch_connection`, `get_index_status`, `server_settings`, `db_dashboard`
 - **Perf:** `table_stats`, `index_usage`, `list_running_queries`, `find_blocking_locks`, `slow_queries`, `db_health_check`, `suggest_indexes`, `find_unused_indexes`, `bloat_report`
 
 ## Advisory tools (SQL approach)

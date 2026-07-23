@@ -7,10 +7,16 @@ use nexql_index::{
     SearchOptions,
 };
 use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use serde_json::{Value, json};
+use tokio_postgres::types::{FromSql, Kind, Type};
+use rust_decimal::Decimal;
+use uuid::Uuid;
 
 use crate::error::ToolError;
-use crate::plan::{build_explain_sql, extract_plan_metrics};
+use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
+use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
 use crate::registry::ToolName;
 use crate::schema::{ToolSpec, active_tools};
 use crate::session::ToolSession;
@@ -159,6 +165,10 @@ impl ToolRouter {
             ToolName::FindUnusedIndexes => self.find_unused_indexes(&args).await,
             ToolName::BloatReport => self.bloat_report(&args).await,
             ToolName::FindMissingFks => self.find_missing_fks(&args).await,
+            ToolName::ExportQuery => self.export_query(&args).await,
+            ToolName::ListRoles => self.list_roles(&args).await,
+            ToolName::DbDashboard => self.db_dashboard().await,
+            ToolName::DeepPlanAnalysis => self.deep_plan_analysis(&args).await,
         }
     }
 
@@ -640,11 +650,10 @@ impl ToolRouter {
         match client.query(&sql::slow_queries(limit), &[]).await {
             Ok(rows) => Ok(ToolOutcome::ok_json(rows_to_json(&rows))),
             Err(e) => {
-                let message = e.to_string();
-                if message.contains("pg_stat_statements") && message.contains("does not exist") {
+                if let Some(message) = sql::map_stat_statements_error(&e) {
                     Ok(ToolOutcome::ok_json(json!({
-                        "error": "The pg_stat_statements extension is not installed in this database.",
-                        "hint": "An administrator can enable it with: CREATE EXTENSION pg_stat_statements; (requires shared_preload_libraries configuration)."
+                        "error": message,
+                        "hint": message,
                     })))
                 } else {
                     Err(ToolError::Postgres(e))
@@ -704,8 +713,11 @@ impl ToolRouter {
         let explain = build_explain_sql(sql, analyze);
         let outcome = self.run_explain_in_transaction(&explain).await?;
         let rows = outcome.structured.unwrap_or(Value::Null);
-        let plan = rows
-            .as_array()
+        let row_array = rows
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .or_else(|| rows.as_array());
+        let plan = row_array
             .and_then(|a| a.first())
             .and_then(|r| r.get("QUERY PLAN"))
             .cloned()
@@ -820,11 +832,8 @@ impl ToolRouter {
                 slow_queries = rows_to_json(&rows);
             }
             Err(e) => {
-                let message = e.to_string();
-                if message.contains("pg_stat_statements") {
-                    pg_stat_note = Some(
-                        "pg_stat_statements is not installed — install with CREATE EXTENSION pg_stat_statements (requires shared_preload_libraries) for query-level suggestions.".into(),
-                    );
+                if let Some(message) = sql::map_stat_statements_error(&e) {
+                    pg_stat_note = Some(message);
                 } else {
                     return Err(ToolError::Postgres(e));
                 }
@@ -1003,6 +1012,217 @@ impl ToolRouter {
         })))
     }
 
+    async fn list_roles(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let role = args
+            .get("role")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let Some(role_name) = role else {
+            let rows = client.query(sql::list_roles(), &[]).await?;
+            return Ok(ToolOutcome::ok_json(rows_to_json(&rows)));
+        };
+
+        let details = client
+            .query(sql::role_details(), &[&role_name])
+            .await?;
+        if details.is_empty() {
+            return Err(ToolError::Execution(format!(
+                "Role \"{role_name}\" not found"
+            )));
+        }
+        let member_of = client
+            .query(sql::role_member_of(), &[&role_name])
+            .await?;
+        let has_members = client
+            .query(sql::role_has_members(), &[&role_name])
+            .await?;
+        let privileges = client
+            .query(sql::role_table_privileges(), &[&role_name])
+            .await?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "role": rows_to_json(&details).as_array().and_then(|a| a.first().cloned()).unwrap_or(Value::Null),
+            "member_of": rows_to_json(&member_of),
+            "has_members": rows_to_json(&has_members),
+            "table_privileges": rows_to_json(&privileges),
+        })))
+    }
+
+    async fn export_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        require_select_or_with(sql)?;
+
+        let format = args
+            .get("format")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                ExportFormat::parse(s).ok_or_else(|| {
+                    ToolError::InvalidArgs(format!(
+                        "Unsupported format \"{s}\". Use csv, json, or sqlinsert."
+                    ))
+                })
+            })
+            .transpose()?
+            .unwrap_or(ExportFormat::Csv);
+
+        let table_target = match args.get("table").and_then(|v| v.as_str()) {
+            Some(t) if !t.trim().is_empty() => {
+                Some(parse_ref(t).map_err(ToolError::InvalidArgs)?)
+            }
+            _ => None,
+        };
+
+        if format == ExportFormat::SqlInsert && table_target.is_none() {
+            return Err(ToolError::InvalidArgs(
+                "table (schema.name) is required when format=sqlinsert".into(),
+            ));
+        }
+
+        let max_rows = self.session.caps.max_rows;
+        let outcome = self.run_select_internal(sql, Some(max_rows)).await?;
+        if outcome.is_error {
+            return Ok(outcome);
+        }
+
+        let structured = outcome.structured.unwrap_or(Value::Null);
+        let rows_val = structured
+            .get("rows")
+            .cloned()
+            .or_else(|| structured.get("data").and_then(|d| d.get("rows").cloned()))
+            .unwrap_or(Value::Array(vec![]));
+        let rows = rows_val.as_array().cloned().unwrap_or_default();
+        let columns = columns_from_rows(&rows);
+        let truncated = structured
+            .get("truncated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let payload = match format {
+            ExportFormat::Json => json!({
+                "format": format.as_str(),
+                "rowCount": rows.len(),
+                "truncated": truncated,
+                "columns": columns,
+                "rows": rows,
+            }),
+            ExportFormat::Csv => {
+                let content = rows_to_csv(&rows, &columns);
+                let (char_trunc, content) = self.session.caps.truncate_chars(&content);
+                json!({
+                    "format": format.as_str(),
+                    "rowCount": rows.len(),
+                    "truncated": truncated || char_trunc,
+                    "columns": columns,
+                    "content": content,
+                })
+            }
+            ExportFormat::SqlInsert => {
+                let (schema, table) = table_target.expect("checked above");
+                let content = rows_to_sql_insert(&rows, &columns, &schema, &table);
+                let (char_trunc, content) = self.session.caps.truncate_chars(&content);
+                json!({
+                    "format": format.as_str(),
+                    "rowCount": rows.len(),
+                    "truncated": truncated || char_trunc,
+                    "table": format!("{schema}.{table}"),
+                    "columns": columns,
+                    "content": content,
+                })
+            }
+        };
+
+        Ok(ToolOutcome::ok_json(payload))
+    }
+
+    async fn db_dashboard(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let sections: &[(&str, &str)] = &[
+            ("db_info", sql::dashboard_db_info()),
+            ("connection_states", sql::connection_states()),
+            ("top_tables", sql::dashboard_top_tables()),
+            ("object_counts", sql::dashboard_object_counts()),
+            ("active_queries", sql::dashboard_active_queries()),
+            ("blocking_locks", sql::blocking_locks()),
+            ("max_connections", sql::dashboard_max_connections()),
+            ("extension_count", sql::dashboard_extension_count()),
+            ("cache", sql::cache_hit_ratio()),
+        ];
+        let mut report = serde_json::Map::new();
+        for (key, q) in sections {
+            match client.query(*q, &[]).await {
+                Ok(rows) => {
+                    report.insert((*key).into(), rows_to_json(&rows));
+                }
+                Err(e) => {
+                    report.insert((*key).into(), json!({ "error": e.to_string() }));
+                }
+            }
+        }
+
+        // Normalize single-row sections to objects for agents.
+        for key in ["db_info", "object_counts", "extension_count", "cache"] {
+            if let Some(Value::Array(arr)) = report.get(key).cloned() {
+                if arr.len() == 1 {
+                    report.insert(key.into(), arr.into_iter().next().unwrap());
+                }
+            }
+        }
+        if let Some(Value::Array(arr)) = report.get("max_connections").cloned() {
+            if let Some(row) = arr.first() {
+                report.insert(
+                    "max_connections".into(),
+                    row.get("max_connections")
+                        .cloned()
+                        .unwrap_or_else(|| row.clone()),
+                );
+            }
+        }
+
+        Ok(ToolOutcome::ok_json(Value::Object(report)))
+    }
+
+    async fn deep_plan_analysis(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        require_select_or_with(sql)?;
+        let analyze = args
+            .get("analyze")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let explain = build_explain_sql(sql, analyze);
+        let outcome = self.run_explain_in_transaction(&explain).await?;
+        let rows = outcome.structured.unwrap_or(Value::Null);
+        let row_array = rows
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .or_else(|| rows.as_array());
+        let plan = row_array
+            .and_then(|a| a.first())
+            .and_then(|r| r.get("QUERY PLAN"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let deep = analyze_deep_plan(&plan, sql)
+            .or_else(|| analyze_deep_plan(&rows, sql))
+            .ok_or_else(|| {
+                ToolError::Execution("Could not parse EXPLAIN JSON plan for deep analysis".into())
+            })?;
+        let metrics = extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
+        Ok(ToolOutcome::ok_json(json!({
+            "deep": deep,
+            "metrics": metrics,
+            "plan": plan,
+            "analyzed": analyze,
+        })))
+    }
+
     async fn run_select_internal(
         &self,
         sql: &str,
@@ -1110,38 +1330,245 @@ fn rows_to_json(rows: &[tokio_postgres::Row]) -> Value {
     Value::Array(arr)
 }
 
+/// Detect SQL NULL for any column type without committing to a concrete `FromSql` type.
+enum SqlNullness {
+    Null,
+    Value,
+}
+
+impl<'a> FromSql<'a> for SqlNullness {
+    fn from_sql(
+        _: &Type,
+        _: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(SqlNullness::Value)
+    }
+
+    fn from_sql_null(_: &Type) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(SqlNullness::Null)
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+}
+
+fn try_cell<T, F>(row: &tokio_postgres::Row, idx: usize, map: F) -> Option<Value>
+where
+    T: for<'a> FromSql<'a>,
+    F: FnOnce(T) -> Value,
+{
+    match row.try_get::<_, Option<T>>(idx) {
+        Ok(Some(v)) => Some(map(v)),
+        Ok(None) => Some(Value::Null),
+        Err(_) => None,
+    }
+}
+
 fn cell_to_json(row: &tokio_postgres::Row, idx: usize) -> Value {
-    if let Ok(v) = row.try_get::<_, Option<String>>(idx) {
-        return match v {
-            Some(s) => Value::String(s),
-            None => Value::Null,
-        };
+    let col_type = row.columns()[idx].type_();
+    if matches!(row.try_get::<_, SqlNullness>(idx), Ok(SqlNullness::Null)) {
+        return Value::Null;
     }
-    if let Ok(v) = row.try_get::<_, Option<i32>>(idx) {
-        return match v {
-            Some(n) => json!(n),
-            None => Value::Null,
-        };
+
+    if let Kind::Array(elem) = col_type.kind() {
+        return array_cell_to_json(row, idx, elem);
     }
-    if let Ok(v) = row.try_get::<_, Option<i64>>(idx) {
-        return match v {
-            Some(n) => json!(n),
-            None => Value::Null,
-        };
+
+    if let Some(v) = match *col_type {
+        Type::BOOL => try_cell::<bool, _>(row, idx, |b| json!(b)),
+        Type::INT2 => try_cell::<i16, _>(row, idx, |n| json!(n)),
+        Type::INT4 | Type::OID => try_cell::<i32, _>(row, idx, |n| json!(n)),
+        Type::INT8 => try_cell::<i64, _>(row, idx, |n| json!(n)),
+        Type::FLOAT4 => try_cell::<f32, _>(row, idx, |n| json!(n)),
+        Type::FLOAT8 => try_cell::<f64, _>(row, idx, |n| json!(n)),
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => {
+            try_cell::<String, _>(row, idx, Value::String)
+        }
+        Type::TIMESTAMP => try_cell::<NaiveDateTime, _>(row, idx, |t| {
+            json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string())
+        }),
+        Type::TIMESTAMPTZ => try_cell::<DateTime<FixedOffset>, _>(row, idx, |t| json!(t.to_rfc3339())),
+        Type::DATE => try_cell::<NaiveDate, _>(row, idx, |d| json!(d.format("%Y-%m-%d").to_string())),
+        Type::TIME => try_cell::<NaiveTime, _>(row, idx, |t| json!(t.format("%H:%M:%S%.f").to_string())),
+        Type::UUID => try_cell::<Uuid, _>(row, idx, |u| json!(u.to_string())),
+        Type::JSON | Type::JSONB => try_cell::<Value, _>(row, idx, |j| j),
+        Type::NUMERIC => try_cell::<Decimal, _>(row, idx, |d| json!(d.to_string())),
+        Type::MONEY => try_cell::<i64, _>(row, idx, |v| json!(money_to_string(v))),
+        Type::BYTEA => try_cell::<Vec<u8>, _>(row, idx, |b| json!(BASE64.encode(b))),
+        _ => None,
+    } {
+        return v;
     }
-    if let Ok(v) = row.try_get::<_, Option<bool>>(idx) {
-        return match v {
-            Some(b) => json!(b),
-            None => Value::Null,
-        };
+
+    cell_to_json_untyped(row, idx, col_type)
+}
+
+fn array_cell_to_json(row: &tokio_postgres::Row, idx: usize, elem: &Type) -> Value {
+    let try_array = |result: Result<Option<Vec<Value>>, tokio_postgres::Error>| -> Option<Value> {
+        match result {
+            Ok(Some(items)) => Some(Value::Array(items)),
+            Ok(None) => Some(Value::Null),
+            Err(_) => None,
+        }
+    };
+
+    match *elem {
+        Type::BOOL => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<bool>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::INT2 => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<i16>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::INT4 | Type::OID => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<i32>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::INT8 => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<i64>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::FLOAT4 => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<f32>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|n| json!(n)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::FLOAT8 => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<f64>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|n| json!(n)).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<String>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(Value::String).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::UUID => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<Uuid>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|u| json!(u.to_string())).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::TIMESTAMP => {
+            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDateTime>>>(idx).map(
+                |v| {
+                    v.map(|a| {
+                        a.into_iter()
+                            .map(|t| json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string()))
+                            .collect()
+                    })
+                },
+            )) {
+                return v;
+            }
+        }
+        Type::TIMESTAMPTZ => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<DateTime<FixedOffset>>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|t| json!(t.to_rfc3339())).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::DATE => {
+            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDate>>>(idx).map(|v| {
+                v.map(|a| {
+                    a.into_iter()
+                        .map(|d| json!(d.format("%Y-%m-%d").to_string()))
+                        .collect()
+                })
+            })) {
+                return v;
+            }
+        }
+        Type::JSON | Type::JSONB => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<Value>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|j| j).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::NUMERIC => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<Decimal>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|d| json!(d.to_string())).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::MONEY => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<i64>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|m| json!(money_to_string(m))).collect())),
+            ) {
+                return v;
+            }
+        }
+        Type::BYTEA => {
+            if let Some(v) = try_array(
+                row.try_get::<_, Option<Vec<Vec<u8>>>>(idx).map(|v| {
+                    v.map(|a| {
+                        a.into_iter()
+                            .map(|b| json!(BASE64.encode(b)))
+                            .collect()
+                    })
+                }),
+            ) {
+                return v;
+            }
+        }
+        _ => {}
     }
-    if let Ok(v) = row.try_get::<_, Option<f64>>(idx) {
-        return match v {
-            Some(n) => json!(n),
-            None => Value::Null,
-        };
+
+    cell_to_json_untyped(row, idx, row.columns()[idx].type_())
+}
+
+/// PostgreSQL `money` is int64 in ten-thousandths of the base currency unit.
+fn money_to_string(v: i64) -> String {
+    let sign = if v < 0 { "-" } else { "" };
+    let abs = v.unsigned_abs();
+    format!("{}{}.{:04}", sign, abs / 10_000, abs % 10_000)
+}
+
+/// Last-resort decoding for unknown or composite Postgres types — never silent null for non-null cells.
+fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -> Value {
+    if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+        return Value::String(s);
     }
-    Value::Null
+    json!({
+        "__untyped": true,
+        "type": pg_type.name()
+    })
 }
 
 #[cfg(test)]
@@ -1201,7 +1628,7 @@ mod tests {
     fn router_specs_include_phase4() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 28);
+        assert_eq!(router.specs().len(), 32);
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));
@@ -1213,6 +1640,10 @@ mod tests {
         assert!(names.contains(&"find_unused_indexes"));
         assert!(names.contains(&"bloat_report"));
         assert!(names.contains(&"find_missing_fks"));
+        assert!(names.contains(&"export_query"));
+        assert!(names.contains(&"list_roles"));
+        assert!(names.contains(&"db_dashboard"));
+        assert!(names.contains(&"deep_plan_analysis"));
     }
 
     #[tokio::test]

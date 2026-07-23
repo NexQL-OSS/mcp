@@ -60,6 +60,20 @@ struct SessionInner {
     pools: HashMap<String, Pool>,
 }
 
+fn pool_key(connection_id: &str, database: &str) -> String {
+    format!("{connection_id}\0{database}")
+}
+
+fn params_for_database(base: &ConnectionParams, database: &str) -> ConnectionParams {
+    let mut params = base.clone();
+    params.dbname = Some(database.to_string());
+    // `to_url()` prefers `url` over `dbname`; drop stale URL path when host fields exist.
+    if params.host.is_some() {
+        params.url = None;
+    }
+    params
+}
+
 impl ToolSession {
     pub async fn from_resolved(
         resolved: ResolvedConnection,
@@ -119,8 +133,9 @@ impl ToolSession {
         let active = active_id.unwrap_or_else(|| connections[0].id.clone());
         let mut pools = HashMap::new();
         for c in &connections {
+            let database = c.database.as_deref().unwrap_or("postgres");
             let pool = create_pool(&c.params, &pool_opts).await?;
-            pools.insert(c.id.clone(), pool);
+            pools.insert(pool_key(&c.id, database), pool);
         }
         let database = connections
             .iter()
@@ -161,23 +176,27 @@ impl ToolSession {
                     "Connection not found for ID: {connection_id} — call list_connections"
                 ))
             })?;
-        let mut g = self.inner.write().await;
-        if !g.pools.contains_key(connection_id) {
-            let pool = create_pool(&conn.params, &self.pool_opts).await?;
-            g.pools.insert(connection_id.to_string(), pool);
-        }
-        g.active_id = connection_id.to_string();
-        g.database = database
+        let target_db = database
             .or_else(|| conn.database.clone())
             .unwrap_or_else(|| "postgres".into());
+        let key = pool_key(connection_id, &target_db);
+        let mut g = self.inner.write().await;
+        if !g.pools.contains_key(&key) {
+            let params = params_for_database(&conn.params, &target_db);
+            let pool = create_pool(&params, &self.pool_opts).await?;
+            g.pools.insert(key, pool);
+        }
+        g.active_id = connection_id.to_string();
+        g.database = target_db;
         Ok(())
     }
 
     pub async fn checkout(&self) -> Result<Object, ToolError> {
         let g = self.inner.read().await;
+        let key = pool_key(&g.active_id, &g.database);
         let pool = g
             .pools
-            .get(&g.active_id)
+            .get(&key)
             .ok_or_else(|| ToolError::Execution("no active pool".into()))?;
         Ok(checkout_guarded(pool, &self.pool_opts).await?)
     }

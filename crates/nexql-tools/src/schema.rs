@@ -172,11 +172,42 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
     ]
 }
 
-/// Full tools/list surface for the current phase (catalog + index + Phase 4).
+/// Phase 4b read-only breadth (export / role introspection).
+pub fn phase4b_tools() -> Vec<ToolSpec> {
+    vec![
+        ToolSpec {
+            name: ToolName::ExportQuery,
+            description: "Run a read-only SELECT/WITH and format results as CSV, JSON, or SQL INSERT statements. Honors max-row / max-char caps. For sqlinsert, pass table as schema.name.",
+            input_schema: object_schema(&[
+                ("sql", "string", true),
+                ("format", "string", false),
+                ("table", "string", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::ListRoles,
+            description: "List PostgreSQL roles (attributes). Pass role to get memberships and table privileges for one role.",
+            input_schema: object_schema(&[("role", "string", false)]),
+        },
+        ToolSpec {
+            name: ToolName::DbDashboard,
+            description: "One-shot live metrics bundle: DB size/owner, connection-state breakdown, top tables by size, object counts, active queries, and blocking locks. Soft-fails per section.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::DeepPlanAnalysis,
+            description: "Run EXPLAIN (ANALYZE by default) and return severity-graded findings: estimate skew, expensive function/CTE/subquery nodes, and recommendations. Set analyze=false for plan-only (no execution).",
+            input_schema: object_schema(&[("sql", "string", true), ("analyze", "boolean", false)]),
+        },
+    ]
+}
+
+/// Full tools/list surface for the current phase (catalog + index + Phase 4 + 4b).
 pub fn active_tools() -> Vec<ToolSpec> {
     let mut specs = phase2_catalog_tools();
     specs.extend(phase3_index_tools());
     specs.extend(phase4_tools());
+    specs.extend(phase4b_tools());
     specs
 }
 
@@ -202,9 +233,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_twenty_eight() {
+    fn active_tools_lists_thirty_two() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 28);
+        assert_eq!(specs.len(), 32);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);

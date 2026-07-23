@@ -6,6 +6,7 @@
 pub mod completions;
 pub mod error;
 pub mod exec;
+pub mod export;
 pub mod plan;
 pub mod prompts;
 pub mod registry;
@@ -24,6 +25,6 @@ pub use resources::{
     decode_cursor, encode_cursor_state, parse_uri,
 };
 pub use schema::{
-    ToolSpec, active_tools, phase2_catalog_tools, phase3_index_tools, phase4_tools,
+    ToolSpec, active_tools, phase2_catalog_tools, phase3_index_tools, phase4_tools, phase4b_tools,
 };
 pub use session::{ConnectionInfo, ToolSession, default_index_root};

@@ -105,7 +105,8 @@ pub fn missing_object_message(ref_: &str) -> String {
 pub fn no_samples_message(ref_: &str, col: &str) -> String {
     format!(
         "No profiled sample values in index for \"{ref_}\".\"{col}\". \
-         Rebuild with stats/profiles depth, or sample from a live connection."
+         Rebuild with: nexql-mcp index build --depth profiles \
+         (or nexql-mcp index build with profiles depth when --depth is available)."
     )
 }
 

@@ -1,6 +1,6 @@
 //! Tool name catalog for the MCP surface.
 
-/// Read-only tool surface (catalog + index + Phase 4 monitoring/DDL).
+/// Read-only tool surface (catalog + index + Phase 4 monitoring/DDL + Phase 4b breadth).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolName {
     SearchSchema,
@@ -31,6 +31,10 @@ pub enum ToolName {
     FindUnusedIndexes,
     BloatReport,
     FindMissingFks,
+    ExportQuery,
+    ListRoles,
+    DbDashboard,
+    DeepPlanAnalysis,
 }
 
 impl ToolName {
@@ -73,6 +77,14 @@ impl ToolName {
         Self::FindMissingFks,
     ];
 
+    /// Phase 4b read-only breadth (export / roles / dashboard; more tools land here).
+    pub const PHASE4B: &'static [ToolName] = &[
+        Self::ExportQuery,
+        Self::ListRoles,
+        Self::DbDashboard,
+        Self::DeepPlanAnalysis,
+    ];
+
     /// Full tools/list surface for the current phase.
     pub const ACTIVE: &'static [ToolName] = &[
         Self::ListConnections,
@@ -103,6 +115,10 @@ impl ToolName {
         Self::FindUnusedIndexes,
         Self::BloatReport,
         Self::FindMissingFks,
+        Self::ExportQuery,
+        Self::ListRoles,
+        Self::DbDashboard,
+        Self::DeepPlanAnalysis,
     ];
 
     pub const READ_ONLY: &'static [ToolName] = Self::ACTIVE;
@@ -137,6 +153,10 @@ impl ToolName {
             Self::FindUnusedIndexes => "find_unused_indexes",
             Self::BloatReport => "bloat_report",
             Self::FindMissingFks => "find_missing_fks",
+            Self::ExportQuery => "export_query",
+            Self::ListRoles => "list_roles",
+            Self::DbDashboard => "db_dashboard",
+            Self::DeepPlanAnalysis => "deep_plan_analysis",
         }
     }
 
@@ -171,11 +191,19 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_twenty_eight_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 28);
+    fn phase4b_has_four_tools() {
+        assert_eq!(ToolName::PHASE4B.len(), 4);
+    }
+
+    #[test]
+    fn active_surface_is_thirty_two_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 32);
         assert_eq!(
             ToolName::ACTIVE.len(),
-            ToolName::PHASE2.len() + ToolName::PHASE3.len() + ToolName::PHASE4.len()
+            ToolName::PHASE2.len()
+                + ToolName::PHASE3.len()
+                + ToolName::PHASE4.len()
+                + ToolName::PHASE4B.len()
         );
     }
 }

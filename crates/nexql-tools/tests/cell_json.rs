@@ -1,9 +1,8 @@
-//! Integration: Phase 2 catalog tools against a throwaway Postgres.
+//! Integration: `cell_to_json` / `rows_to_json` against typed Postgres columns.
 
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nexql_conn::params_from_url;
@@ -96,7 +95,7 @@ fn start_temp_pg() -> Option<TempPg> {
     None
 }
 
-async fn router_for(url: &str) -> Arc<ToolRouter> {
+async fn router_for(url: &str) -> ToolRouter {
     let params = params_from_url(url).unwrap();
     let info = ConnectionInfo {
         id: "default".into(),
@@ -114,65 +113,111 @@ async fn router_for(url: &str) -> Arc<ToolRouter> {
     )
     .await
     .unwrap();
-    // seed
-    {
-        let client = session.checkout().await.unwrap();
-        client
-            .batch_execute(
-                "CREATE TABLE IF NOT EXISTS public.users (id serial PRIMARY KEY, email text);
-                 CREATE TABLE IF NOT EXISTS public.orders (
-                   id serial PRIMARY KEY,
-                   user_id int REFERENCES public.users(id)
-                 );",
-            )
-            .await
-            .unwrap();
-    }
-    Arc::new(ToolRouter::new(session))
+    ToolRouter::new(session)
+}
+
+fn row_value<'a>(out: &'a nexql_tools::ToolOutcome, column: &str) -> &'a serde_json::Value {
+    let structured = out.structured.as_ref().expect("structured content");
+    let rows = structured
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .expect("rows array");
+    rows[0].get(column).unwrap_or_else(|| panic!("column {column}"))
 }
 
 #[tokio::test]
-async fn phase2_catalog_tools_smoke() {
+async fn cell_to_json_handles_postgres_types() {
     let Some(pg) = start_temp_pg() else {
         eprintln!("skip: initdb/postgres unavailable");
         return;
     };
     let router = router_for(&pg.url).await;
-    assert_eq!(router.specs().len(), 32);
 
-    let ctx = router.call("get_current_context", json!({})).await;
-    assert!(!ctx.is_error, "{}", ctx.text);
-
-    let schemas = router.call("list_schemas", json!({})).await;
-    assert!(!schemas.is_error, "{}", schemas.text);
-    assert!(schemas.text.contains("public"));
-
-    let objects = router
-        .call("list_objects", json!({"schema": "public", "kind": "table"}))
-        .await;
-    assert!(!objects.is_error, "{}", objects.text);
-    assert!(objects.text.contains("users"));
-
-    let select = router
-        .call("run_select", json!({"sql": "SELECT 1 AS n"}))
-        .await;
-    assert!(!select.is_error, "{}", select.text);
-
-    let dml = router
-        .call("run_select", json!({"sql": "DELETE FROM public.users"}))
-        .await;
-    assert!(dml.is_error, "DML must fail: {}", dml.text);
-
-    let explain = router
-        .call("explain_query", json!({"sql": "SELECT 1"}))
-        .await;
-    assert!(!explain.is_error, "{}", explain.text);
-
-    let stacked = router
+    let out = router
         .call(
             "run_select",
-            json!({"sql": "SELECT 1; DROP TABLE public.users"}),
+            json!({
+                "sql": "SELECT \
+                    now()::timestamptz AS ts_tz, \
+                    now()::timestamp AS ts, \
+                    current_date AS d, \
+                    gen_random_uuid() AS uid, \
+                    '{}'::jsonb AS jb, \
+                    1.5::numeric AS num, \
+                    ARRAY[1, 2] AS arr, \
+                    true AS flag"
+            }),
         )
         .await;
-    assert!(stacked.is_error, "stacked must fail: {}", stacked.text);
+    assert!(!out.is_error, "{}", out.text);
+
+    assert!(
+        !row_value(&out, "ts_tz").is_null(),
+        "timestamptz should not be null: {}",
+        out.text
+    );
+    assert!(
+        row_value(&out, "ts_tz").is_string(),
+        "timestamptz should be ISO string: {}",
+        out.text
+    );
+
+    assert!(!row_value(&out, "ts").is_null(), "timestamp: {}", out.text);
+    assert!(!row_value(&out, "d").is_null(), "date: {}", out.text);
+    assert!(!row_value(&out, "uid").is_null(), "uuid: {}", out.text);
+    assert!(
+        row_value(&out, "uid").is_string(),
+        "uuid should be string: {}",
+        out.text
+    );
+
+    assert!(!row_value(&out, "jb").is_null(), "jsonb: {}", out.text);
+    assert!(
+        row_value(&out, "jb").is_object(),
+        "jsonb should be object: {}",
+        out.text
+    );
+
+    assert!(!row_value(&out, "num").is_null(), "numeric: {}", out.text);
+    assert!(
+        row_value(&out, "num").is_string(),
+        "numeric should be text: {}",
+        out.text
+    );
+
+    let arr = row_value(&out, "arr").as_array().expect("int array");
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0], json!(1));
+    assert_eq!(arr[1], json!(2));
+
+    assert_eq!(row_value(&out, "flag"), &json!(true));
+}
+
+#[tokio::test]
+async fn explain_json_plan_is_not_empty() {
+    let Some(pg) = start_temp_pg() else {
+        eprintln!("skip: initdb/postgres unavailable");
+        return;
+    };
+    let router = router_for(&pg.url).await;
+
+    let out = router
+        .call(
+            "run_select",
+            json!({ "sql": "EXPLAIN (FORMAT JSON) SELECT 1 AS n" }),
+        )
+        .await;
+    assert!(!out.is_error, "{}", out.text);
+
+    let plan = row_value(&out, "QUERY PLAN");
+    assert!(
+        !plan.is_null(),
+        "EXPLAIN JSON plan must not be null: {}",
+        out.text
+    );
+    assert!(
+        plan.is_array() || plan.is_object(),
+        "EXPLAIN JSON plan should be structured JSON: {}",
+        out.text
+    );
 }

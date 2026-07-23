@@ -19,6 +19,9 @@ tokio-postgres = { workspace = true }
 tracing = { workspace = true }
 deadpool-postgres = { workspace = true }
 base64 = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rust_decimal = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

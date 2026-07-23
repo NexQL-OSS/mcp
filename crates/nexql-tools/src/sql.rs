@@ -332,6 +332,181 @@ ORDER BY e.extname
     .trim()
 }
 
+/// All roles (ported from core `QueryBuilder.databaseRoles`).
+pub fn list_roles() -> &'static str {
+    r#"
+SELECT
+  r.rolname AS role,
+  r.rolsuper AS superuser,
+  r.rolcreatedb AS create_db,
+  r.rolcreaterole AS create_role,
+  r.rolcanlogin AS can_login,
+  r.rolreplication AS replication,
+  r.rolbypassrls AS bypass_rls,
+  r.rolinherit AS inherit,
+  r.rolconnlimit AS connection_limit,
+  r.rolvaliduntil AS valid_until
+FROM pg_roles r
+ORDER BY r.rolname
+"#
+    .trim()
+}
+
+/// Single-role attributes (`$1` = role name).
+pub fn role_details() -> &'static str {
+    r#"
+SELECT
+  r.rolname AS role,
+  r.rolsuper AS superuser,
+  r.rolcreatedb AS create_db,
+  r.rolcreaterole AS create_role,
+  r.rolcanlogin AS can_login,
+  r.rolreplication AS replication,
+  r.rolbypassrls AS bypass_rls,
+  r.rolinherit AS inherit,
+  r.rolconnlimit AS connection_limit,
+  r.rolvaliduntil AS valid_until,
+  pg_catalog.shobj_description(r.oid, 'pg_authid') AS description
+FROM pg_roles r
+WHERE r.rolname = $1
+"#
+    .trim()
+}
+
+/// Roles this role is a member of (`$1` = role name).
+pub fn role_member_of() -> &'static str {
+    r#"
+SELECT
+  m.rolname AS member_of,
+  g.rolname AS granted_by,
+  am.admin_option AS admin_option
+FROM pg_auth_members am
+JOIN pg_roles r ON r.oid = am.member
+JOIN pg_roles m ON m.oid = am.roleid
+JOIN pg_roles g ON g.oid = am.grantor
+WHERE r.rolname = $1
+ORDER BY m.rolname
+"#
+    .trim()
+}
+
+/// Roles that are members of this role (`$1` = role name).
+pub fn role_has_members() -> &'static str {
+    r#"
+SELECT
+  m.rolname AS has_member,
+  g.rolname AS granted_by,
+  am.admin_option AS admin_option
+FROM pg_auth_members am
+JOIN pg_roles r ON r.oid = am.roleid
+JOIN pg_roles m ON m.oid = am.member
+JOIN pg_roles g ON g.oid = am.grantor
+WHERE r.rolname = $1
+ORDER BY m.rolname
+"#
+    .trim()
+}
+
+/// Table privileges granted to a role (`$1` = role name). Cap via LIMIT in caller if needed.
+pub fn role_table_privileges() -> &'static str {
+    r#"
+SELECT
+  table_schema AS schema,
+  table_name AS table_name,
+  privilege_type AS privilege,
+  is_grantable AS grantable
+FROM information_schema.table_privileges
+WHERE grantee = $1
+ORDER BY table_schema, table_name, privilege_type
+LIMIT 500
+"#
+    .trim()
+}
+
+/// Dashboard: database owner + pretty size for `current_database()`.
+pub fn dashboard_db_info() -> &'static str {
+    r#"
+SELECT
+  current_database() AS db_name,
+  pg_catalog.pg_get_userbyid(d.datdba) AS owner,
+  pg_size_pretty(pg_database_size(d.datname)) AS size,
+  pg_database_size(d.datname) AS size_bytes
+FROM pg_database d
+WHERE d.datname = current_database()
+"#
+    .trim()
+}
+
+/// Dashboard: top tables by total relation size.
+pub fn dashboard_top_tables() -> &'static str {
+    r#"
+SELECT schemaname || '.' || tablename AS name,
+       pg_size_pretty(pg_total_relation_size(
+         (quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass
+       )) AS size,
+       pg_total_relation_size(
+         (quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass
+       ) AS raw_size
+FROM pg_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY raw_size DESC
+LIMIT 10
+"#
+    .trim()
+}
+
+/// Dashboard: object counts (non-system).
+pub fn dashboard_object_counts() -> &'static str {
+    r#"
+SELECT
+  (SELECT count(*) FROM pg_namespace
+    WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+      AND nspname NOT LIKE 'pg_%') AS schemas,
+  (SELECT count(*) FROM pg_tables
+    WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) AS tables,
+  (SELECT count(*) FROM pg_views
+    WHERE schemaname NOT IN ('pg_catalog', 'information_schema')) AS views,
+  (SELECT count(*) FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')) AS functions,
+  (SELECT count(*) FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relkind = 'S'
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')) AS sequences
+"#
+    .trim()
+}
+
+/// Dashboard: backends for current DB (incl. idle), capped.
+pub fn dashboard_active_queries() -> &'static str {
+    r#"
+SELECT pid, usename, datname, state,
+       wait_event_type, wait_event,
+       xact_start,
+       (now() - query_start)::text AS duration,
+       query_start,
+       LEFT(query, 500) AS query
+FROM pg_stat_activity
+WHERE pid != pg_backend_pid()
+  AND datname = current_database()
+ORDER BY state = 'active' DESC, query_start ASC
+LIMIT 50
+"#
+    .trim()
+}
+
+pub fn dashboard_max_connections() -> &'static str {
+    r#"SHOW max_connections"#
+}
+
+pub fn dashboard_extension_count() -> &'static str {
+    r#"
+SELECT count(*)::int AS count
+FROM pg_extension
+"#
+    .trim()
+}
+
 pub fn server_settings() -> &'static str {
     r#"
 SELECT name, setting, unit, category, short_desc
@@ -539,9 +714,35 @@ LIMIT {capped}
     .to_owned()
 }
 
+/// Map tokio-postgres errors from `pg_stat_statements` queries to actionable guidance.
+pub fn map_stat_statements_error(e: impl std::fmt::Display) -> Option<String> {
+    let message = e.to_string();
+    if message.to_ascii_lowercase().contains("pg_stat_statements") {
+        Some(
+            "pg_stat_statements is not available — CREATE EXTENSION pg_stat_statements; \
+             (and GRANT) or ignore slow query suggestions."
+                .into(),
+        )
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_stat_statements_error_matches_extension_errors() {
+        let msg = map_stat_statements_error("relation \"pg_stat_statements\" does not exist");
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("CREATE EXTENSION pg_stat_statements"));
+    }
+
+    #[test]
+    fn map_stat_statements_error_ignores_unrelated() {
+        assert!(map_stat_statements_error("connection refused").is_none());
+    }
 
     #[test]
     fn parse_ref_accepts_schema_dot_name() {

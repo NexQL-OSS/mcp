@@ -1,15 +1,15 @@
-//! Integration: Phase 2 catalog tools against a throwaway Postgres.
+//! Integration: `switch_connection` must pool by (connection_id, database).
 
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use std::sync::Arc;
 
 use nexql_conn::params_from_url;
 use nexql_policy::{AccessMode, PolicyCaps};
-use nexql_tools::{ConnectionInfo, ToolRouter, ToolSession};
-use serde_json::json;
+use nexql_tools::{ConnectionInfo, ToolSession};
 use tempfile::TempDir;
 
 struct TempPg {
@@ -96,7 +96,7 @@ fn start_temp_pg() -> Option<TempPg> {
     None
 }
 
-async fn router_for(url: &str) -> Arc<ToolRouter> {
+async fn session_for(url: &str) -> Arc<ToolSession> {
     let params = params_from_url(url).unwrap();
     let info = ConnectionInfo {
         id: "default".into(),
@@ -106,73 +106,74 @@ async fn router_for(url: &str) -> Arc<ToolRouter> {
         database: params.dbname.clone(),
         params,
     };
-    let session = ToolSession::from_connections(
+    ToolSession::from_connections(
         vec![info],
         AccessMode::Read,
-        PolicyCaps::default().with_max_rows(10),
+        PolicyCaps::default(),
         None,
     )
     .await
-    .unwrap();
-    // seed
-    {
-        let client = session.checkout().await.unwrap();
-        client
-            .batch_execute(
-                "CREATE TABLE IF NOT EXISTS public.users (id serial PRIMARY KEY, email text);
-                 CREATE TABLE IF NOT EXISTS public.orders (
-                   id serial PRIMARY KEY,
-                   user_id int REFERENCES public.users(id)
-                 );",
-            )
-            .await
-            .unwrap();
-    }
-    Arc::new(ToolRouter::new(session))
+    .unwrap()
 }
 
 #[tokio::test]
-async fn phase2_catalog_tools_smoke() {
+async fn switch_connection_uses_target_database() {
     let Some(pg) = start_temp_pg() else {
         eprintln!("skip: initdb/postgres unavailable");
         return;
     };
-    let router = router_for(&pg.url).await;
-    assert_eq!(router.specs().len(), 32);
 
-    let ctx = router.call("get_current_context", json!({})).await;
-    assert!(!ctx.is_error, "{}", ctx.text);
-
-    let schemas = router.call("list_schemas", json!({})).await;
-    assert!(!schemas.is_error, "{}", schemas.text);
-    assert!(schemas.text.contains("public"));
-
-    let objects = router
-        .call("list_objects", json!({"schema": "public", "kind": "table"}))
-        .await;
-    assert!(!objects.is_error, "{}", objects.text);
-    assert!(objects.text.contains("users"));
-
-    let select = router
-        .call("run_select", json!({"sql": "SELECT 1 AS n"}))
-        .await;
-    assert!(!select.is_error, "{}", select.text);
-
-    let dml = router
-        .call("run_select", json!({"sql": "DELETE FROM public.users"}))
-        .await;
-    assert!(dml.is_error, "DML must fail: {}", dml.text);
-
-    let explain = router
-        .call("explain_query", json!({"sql": "SELECT 1"}))
-        .await;
-    assert!(!explain.is_error, "{}", explain.text);
-
-    let stacked = router
-        .call(
-            "run_select",
-            json!({"sql": "SELECT 1; DROP TABLE public.users"}),
+    {
+        let params = params_from_url(&pg.url).unwrap();
+        let bootstrap = ToolSession::from_connections(
+            vec![ConnectionInfo {
+                id: "default".into(),
+                name: "default".into(),
+                host: params.host.clone(),
+                port: params.port,
+                database: params.dbname.clone(),
+                params,
+            }],
+            AccessMode::Write,
+            PolicyCaps::default(),
+            None,
         )
-        .await;
-    assert!(stacked.is_error, "stacked must fail: {}", stacked.text);
+        .await
+        .unwrap();
+        let client = bootstrap.checkout().await.unwrap();
+        client
+            .batch_execute("CREATE DATABASE nexql_switch_other")
+            .await
+            .unwrap();
+    }
+
+    let session = session_for(&pg.url).await;
+
+    let client = session.checkout().await.unwrap();
+    let row = client
+        .query_one("SELECT current_database()", &[])
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "postgres");
+
+    session
+        .switch("default", Some("nexql_switch_other".into()))
+        .await
+        .unwrap();
+
+    let client = session.checkout().await.unwrap();
+    let row = client
+        .query_one("SELECT current_database()", &[])
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "nexql_switch_other");
+
+    session.switch("default", Some("postgres".into())).await.unwrap();
+
+    let client = session.checkout().await.unwrap();
+    let row = client
+        .query_one("SELECT current_database()", &[])
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "postgres");
 }

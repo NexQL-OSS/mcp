@@ -140,9 +140,37 @@ enum Commands {
     },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+enum CliBuildDepth {
+    #[default]
+    Structure,
+    Stats,
+    Profiles,
+}
+
+impl From<CliBuildDepth> for BuildDepth {
+    fn from(d: CliBuildDepth) -> Self {
+        match d {
+            CliBuildDepth::Structure => Self::Structure,
+            CliBuildDepth::Stats => Self::Stats,
+            CliBuildDepth::Profiles => Self::Profiles,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum IndexAction {
-    Build,
+    Build {
+        /// Index depth: structure | stats | profiles (profiles enables sample_values).
+        /// Env: `NEXQL_MCP_INDEX_DEPTH`.
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = CliBuildDepth::Structure,
+            env = "NEXQL_MCP_INDEX_DEPTH"
+        )]
+        depth: CliBuildDepth,
+    },
     Status,
     Refresh,
     Clear {
@@ -426,7 +454,7 @@ async fn run_index_action(
     action: &IndexAction,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        IndexAction::Build => run_index_build(cli).await,
+        IndexAction::Build { depth } => run_index_build(cli, (*depth).into()).await,
         IndexAction::Status => run_index_status(cli).await,
         IndexAction::Refresh => run_index_refresh(cli).await,
         IndexAction::Clear { all } => run_index_clear(cli, *all).await,
@@ -446,7 +474,12 @@ fn index_ids(resolved: &ResolvedConnection) -> (String, String) {
     (connection_id, database)
 }
 
-fn default_build_request(connection_id: String, database: String, embeddings: bool) -> BuildRequest {
+fn default_build_request(
+    connection_id: String,
+    database: String,
+    depth: BuildDepth,
+    embeddings: bool,
+) -> BuildRequest {
     BuildRequest {
         connection_id,
         database,
@@ -455,7 +488,7 @@ fn default_build_request(connection_id: String, database: String, embeddings: bo
             excluded_objects: vec![],
             pii_excluded_columns: vec![],
         },
-        depth: BuildDepth::Structure,
+        depth,
         build_mode: BuildMode::Guided,
         environment: "development".into(),
         embeddings,
@@ -515,10 +548,13 @@ async fn run_build_request(
     Ok(())
 }
 
-async fn run_index_build(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_index_build(
+    cli: &Cli,
+    depth: BuildDepth,
+) -> Result<(), Box<dyn std::error::Error>> {
     let resolved = resolve(&resolve_inputs(cli))?;
     let (connection_id, database) = index_ids(&resolved);
-    let req = default_build_request(connection_id, database, cli.embeddings.is_local());
+    let req = default_build_request(connection_id, database, depth, cli.embeddings.is_local());
     run_build_request(&resolved, req).await
 }
 
@@ -612,7 +648,12 @@ async fn run_index_refresh(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> 
         }
         None => {
             eprintln!("index refresh: no manifest; using build defaults");
-            default_build_request(connection_id, database, cli.embeddings.is_local())
+            default_build_request(
+                connection_id,
+                database,
+                BuildDepth::Structure,
+                cli.embeddings.is_local(),
+            )
         }
     };
     run_build_request(&resolved, req).await
