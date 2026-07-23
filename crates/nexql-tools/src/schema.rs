@@ -1,4 +1,4 @@
-//! Tool descriptors for the active MCP surface (Phase 2 catalog + Phase 3 index).
+//! Tool descriptors for the active MCP surface (Phase 2–4).
 
 use serde_json::{Value, json};
 
@@ -86,10 +86,77 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
     ]
 }
 
-/// Full tools/list surface for the current phase (catalog + index).
+/// Phase 4 monitoring / DDL tools (descriptions from ToolSpec.ts where available).
+pub fn phase4_tools() -> Vec<ToolSpec> {
+    vec![
+        ToolSpec {
+            name: ToolName::GetDdl,
+            description: "Get the DDL / definition of a database object. Views, materialized views, functions, and indexes return their CREATE statement; tables return structured DDL (columns, constraints, indexes).",
+            input_schema: object_schema(&[("ref", "string", true), ("kind", "string", false)]),
+        },
+        ToolSpec {
+            name: ToolName::TableStats,
+            description: "Get size, row-count, activity (scans, inserts/updates/deletes, dead tuples, vacuum/analyze times) and per-column statistics for a specific table.",
+            input_schema: object_schema(&[("ref", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::IndexUsage,
+            description: "Get index usage statistics (scan counts, size, definition, type) for a specific table's indexes. Useful for finding unused or missing indexes.",
+            input_schema: object_schema(&[("ref", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::ListRunningQueries,
+            description: "List currently executing (non-idle) queries in the connected database with pid, user, state, wait events, and duration.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::FindBlockingLocks,
+            description: "Find lock contention: which queries are blocked waiting on locks and which pids/queries are blocking them.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::SlowQueries,
+            description: "List the slowest statements by mean execution time from pg_stat_statements (requires the extension; returns a hint if not installed).",
+            input_schema: object_schema(&[("limit", "number", false)]),
+        },
+        ToolSpec {
+            name: ToolName::DbHealthCheck,
+            description: "Run a database health overview: size/connection stats, cache hit ratio, tables with dead tuples needing vacuum, active connections, and blocking-lock count. Sections that fail are reported individually; partial results are still returned.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::ExplainAnalyze,
+            description: "Run EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) on a SELECT/WITH query inside a read-only transaction that is always rolled back. WARNING: the query actually executes (volatile functions run), so expect real query runtime.",
+            input_schema: object_schema(&[("sql", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::AnalyzeQueryPlan,
+            description: "Run EXPLAIN (FORMAT JSON) on a SELECT/WITH query and return parsed plan metrics (scan counts, bottlenecks, buffer stats) plus performance recommendations. Set analyze=true to also execute the query for actual timings.",
+            input_schema: object_schema(&[("sql", "string", true), ("analyze", "boolean", false)]),
+        },
+        ToolSpec {
+            name: ToolName::GetIndexStatus,
+            description: "Return schema-index status for the active connection/database: indexed_at, fingerprint, object counts, and optional live fingerprint drift.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::ListExtensions,
+            description: "List installed PostgreSQL extensions (name, version, schema).",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::ServerSettings,
+            description: "Return key PostgreSQL server settings from pg_settings (memory, connections, timeouts, autovacuum, version).",
+            input_schema: object_schema(&[]),
+        },
+    ]
+}
+
+/// Full tools/list surface for the current phase (catalog + index + Phase 4).
 pub fn active_tools() -> Vec<ToolSpec> {
     let mut specs = phase2_catalog_tools();
     specs.extend(phase3_index_tools());
+    specs.extend(phase4_tools());
     specs
 }
 
@@ -115,9 +182,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_twelve() {
+    fn active_tools_lists_twenty_four() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 12);
+        assert_eq!(specs.len(), 24);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);

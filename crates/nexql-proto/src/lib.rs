@@ -8,7 +8,10 @@ pub mod error;
 pub mod stdio;
 pub mod types;
 
-pub use backend::{ToolBackend, ToolCallResult, ToolDescriptor};
+pub use backend::{
+    CompletionBackend, PromptBackend, ResourceBackend, RpcFailure, ToolBackend, ToolCallResult,
+    ToolDescriptor,
+};
 pub use error::ProtoError;
 pub use stdio::StdioServer;
 pub use types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, negotiate_protocol_version};

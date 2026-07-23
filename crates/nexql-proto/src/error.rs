@@ -24,6 +24,8 @@ impl ProtoError {
     pub const METHOD_NOT_FOUND: i32 = -32601;
     pub const INVALID_PARAMS: i32 = -32602;
     pub const INTERNAL: i32 = -32603;
+    /// MCP resource not found (application error).
+    pub const RESOURCE_NOT_FOUND: i32 = -32002;
 
     pub fn code(&self) -> i32 {
         match self {

@@ -1,4 +1,6 @@
-/// Initial read-only tool surface (22 from ToolSpec.ts, minus select_connection_context).
+//! Tool name catalog for the MCP surface.
+
+/// Read-only tool surface (catalog + index + Phase 4 monitoring/DDL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolName {
     SearchSchema,
@@ -22,6 +24,9 @@ pub enum ToolName {
     DbHealthCheck,
     ExplainAnalyze,
     AnalyzeQueryPlan,
+    GetIndexStatus,
+    ListExtensions,
+    ServerSettings,
 }
 
 impl ToolName {
@@ -44,7 +49,23 @@ impl ToolName {
         Self::SampleValues,
     ];
 
-    /// Phase 2 catalog + Phase 3 index tools currently exposed via tools/list.
+    /// Phase 4 monitoring / DDL / index-status (+ straightforward free tools).
+    pub const PHASE4: &'static [ToolName] = &[
+        Self::GetDdl,
+        Self::TableStats,
+        Self::IndexUsage,
+        Self::ListRunningQueries,
+        Self::FindBlockingLocks,
+        Self::SlowQueries,
+        Self::DbHealthCheck,
+        Self::ExplainAnalyze,
+        Self::AnalyzeQueryPlan,
+        Self::GetIndexStatus,
+        Self::ListExtensions,
+        Self::ServerSettings,
+    ];
+
+    /// Full tools/list surface for the current phase.
     pub const ACTIVE: &'static [ToolName] = &[
         Self::ListConnections,
         Self::ListDatabases,
@@ -58,21 +79,6 @@ impl ToolName {
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
-    ];
-
-    pub const READ_ONLY: &'static [ToolName] = &[
-        Self::SearchSchema,
-        Self::DescribeObject,
-        Self::GetJoinPath,
-        Self::SampleValues,
-        Self::RunSelect,
-        Self::ExplainQuery,
-        Self::ListConnections,
-        Self::ListDatabases,
-        Self::ListSchemas,
-        Self::ListObjects,
-        Self::GetCurrentContext,
-        Self::SwitchConnection,
         Self::GetDdl,
         Self::TableStats,
         Self::IndexUsage,
@@ -82,7 +88,12 @@ impl ToolName {
         Self::DbHealthCheck,
         Self::ExplainAnalyze,
         Self::AnalyzeQueryPlan,
+        Self::GetIndexStatus,
+        Self::ListExtensions,
+        Self::ServerSettings,
     ];
+
+    pub const READ_ONLY: &'static [ToolName] = Self::ACTIVE;
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -107,6 +118,9 @@ impl ToolName {
             Self::DbHealthCheck => "db_health_check",
             Self::ExplainAnalyze => "explain_analyze",
             Self::AnalyzeQueryPlan => "analyze_query_plan",
+            Self::GetIndexStatus => "get_index_status",
+            Self::ListExtensions => "list_extensions",
+            Self::ServerSettings => "server_settings",
         }
     }
 
@@ -120,8 +134,9 @@ mod tests {
     use super::ToolName;
 
     #[test]
-    fn read_only_catalog_has_twenty_one_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 21);
+    fn read_only_matches_active() {
+        assert_eq!(ToolName::READ_ONLY.len(), ToolName::ACTIVE.len());
+        assert_eq!(ToolName::READ_ONLY, ToolName::ACTIVE);
     }
 
     #[test]
@@ -135,11 +150,16 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_twelve_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 12);
+    fn phase4_has_twelve_tools() {
+        assert_eq!(ToolName::PHASE4.len(), 12);
+    }
+
+    #[test]
+    fn active_surface_is_twenty_four_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 24);
         assert_eq!(
             ToolName::ACTIVE.len(),
-            ToolName::PHASE2.len() + ToolName::PHASE3.len()
+            ToolName::PHASE2.len() + ToolName::PHASE3.len() + ToolName::PHASE4.len()
         );
     }
 }

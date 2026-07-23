@@ -15,9 +15,15 @@ use nexql_index::{
     build_index,
 };
 use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
-use nexql_proto::{StdioServer, ToolBackend, ToolCallResult, ToolDescriptor};
-use nexql_tools::{ToolRouter, ToolSession, default_index_root};
-use serde_json::Value;
+use nexql_proto::{
+    CompletionBackend, PromptBackend, ResourceBackend, RpcFailure, StdioServer, ToolBackend,
+    ToolCallResult, ToolDescriptor,
+};
+use nexql_tools::{
+    CompletionsProvider, PromptCatalog, ResourceProvider, ToolRouter, ToolSession,
+    default_index_root,
+};
+use serde_json::{Value, json};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -162,6 +168,98 @@ impl ToolBackend for RouterBackend {
     }
 }
 
+struct IndexResourceBackend {
+    provider: ResourceProvider,
+}
+
+#[async_trait]
+impl ResourceBackend for IndexResourceBackend {
+    async fn list_resources(&self, cursor: Option<String>) -> Result<Value, RpcFailure> {
+        self.provider
+            .list(cursor.as_deref())
+            .map(|r| serde_json::to_value(r).expect("resource list serialize"))
+            .map_err(|e| RpcFailure {
+                code: e.code(),
+                message: e.to_string(),
+            })
+    }
+
+    async fn read_resource(&self, uri: &str) -> Result<Value, RpcFailure> {
+        self.provider
+            .read(uri)
+            .map(|r| serde_json::to_value(r).expect("resource read serialize"))
+            .map_err(|e| RpcFailure {
+                code: e.code(),
+                message: e.to_string(),
+            })
+    }
+
+    fn list_templates(&self) -> Value {
+        json!({
+            "resourceTemplates": self.provider.list_templates()
+        })
+    }
+}
+
+struct StaticPromptBackend;
+
+#[async_trait]
+impl PromptBackend for StaticPromptBackend {
+    async fn list_prompts(&self) -> Value {
+        json!({ "prompts": PromptCatalog::list() })
+    }
+
+    async fn get_prompt(&self, name: &str, arguments: Value) -> Result<Value, RpcFailure> {
+        let mut args = std::collections::HashMap::new();
+        if let Some(obj) = arguments.as_object() {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    args.insert(k.clone(), s.to_owned());
+                } else if !v.is_null() {
+                    args.insert(k.clone(), v.to_string());
+                }
+            }
+        }
+        PromptCatalog::get(name, &args)
+            .map(|r| serde_json::to_value(r).expect("prompt get serialize"))
+            .map_err(|e| RpcFailure {
+                code: e.code(),
+                message: e.to_string(),
+            })
+    }
+}
+
+struct IndexCompletionBackend {
+    provider: CompletionsProvider,
+    session: Arc<ToolSession>,
+}
+
+#[async_trait]
+impl CompletionBackend for IndexCompletionBackend {
+    async fn complete(&self, params: Value) -> Result<Value, RpcFailure> {
+        let argument = params.get("argument").ok_or_else(|| RpcFailure {
+            code: -32602,
+            message: "missing argument".into(),
+        })?;
+        let name = argument
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let value = argument
+            .get("value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let (connection_id, database) = self.session.active_context().await;
+        self.provider
+            .complete_ref(&connection_id, &database, name, value)
+            .map(|r| json!({ "completion": r }))
+            .map_err(|e| RpcFailure {
+                code: e.code(),
+                message: e.to_string(),
+            })
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     // MCP stdio: never log to stdout.
@@ -187,7 +285,7 @@ async fn main() -> ExitCode {
                 println!("{}", init_snippet(client, cli.connection_string.as_deref()));
             }
             Commands::Index { action } => {
-                return match run_index_action(&cli, &action).await {
+                return match run_index_action(&cli, action).await {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
                         eprintln!("{e}");
@@ -250,10 +348,23 @@ async fn run_stdio_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         caps = caps.with_max_rows(n);
     }
     let session = ToolSession::from_resolved(resolved, mode, caps).await?;
-    let backend = Arc::new(RouterBackend {
-        router: ToolRouter::new(session),
+    let tools = Arc::new(RouterBackend {
+        router: ToolRouter::new(session.clone()),
     });
-    let server = StdioServer::new(backend);
+
+    let mut server = StdioServer::new(tools).with_prompts(Arc::new(StaticPromptBackend));
+
+    if let Some(store) = session.index_store.clone() {
+        server = server
+            .with_resources(Arc::new(IndexResourceBackend {
+                provider: ResourceProvider::new(store.clone()),
+            }))
+            .with_completions(Arc::new(IndexCompletionBackend {
+                provider: CompletionsProvider::new(store),
+                session: session.clone(),
+            }));
+    }
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     server.serve(stdin, stdout).await?;

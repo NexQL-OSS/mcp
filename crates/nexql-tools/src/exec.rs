@@ -1,15 +1,17 @@
-//! Tool dispatch for catalog (Phase 2) + index (Phase 3) surfaces.
+//! Tool dispatch for catalog (Phase 2) + index (Phase 3) + Phase 4 surfaces.
 
 use std::sync::Arc;
 
-use nexql_index::{IndexQueryService, IndexStore, QueryPolicyFilter};
+use nexql_index::{CatalogDb, IndexQueryService, IndexStore, PgCatalogDb, QueryPolicyFilter};
 use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
 use serde_json::{Value, json};
 
 use crate::error::ToolError;
+use crate::plan::{build_explain_sql, extract_plan_metrics};
 use crate::registry::ToolName;
 use crate::schema::{ToolSpec, active_tools};
 use crate::session::ToolSession;
+use crate::sql::{self, SLOW_QUERIES_DEFAULT, parse_ref};
 
 /// Default hit cap for `search_schema` (matches TS ToolExecutor).
 const SEARCH_SCHEMA_LIMIT: usize = 10;
@@ -106,9 +108,18 @@ impl ToolRouter {
             ToolName::DescribeObject => self.describe_object(&args).await,
             ToolName::GetJoinPath => self.get_join_path(&args).await,
             ToolName::SampleValues => self.sample_values(&args).await,
-            _ => Err(ToolError::Unknown(format!(
-                "{name} is not available until a later phase"
-            ))),
+            ToolName::GetDdl => self.get_ddl(&args).await,
+            ToolName::TableStats => self.table_stats(&args).await,
+            ToolName::IndexUsage => self.index_usage(&args).await,
+            ToolName::ListRunningQueries => self.list_running_queries().await,
+            ToolName::FindBlockingLocks => self.find_blocking_locks().await,
+            ToolName::SlowQueries => self.slow_queries(&args).await,
+            ToolName::DbHealthCheck => self.db_health_check().await,
+            ToolName::ExplainAnalyze => self.explain_analyze(&args).await,
+            ToolName::AnalyzeQueryPlan => self.analyze_query_plan(&args).await,
+            ToolName::GetIndexStatus => self.get_index_status().await,
+            ToolName::ListExtensions => self.list_extensions().await,
+            ToolName::ServerSettings => self.server_settings().await,
         }
     }
 
@@ -433,6 +444,311 @@ impl ToolRouter {
         self.run_select_internal(&clean, None).await
     }
 
+    async fn get_ddl(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ref_ = args
+            .get("ref")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let (schema, name) =
+            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let kind = args
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("table");
+        let reg = sql::regclass_literal(&schema, &name);
+        let client = self.session.checkout().await?;
+
+        match kind {
+            "view" | "matview" => {
+                let sql = format!("SELECT pg_get_viewdef({reg}, true) AS definition");
+                let rows = client.query(&sql, &[]).await?;
+                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+            }
+            "function" => {
+                let sql = format!(
+                    r#"SELECT p.proname AS name, pg_get_functiondef(p.oid) AS definition
+                       FROM pg_proc p
+                       JOIN pg_namespace n ON n.oid = p.pronamespace
+                       WHERE n.nspname = '{schema}' AND p.proname = '{name}'"#
+                );
+                let rows = client.query(&sql, &[]).await?;
+                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+            }
+            "index" => {
+                let sql = format!("SELECT pg_get_indexdef({reg}) AS definition");
+                let rows = client.query(&sql, &[]).await?;
+                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+            }
+            "table" => {
+                let columns = client
+                    .query(&sql::column_details(&schema, &name), &[])
+                    .await?;
+                let constraints = client
+                    .query(
+                        &format!(
+                            r#"SELECT conname AS name, pg_get_constraintdef(oid) AS definition
+                               FROM pg_constraint WHERE conrelid = {reg} ORDER BY conname"#
+                        ),
+                        &[],
+                    )
+                    .await?;
+                let indexes = client
+                    .query(
+                        &format!(
+                            r#"SELECT indexname AS name, indexdef AS definition
+                               FROM pg_indexes
+                               WHERE schemaname = '{schema}' AND tablename = '{name}'
+                               ORDER BY indexname"#
+                        ),
+                        &[],
+                    )
+                    .await?;
+                Ok(ToolOutcome::ok_json(json!({
+                    "table": format!("{schema}.{name}"),
+                    "columns": rows_to_json(&columns),
+                    "constraints": rows_to_json(&constraints),
+                    "indexes": rows_to_json(&indexes),
+                })))
+            }
+            other => Err(ToolError::InvalidArgs(format!(
+                "Unsupported DDL kind \"{other}\". Use table, view, matview, function, or index."
+            ))),
+        }
+    }
+
+    async fn table_stats(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ref_ = args
+            .get("ref")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let (schema, name) =
+            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let client = self.session.checkout().await?;
+        let stats = client
+            .query(&sql::table_stats(&schema, &name), &[])
+            .await?;
+        let activity = client
+            .query(&sql::table_activity(&schema, &name), &[])
+            .await?;
+        let columns = client
+            .query(&sql::column_stats(&schema, &name), &[])
+            .await?;
+        let size = rows_to_json(&stats)
+            .as_array()
+            .and_then(|a| a.first())
+            .cloned()
+            .unwrap_or(Value::Null);
+        let activity = rows_to_json(&activity)
+            .as_array()
+            .and_then(|a| a.first())
+            .cloned()
+            .unwrap_or(Value::Null);
+        Ok(ToolOutcome::ok_json(json!({
+            "size": size,
+            "activity": activity,
+            "columns": rows_to_json(&columns),
+        })))
+    }
+
+    async fn index_usage(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ref_ = args
+            .get("ref")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let (schema, name) =
+            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let client = self.session.checkout().await?;
+        let rows = client
+            .query(&sql::index_usage(&schema, &name), &[])
+            .await?;
+        Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+    }
+
+    async fn list_running_queries(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let rows = client.query(sql::running_queries(), &[]).await?;
+        Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+    }
+
+    async fn find_blocking_locks(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let rows = client.query(sql::blocking_locks(), &[]).await?;
+        let values = rows_to_json(&rows);
+        if values.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+            return Ok(ToolOutcome::ok_json(json!({
+                "message": "No blocking locks found.",
+                "locks": [],
+            })));
+        }
+        Ok(ToolOutcome::ok_json(values))
+    }
+
+    async fn slow_queries(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(SLOW_QUERIES_DEFAULT);
+        let client = self.session.checkout().await?;
+        match client.query(&sql::slow_queries(limit), &[]).await {
+            Ok(rows) => Ok(ToolOutcome::ok_json(rows_to_json(&rows))),
+            Err(e) => {
+                let message = e.to_string();
+                if message.contains("pg_stat_statements") && message.contains("does not exist") {
+                    Ok(ToolOutcome::ok_json(json!({
+                        "error": "The pg_stat_statements extension is not installed in this database.",
+                        "hint": "An administrator can enable it with: CREATE EXTENSION pg_stat_statements; (requires shared_preload_libraries configuration)."
+                    })))
+                } else {
+                    Err(ToolError::Postgres(e))
+                }
+            }
+        }
+    }
+
+    async fn db_health_check(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let sections: &[(&str, &str)] = &[
+            ("overview", sql::database_stats()),
+            ("cache", sql::cache_hit_ratio()),
+            ("dead_tuples", sql::database_maintenance_stats()),
+            ("connection_states", sql::connection_states()),
+            ("blocking_locks", sql::blocking_locks()),
+        ];
+        let mut report = serde_json::Map::new();
+        for (key, q) in sections {
+            match client.query(*q, &[]).await {
+                Ok(rows) => {
+                    report.insert((*key).into(), rows_to_json(&rows));
+                }
+                Err(e) => {
+                    report.insert((*key).into(), json!({ "error": e.to_string() }));
+                }
+            }
+        }
+        let lock_count = report
+            .get("blocking_locks")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len() as u64);
+        report.insert("blocking_lock_count".into(), json!(lock_count));
+        Ok(ToolOutcome::ok_json(Value::Object(report)))
+    }
+
+    async fn explain_analyze(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        require_select_or_with(sql)?;
+        let explain = build_explain_sql(sql, true);
+        self.run_explain_in_transaction(&explain).await
+    }
+
+    async fn analyze_query_plan(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        require_select_or_with(sql)?;
+        let analyze = args
+            .get("analyze")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let explain = build_explain_sql(sql, analyze);
+        let outcome = self.run_explain_in_transaction(&explain).await?;
+        let rows = outcome.structured.unwrap_or(Value::Null);
+        let plan = rows
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|r| r.get("QUERY PLAN"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let metrics = extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
+        let recommendations = metrics
+            .as_ref()
+            .and_then(|m| m.get("recommendations"))
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        Ok(ToolOutcome::ok_json(json!({
+            "metrics": metrics,
+            "recommendations": recommendations,
+            "plan": plan,
+        })))
+    }
+
+    /// EXPLAIN ANALYZE executes the query — always wrap in READ ONLY + ROLLBACK.
+    async fn run_explain_in_transaction(&self, explain_sql: &str) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        client
+            .batch_execute("SET statement_timeout = '30s'")
+            .await?;
+        client.batch_execute("BEGIN").await?;
+        let result = async {
+            client
+                .batch_execute("SET TRANSACTION READ ONLY")
+                .await?;
+            let rows = client.query(explain_sql, &[]).await?;
+            Ok::<_, ToolError>(rows_to_json(&rows))
+        }
+        .await;
+        // Always roll back — belt-and-braces on top of default_transaction_read_only.
+        let _ = client.batch_execute("ROLLBACK").await;
+        match result {
+            Ok(values) => Ok(ToolOutcome::ok_json(values)),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn get_index_status(&self) -> Result<ToolOutcome, ToolError> {
+        let (store, connection_id, database) = self.index_service().await?;
+        let base = store.base_dir(&connection_id, &database);
+        let Some(manifest) = store.read_manifest(&base)? else {
+            return Err(ToolError::Execution(format!(
+                "No schema index for database \"{database}\" — run `nexql-mcp index build`."
+            )));
+        };
+
+        let mut live_fingerprint: Option<String> = None;
+        let mut drift: Option<bool> = None;
+        if let Ok(client) = self.session.checkout().await {
+            let db = PgCatalogDb::new(&client);
+            if let Ok(fp) = db.schema_fingerprint().await {
+                drift = Some(fp != manifest.schema_fingerprint);
+                live_fingerprint = Some(fp);
+            }
+        }
+
+        Ok(ToolOutcome::ok_json(json!({
+            "connectionId": manifest.connection_id,
+            "database": manifest.database,
+            "indexedAt": manifest.indexed_at,
+            "fingerprint": manifest.schema_fingerprint,
+            "liveFingerprint": live_fingerprint,
+            "drift": drift,
+            "pgVersion": manifest.pg_version,
+            "counts": {
+                "tables": manifest.counts.tables,
+                "views": manifest.counts.views,
+                "functions": manifest.counts.functions,
+                "enums": manifest.counts.enums,
+            },
+            "buildMs": manifest.stats.build_ms,
+            "warnings": manifest.stats.warnings,
+        })))
+    }
+
+    async fn list_extensions(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let rows = client.query(sql::list_extensions(), &[]).await?;
+        Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+    }
+
+    async fn server_settings(&self) -> Result<ToolOutcome, ToolError> {
+        let client = self.session.checkout().await?;
+        let rows = client.query(sql::server_settings(), &[]).await?;
+        Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+    }
+
     async fn run_select_internal(
         &self,
         sql: &str,
@@ -503,6 +819,24 @@ fn policy_to_query_filter(filter: &PolicyFilter) -> QueryPolicyFilter {
     }
 }
 
+fn require_select_or_with(sql: &str) -> Result<(), ToolError> {
+    match validate_readonly_sql(sql)? {
+        SqlDecision::Allow => {}
+        SqlDecision::Reject => {
+            return Err(ToolError::Execution(
+                "Security Error: Only SELECT or WITH statements can be analyzed.".into(),
+            ));
+        }
+    }
+    let trimmed = sql.trim().to_ascii_lowercase();
+    if !(trimmed.starts_with("select") || trimmed.starts_with("with")) {
+        return Err(ToolError::Execution(
+            "Security Error: Only SELECT or WITH statements can be analyzed.".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn rows_to_json(rows: &[tokio_postgres::Row]) -> Value {
     let arr: Vec<Value> = rows
         .iter()
@@ -554,6 +888,7 @@ fn cell_to_json(row: &tokio_postgres::Row, idx: usize) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::build_explain_sql;
     use nexql_policy::PolicyFilter;
     use serde_json::json;
 
@@ -586,15 +921,45 @@ mod tests {
     }
 
     #[test]
-    fn router_specs_include_phase3() {
+    fn router_specs_include_phase4() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 12);
+        assert_eq!(router.specs().len(), 24);
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
-        assert!(names.contains(&"describe_object"));
-        assert!(names.contains(&"get_join_path"));
-        assert!(names.contains(&"sample_values"));
+        assert!(names.contains(&"get_ddl"));
+        assert!(names.contains(&"explain_analyze"));
+        assert!(names.contains(&"get_index_status"));
+        assert!(names.contains(&"list_extensions"));
+        assert!(names.contains(&"server_settings"));
+    }
+
+    #[tokio::test]
+    async fn table_stats_rejects_injection_ref() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let out = router
+            .call("table_stats", json!({ "ref": "public.users; DROP" }))
+            .await;
+        assert!(out.is_error, "{}", out.text);
+        assert!(
+            out.text.contains("Invalid object reference") || out.text.contains("invalid arguments"),
+            "expected ref validation error, got: {}",
+            out.text
+        );
+    }
+
+    #[test]
+    fn explain_transaction_path_builds_readonly_sequence() {
+        // Documented contract: BEGIN → SET TRANSACTION READ ONLY → EXPLAIN → ROLLBACK
+        let explain = build_explain_sql("SELECT 1", true);
+        assert!(explain.starts_with("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)"));
+        assert!(!explain.to_ascii_lowercase().contains("commit"));
+        let steps = ["BEGIN", "SET TRANSACTION READ ONLY", &explain, "ROLLBACK"];
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0], "BEGIN");
+        assert_eq!(steps[1], "SET TRANSACTION READ ONLY");
+        assert_eq!(steps[3], "ROLLBACK");
     }
 
     #[tokio::test]
