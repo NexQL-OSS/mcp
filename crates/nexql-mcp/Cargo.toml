@@ -6,10 +6,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Standalone Postgres MCP server — CLI, subcommands, wiring"
-publish = false
 
 [package.metadata.dist]
-# Crates.io publish is false; still ship the binary via cargo-dist / GitHub Releases.
+# Also shipped as prebuilt binaries via cargo-dist / GitHub Releases + npm.
 dist = true
 
 [features]
