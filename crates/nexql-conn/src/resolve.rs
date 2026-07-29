@@ -354,14 +354,8 @@ fn params_from_profile(
             .as_ref()
             .map(|p| interpolate_env(p, getenv)),
         sslmode: profile.sslmode.clone(),
-        sslcert: profile
-            .sslcert
-            .as_ref()
-            .map(|p| interpolate_env(p, getenv)),
-        sslkey: profile
-            .sslkey
-            .as_ref()
-            .map(|p| interpolate_env(p, getenv)),
+        sslcert: profile.sslcert.as_ref().map(|p| interpolate_env(p, getenv)),
+        sslkey: profile.sslkey.as_ref().map(|p| interpolate_env(p, getenv)),
         sslrootcert: profile
             .sslrootcert
             .as_ref()
@@ -439,9 +433,8 @@ fn fill_password(
     }
     if let Some(file) = password_file {
         let expanded = interpolate_env(file, getenv);
-        let raw = std::fs::read_to_string(&expanded).map_err(|e| {
-            ConnError::Config(format!("password_file {}: {e}", expanded))
-        })?;
+        let raw = std::fs::read_to_string(&expanded)
+            .map_err(|e| ConnError::Config(format!("password_file {}: {e}", expanded)))?;
         let trimmed = raw.trim();
         if trimmed.is_empty() {
             return Err(ConnError::Config(format!(
@@ -754,7 +747,10 @@ mod tests {
         let cert_path = dir.path().join("client.crt");
         std::fs::write(&cert_path, "dummy").unwrap();
         let mut env = HashMap::new();
-        env.insert("NEXQL_CERT".into(), cert_path.to_string_lossy().into_owned());
+        env.insert(
+            "NEXQL_CERT".into(),
+            cert_path.to_string_lossy().into_owned(),
+        );
         let mut profiles = HashMap::new();
         profiles.insert(
             "prod".into(),

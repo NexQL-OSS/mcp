@@ -104,9 +104,7 @@ impl SqlModePolicy for WritePolicy {
     }
 
     fn reject_node_in_walk(node_ref: NodeRef<'_>) -> bool {
-        is_forbidden_always(node_ref)
-            || is_ddl_or_admin_utility(node_ref)
-            || is_ddl_node(node_ref)
+        is_forbidden_always(node_ref) || is_ddl_or_admin_utility(node_ref) || is_ddl_node(node_ref)
     }
 
     fn allowed_statement_types(types: &[&str]) -> bool {
@@ -254,14 +252,7 @@ fn reject_if_stacked(result: &ParseResult) -> Option<SqlDecision> {
 }
 
 fn root_node(result: &ParseResult) -> Option<&NodeEnum> {
-    result
-        .protobuf
-        .stmts
-        .first()?
-        .stmt
-        .as_ref()?
-        .node
-        .as_ref()
+    result.protobuf.stmts.first()?.stmt.as_ref()?.node.as_ref()
 }
 
 fn is_readonly_root(node: &NodeEnum) -> bool {
@@ -478,11 +469,7 @@ mod tests {
     #[test]
     fn admin_rejects_do_block() {
         assert_eq!(
-            validate_write_sql(
-                AccessMode::Admin,
-                "DO $$ BEGIN DELETE FROM t; END $$"
-            )
-            .unwrap(),
+            validate_write_sql(AccessMode::Admin, "DO $$ BEGIN DELETE FROM t; END $$").unwrap(),
             SqlDecision::Reject
         );
     }

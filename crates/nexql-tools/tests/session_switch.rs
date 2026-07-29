@@ -106,14 +106,9 @@ async fn session_for(url: &str) -> Arc<ToolSession> {
         database: params.dbname.clone(),
         params,
     };
-    ToolSession::from_connections(
-        vec![info],
-        AccessMode::Read,
-        PolicyCaps::default(),
-        None,
-    )
-    .await
-    .unwrap()
+    ToolSession::from_connections(vec![info], AccessMode::Read, PolicyCaps::default(), None)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -168,7 +163,10 @@ async fn switch_connection_uses_target_database() {
         .unwrap();
     assert_eq!(row.get::<_, String>(0), "nexql_switch_other");
 
-    session.switch("default", Some("postgres".into())).await.unwrap();
+    session
+        .switch("default", Some("postgres".into()))
+        .await
+        .unwrap();
 
     let client = session.checkout().await.unwrap();
     let row = client

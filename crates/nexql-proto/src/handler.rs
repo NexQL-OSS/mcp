@@ -287,7 +287,9 @@ impl McpHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{PromptBackend, ResourceBackend, RpcFailure, ToolCallResult, ToolDescriptor};
+    use crate::backend::{
+        PromptBackend, ResourceBackend, RpcFailure, ToolCallResult, ToolDescriptor,
+    };
     use async_trait::async_trait;
 
     struct FakeTools;
@@ -366,7 +368,10 @@ mod tests {
 
         async fn get_prompt(&self, name: &str, arguments: Value) -> Result<Value, RpcFailure> {
             if name == "explore-schema" {
-                let topic = arguments.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+                let topic = arguments
+                    .get("topic")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if topic.is_empty() {
                     return Err(RpcFailure {
                         code: ProtoError::INVALID_PARAMS,
@@ -429,7 +434,10 @@ mod tests {
         let handler = full_handler();
         let req = r#"{"jsonrpc":"2.0","id":1,"method":"resources/list"}"#;
         let resp = handler.handle_json(req).await.unwrap();
-        let resources = resp.result.unwrap()["resources"].as_array().unwrap().clone();
+        let resources = resp.result.unwrap()["resources"]
+            .as_array()
+            .unwrap()
+            .clone();
         assert!(resources.is_empty());
     }
 

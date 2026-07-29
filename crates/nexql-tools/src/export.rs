@@ -84,12 +84,7 @@ fn csv_cell(val: &Value) -> String {
     }
 }
 
-pub fn rows_to_sql_insert(
-    rows: &[Value],
-    columns: &[String],
-    schema: &str,
-    table: &str,
-) -> String {
+pub fn rows_to_sql_insert(rows: &[Value], columns: &[String], schema: &str, table: &str) -> String {
     let table_name = format!(
         "\"{}\".\"{}\"",
         schema.replace('"', "\"\""),

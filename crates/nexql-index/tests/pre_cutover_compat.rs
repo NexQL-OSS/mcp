@@ -118,7 +118,12 @@ fn ts_golden_matches_expected_byte_for_byte() {
     // `ts/` is the committed stand-in for TS IndexBuilder output (same formatVersion=1
     // artifacts as `expected/`). When a live TS harness lands, regenerate `ts/` from
     // IndexBuilder against seed_schema.sql and keep this gate.
-    for name in [MANIFEST_FILE, TOKENS_FILE, JOIN_GRAPH_FILE, "objects-public-0.json"] {
+    for name in [
+        MANIFEST_FILE,
+        TOKENS_FILE,
+        JOIN_GRAPH_FILE,
+        "objects-public-0.json",
+    ] {
         let ts_path = ts_golden_dir().join(name);
         let exp_path = expected_dir().join(name);
         assert!(ts_path.is_file(), "missing {}", ts_path.display());
@@ -135,7 +140,9 @@ fn ts_golden_matches_expected_byte_for_byte() {
 #[test]
 fn pre_cutover_manifest_matches_ts_golden() {
     let pre = read_json(
-        &pre_cutover_root().join("dbindex/golden-conn/postgres").join(MANIFEST_FILE),
+        &pre_cutover_root()
+            .join("dbindex/golden-conn/postgres")
+            .join(MANIFEST_FILE),
     );
     let ts = read_json(&ts_golden_dir().join(MANIFEST_FILE));
     assert_eq!(

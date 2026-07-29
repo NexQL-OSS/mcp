@@ -22,17 +22,17 @@ pub use builder::{
     BuildProgress, BuildRequest, CatalogDb, MAX_OBJECTS_PER_SHARD, MAX_SHARD_BYTES, PgCatalogDb,
     build_index, format_schema_fingerprint,
 };
-pub use embed::{
-    Embedder, HF_MODEL_ID, LOCAL_MODEL_ID, MODEL_DIM, build_object_doc, embeddings_env_local,
-    is_embeddable_kind,
+pub use catalog::{
+    COLUMNS_QUERY, CONSTRAINTS_QUERY, DOMAINS_QUERY, ENUMS_QUERY, FUNCTIONS_QUERY, INDEXES_QUERY,
+    NON_SYSTEM_SCHEMAS_QUERY, RELATIONS_QUERY, RawColumnRow, RawConstraintRow, RawDomainRow,
+    RawEnumRow, RawFunctionRow, RawIndexRow, RawRelationRow, RawViewRow, SCHEMA_FINGERPRINT_QUERY,
+    VIEW_DEFINITIONS_QUERY, map_relkind_to_db_object_kind,
 };
 #[cfg(feature = "embeddings")]
 pub use embed::MiniLmEmbedder;
-pub use catalog::{
-    COLUMNS_QUERY, CONSTRAINTS_QUERY, DOMAINS_QUERY, ENUMS_QUERY, FUNCTIONS_QUERY, INDEXES_QUERY,
-    NON_SYSTEM_SCHEMAS_QUERY, RELATIONS_QUERY, SCHEMA_FINGERPRINT_QUERY, VIEW_DEFINITIONS_QUERY,
-    RawColumnRow, RawConstraintRow, RawDomainRow, RawEnumRow, RawFunctionRow, RawIndexRow,
-    RawRelationRow, RawViewRow, map_relkind_to_db_object_kind,
+pub use embed::{
+    Embedder, HF_MODEL_ID, LOCAL_MODEL_ID, MODEL_DIM, build_object_doc, embeddings_env_local,
+    is_embeddable_kind,
 };
 pub use error::IndexError;
 pub use joins::{
@@ -56,7 +56,7 @@ pub use query::{
 };
 pub use rrf::{RRF_K, RRF_MISSING_RANK, cosine_similarity, fuse_rrf};
 pub use store::{
-    DBINDEX_DIR, EMBEDDINGS_BIN, EMBEDDINGS_META, JOIN_GRAPH_FILE, LOCK_FILE, MANIFEST_FILE,
-    OVERRIDES_FILE, STALE_LOCK, TOKENS_FILE, VALUES_FILE, IndexStore, deserialize_embedding,
+    DBINDEX_DIR, EMBEDDINGS_BIN, EMBEDDINGS_META, IndexStore, JOIN_GRAPH_FILE, LOCK_FILE,
+    MANIFEST_FILE, OVERRIDES_FILE, STALE_LOCK, TOKENS_FILE, VALUES_FILE, deserialize_embedding,
     safe_segment, serialize_embeddings,
 };

@@ -168,9 +168,7 @@ impl ResourceProvider {
 
     pub fn read(&self, uri: &str) -> Result<ResourceReadResult, ResourceError> {
         let parsed = parse_uri(uri)?;
-        let base = self
-            .store
-            .base_dir(&parsed.connection_id, &parsed.database);
+        let base = self.store.base_dir(&parsed.connection_id, &parsed.database);
         let manifest = self
             .store
             .read_manifest(&base)
@@ -201,8 +199,7 @@ impl ResourceProvider {
                     .read_overrides(&base)
                     .map_err(|e| ResourceError::Internal(e.to_string()))?;
                 let merged = merge_join_graph(graph, overrides.as_ref());
-                serde_json::to_value(&merged)
-                    .map_err(|e| ResourceError::Internal(e.to_string()))?
+                serde_json::to_value(&merged).map_err(|e| ResourceError::Internal(e.to_string()))?
             }
             ResourceKind::Object { schema, name } => {
                 let entry = self
@@ -236,9 +233,10 @@ impl ResourceProvider {
         vec![ResourceTemplate {
             uri_template: "nexql://{connectionId}/{database}/object/{schema}/{name}".into(),
             name: "Database object".into(),
-            description: "Structural card for an indexed table, view, materialized view, or function \
+            description:
+                "Structural card for an indexed table, view, materialized view, or function \
 (columns, keys, indexes, definition). Use the search_schema tool to discover refs."
-                .into(),
+                    .into(),
             mime_type: "application/json".into(),
         }]
     }
@@ -411,9 +409,9 @@ fn encode_cursor(state: &CursorState) -> String {
 
 /// Parse a `nexql://…` resource URI.
 pub fn parse_uri(uri: &str) -> Result<ParsedUri, ResourceError> {
-    let rest = uri.strip_prefix("nexql://").ok_or_else(|| {
-        ResourceError::NotFound(format!("Resource not found: {uri}"))
-    })?;
+    let rest = uri
+        .strip_prefix("nexql://")
+        .ok_or_else(|| ResourceError::NotFound(format!("Resource not found: {uri}")))?;
     let mut parts = rest.splitn(3, '/');
     let connection_id = parts.next().filter(|s| !s.is_empty());
     let database = parts.next().filter(|s| !s.is_empty());
@@ -424,12 +422,10 @@ pub fn parse_uri(uri: &str) -> Result<ParsedUri, ResourceError> {
         )));
     };
 
-    let connection_id = decode_uri_component(conn_raw).ok_or_else(|| {
-        ResourceError::NotFound(format!("Resource not found: {uri}"))
-    })?;
-    let database = decode_uri_component(db_raw).ok_or_else(|| {
-        ResourceError::NotFound(format!("Resource not found: {uri}"))
-    })?;
+    let connection_id = decode_uri_component(conn_raw)
+        .ok_or_else(|| ResourceError::NotFound(format!("Resource not found: {uri}")))?;
+    let database = decode_uri_component(db_raw)
+        .ok_or_else(|| ResourceError::NotFound(format!("Resource not found: {uri}")))?;
 
     if tail == "manifest" {
         return Ok(ParsedUri {
@@ -455,12 +451,10 @@ pub fn parse_uri(uri: &str) -> Result<ParsedUri, ResourceError> {
             "Resource not found: {uri}"
         )));
     }
-    let schema = decode_uri_component(schema_raw.unwrap()).ok_or_else(|| {
-        ResourceError::NotFound(format!("Resource not found: {uri}"))
-    })?;
-    let name = decode_uri_component(name_raw.unwrap()).ok_or_else(|| {
-        ResourceError::NotFound(format!("Resource not found: {uri}"))
-    })?;
+    let schema = decode_uri_component(schema_raw.unwrap())
+        .ok_or_else(|| ResourceError::NotFound(format!("Resource not found: {uri}")))?;
+    let name = decode_uri_component(name_raw.unwrap())
+        .ok_or_else(|| ResourceError::NotFound(format!("Resource not found: {uri}")))?;
     if schema.is_empty() || name.is_empty() || name.contains('/') {
         return Err(ResourceError::NotFound(format!(
             "Resource not found: {uri}"
@@ -704,7 +698,12 @@ mod tests {
         let provider = ResourceProvider::new(store);
         let listed = provider.list(None).unwrap();
         assert_eq!(listed.resources.len(), 3);
-        assert!(listed.resources.iter().any(|r| r.uri.ends_with("/manifest")));
+        assert!(
+            listed
+                .resources
+                .iter()
+                .any(|r| r.uri.ends_with("/manifest"))
+        );
         assert!(
             listed
                 .resources

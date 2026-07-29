@@ -477,7 +477,10 @@ mod tests {
         let mut postings = HashMap::new();
         postings.insert(
             "user".into(),
-            vec![("public.users".into(), 1.5), ("public.accounts".into(), 0.5)],
+            vec![
+                ("public.users".into(), 1.5),
+                ("public.accounts".into(), 0.5),
+            ],
         );
         let idx = TokenIndex {
             version: 1,
@@ -487,7 +490,10 @@ mod tests {
         };
         let json = serde_json::to_string(&idx).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["postings"]["user"][0], serde_json::json!(["public.users", 1.5]));
+        assert_eq!(
+            value["postings"]["user"][0],
+            serde_json::json!(["public.users", 1.5])
+        );
         let parsed: TokenIndex = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, idx);
     }

@@ -15,7 +15,6 @@ pub use config::{ConfigFile, ProfileConfig};
 pub use error::ConnError;
 pub use pool::{PoolOptions, apply_session_guards, checkout_guarded, connect_once, create_pool};
 pub use resolve::{
-    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url,
-    resolve,
+    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url, resolve,
 };
 pub use secret::{CommandRunner, ProcessCommandRunner};

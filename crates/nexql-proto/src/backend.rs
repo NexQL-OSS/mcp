@@ -40,11 +40,7 @@ pub trait ResourceBackend: Send + Sync {
 #[async_trait]
 pub trait PromptBackend: Send + Sync {
     async fn list_prompts(&self) -> Value;
-    async fn get_prompt(
-        &self,
-        name: &str,
-        arguments: Value,
-    ) -> Result<Value, RpcFailure>;
+    async fn get_prompt(&self, name: &str, arguments: Value) -> Result<Value, RpcFailure>;
 }
 
 #[async_trait]

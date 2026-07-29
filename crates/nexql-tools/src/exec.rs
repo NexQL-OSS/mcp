@@ -2,16 +2,16 @@
 
 use std::sync::Arc;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_index::{
     CatalogDb, Embedder, IndexQueryService, IndexStore, PgCatalogDb, QueryPolicyFilter,
     SearchOptions,
 };
 use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use tokio_postgres::types::{FromSql, Kind, Type};
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::error::ToolError;
@@ -592,12 +592,8 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (schema, name) =
-            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
-        let kind = args
-            .get("kind")
-            .and_then(|v| v.as_str())
-            .unwrap_or("table");
+        let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("table");
         let reg = sql::regclass_literal(&schema, &name);
         let client = self.session.checkout().await?;
 
@@ -664,12 +660,9 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (schema, name) =
-            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
         let client = self.session.checkout().await?;
-        let stats = client
-            .query(&sql::table_stats(&schema, &name), &[])
-            .await?;
+        let stats = client.query(&sql::table_stats(&schema, &name), &[]).await?;
         let activity = client
             .query(&sql::table_activity(&schema, &name), &[])
             .await?;
@@ -698,12 +691,9 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (schema, name) =
-            parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
         let client = self.session.checkout().await?;
-        let rows = client
-            .query(&sql::index_usage(&schema, &name), &[])
-            .await?;
+        let rows = client.query(&sql::index_usage(&schema, &name), &[]).await?;
         Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
     }
 
@@ -822,16 +812,17 @@ impl ToolRouter {
     }
 
     /// EXPLAIN ANALYZE executes the query — always wrap in READ ONLY + ROLLBACK.
-    async fn run_explain_in_transaction(&self, explain_sql: &str) -> Result<ToolOutcome, ToolError> {
+    async fn run_explain_in_transaction(
+        &self,
+        explain_sql: &str,
+    ) -> Result<ToolOutcome, ToolError> {
         let client = self.session.checkout().await?;
         client
             .batch_execute("SET statement_timeout = '30s'")
             .await?;
         client.batch_execute("BEGIN").await?;
         let result = async {
-            client
-                .batch_execute("SET TRANSACTION READ ONLY")
-                .await?;
+            client.batch_execute("SET TRANSACTION READ ONLY").await?;
             let rows = client.query(explain_sql, &[]).await?;
             Ok::<_, ToolError>(rows_to_json(&rows))
         }
@@ -902,12 +893,8 @@ impl ToolRouter {
             .unwrap_or(REPORT_LIMIT_DEFAULT);
         let client = self.session.checkout().await?;
 
-        let high_seq = client
-            .query(&sql::high_seq_scan_tables(limit), &[])
-            .await?;
-        let unindexed_fks = client
-            .query(&sql::unindexed_fk_columns(limit), &[])
-            .await?;
+        let high_seq = client.query(&sql::high_seq_scan_tables(limit), &[]).await?;
+        let unindexed_fks = client.query(&sql::unindexed_fk_columns(limit), &[]).await?;
 
         let mut pg_stat_available = false;
         let mut slow_queries = Value::Null;
@@ -995,9 +982,7 @@ impl ToolRouter {
             .map(|n| n as u32)
             .unwrap_or(REPORT_LIMIT_DEFAULT);
         let client = self.session.checkout().await?;
-        let rows = client
-            .query(&sql::find_unused_indexes(limit), &[])
-            .await?;
+        let rows = client.query(&sql::find_unused_indexes(limit), &[]).await?;
         let indexes = rows_to_json(&rows);
         if indexes.as_array().map(|a| a.is_empty()).unwrap_or(true) {
             return Ok(ToolOutcome::ok_json(json!({
@@ -1111,20 +1096,14 @@ impl ToolRouter {
             return Ok(ToolOutcome::ok_json(rows_to_json(&rows)));
         };
 
-        let details = client
-            .query(sql::role_details(), &[&role_name])
-            .await?;
+        let details = client.query(sql::role_details(), &[&role_name]).await?;
         if details.is_empty() {
             return Err(ToolError::Execution(format!(
                 "Role \"{role_name}\" not found"
             )));
         }
-        let member_of = client
-            .query(sql::role_member_of(), &[&role_name])
-            .await?;
-        let has_members = client
-            .query(sql::role_has_members(), &[&role_name])
-            .await?;
+        let member_of = client.query(sql::role_member_of(), &[&role_name]).await?;
+        let has_members = client.query(sql::role_has_members(), &[&role_name]).await?;
         let privileges = client
             .query(sql::role_table_privileges(), &[&role_name])
             .await?;
@@ -1158,9 +1137,7 @@ impl ToolRouter {
             .unwrap_or(ExportFormat::Csv);
 
         let table_target = match args.get("table").and_then(|v| v.as_str()) {
-            Some(t) if !t.trim().is_empty() => {
-                Some(parse_ref(t).map_err(ToolError::InvalidArgs)?)
-            }
+            Some(t) if !t.trim().is_empty() => Some(parse_ref(t).map_err(ToolError::InvalidArgs)?),
             _ => None,
         };
 
@@ -1484,10 +1461,7 @@ enum SqlNullness {
 }
 
 impl<'a> FromSql<'a> for SqlNullness {
-    fn from_sql(
-        _: &Type,
-        _: &'a [u8],
-    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+    fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         Ok(SqlNullness::Value)
     }
 
@@ -1535,9 +1509,15 @@ fn cell_to_json(row: &tokio_postgres::Row, idx: usize) -> Value {
         Type::TIMESTAMP => try_cell::<NaiveDateTime, _>(row, idx, |t| {
             json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string())
         }),
-        Type::TIMESTAMPTZ => try_cell::<DateTime<FixedOffset>, _>(row, idx, |t| json!(t.to_rfc3339())),
-        Type::DATE => try_cell::<NaiveDate, _>(row, idx, |d| json!(d.format("%Y-%m-%d").to_string())),
-        Type::TIME => try_cell::<NaiveTime, _>(row, idx, |t| json!(t.format("%H:%M:%S%.f").to_string())),
+        Type::TIMESTAMPTZ => {
+            try_cell::<DateTime<FixedOffset>, _>(row, idx, |t| json!(t.to_rfc3339()))
+        }
+        Type::DATE => {
+            try_cell::<NaiveDate, _>(row, idx, |d| json!(d.format("%Y-%m-%d").to_string()))
+        }
+        Type::TIME => {
+            try_cell::<NaiveTime, _>(row, idx, |t| json!(t.format("%H:%M:%S%.f").to_string()))
+        }
         Type::UUID => try_cell::<Uuid, _>(row, idx, |u| json!(u.to_string())),
         Type::JSON | Type::JSONB => try_cell::<Value, _>(row, idx, |j| j),
         Type::NUMERIC => try_cell::<Decimal, _>(row, idx, |d| json!(d.to_string())),
@@ -1626,15 +1606,13 @@ fn array_cell_to_json(row: &tokio_postgres::Row, idx: usize, elem: &Type) -> Val
             }
         }
         Type::TIMESTAMP => {
-            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDateTime>>>(idx).map(
-                |v| {
-                    v.map(|a| {
-                        a.into_iter()
-                            .map(|t| json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string()))
-                            .collect()
-                    })
-                },
-            )) {
+            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDateTime>>>(idx).map(|v| {
+                v.map(|a| {
+                    a.into_iter()
+                        .map(|t| json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string()))
+                        .collect()
+                })
+            })) {
                 return v;
             }
         }
@@ -1658,10 +1636,7 @@ fn array_cell_to_json(row: &tokio_postgres::Row, idx: usize, elem: &Type) -> Val
             }
         }
         Type::JSON | Type::JSONB => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<Value>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|j| j).collect())),
-            ) {
+            if let Some(v) = try_array(row.try_get::<_, Option<Vec<Value>>>(idx)) {
                 return v;
             }
         }
@@ -1683,13 +1658,8 @@ fn array_cell_to_json(row: &tokio_postgres::Row, idx: usize, elem: &Type) -> Val
         }
         Type::BYTEA => {
             if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<Vec<u8>>>>(idx).map(|v| {
-                    v.map(|a| {
-                        a.into_iter()
-                            .map(|b| json!(BASE64.encode(b)))
-                            .collect()
-                    })
-                }),
+                row.try_get::<_, Option<Vec<Vec<u8>>>>(idx)
+                    .map(|v| v.map(|a| a.into_iter().map(|b| json!(BASE64.encode(b))).collect())),
             ) {
                 return v;
             }

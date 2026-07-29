@@ -59,7 +59,11 @@ pub fn serialize_embeddings(vectors: &[Vec<f32>], dim: usize) -> Vec<u8> {
 }
 
 /// Read one embedding row from a Float32 LE row-major buffer.
-pub fn deserialize_embedding(buffer: &[u8], index: usize, dim: usize) -> Result<Vec<f32>, IndexError> {
+pub fn deserialize_embedding(
+    buffer: &[u8],
+    index: usize,
+    dim: usize,
+) -> Result<Vec<f32>, IndexError> {
     let offset = index * dim * 4;
     let end = offset + dim * 4;
     if end > buffer.len() {
@@ -71,13 +75,14 @@ pub fn deserialize_embedding(buffer: &[u8], index: usize, dim: usize) -> Result<
     let mut out = Vec::with_capacity(dim);
     for j in 0..dim {
         let start = offset + j * 4;
-        let bytes: [u8; 4] = buffer[start..start + 4]
-            .try_into()
-            .expect("4-byte slice");
+        let bytes: [u8; 4] = buffer[start..start + 4].try_into().expect("4-byte slice");
         out.push(f32::from_le_bytes(bytes));
     }
     Ok(out)
 }
+
+/// Embeddings meta rows + raw Float32 LE bytes, as read from `embeddings.bin` + `-meta.json`.
+pub type EmbeddingsBlob = (Vec<EmbeddingMetaEntry>, Vec<u8>);
 
 /// Disk-backed schema index store rooted at a global storage directory.
 #[derive(Debug, Clone)]
@@ -179,7 +184,11 @@ impl IndexStore {
         Ok(Some(migrate_manifest(&raw)?))
     }
 
-    pub fn write_manifest(&self, base_dir: &Path, manifest: &IndexManifest) -> Result<(), IndexError> {
+    pub fn write_manifest(
+        &self,
+        base_dir: &Path,
+        manifest: &IndexManifest,
+    ) -> Result<(), IndexError> {
         let bytes = serde_json::to_vec(manifest)?;
         self.write_atomic(&base_dir.join(MANIFEST_FILE), &bytes)
     }
@@ -294,10 +303,11 @@ impl IndexStore {
         &self,
         base_dir: &Path,
         manifest: &IndexManifest,
-    ) -> Result<Option<(Vec<EmbeddingMetaEntry>, Vec<u8>)>, IndexError> {
-        let (Some(bin_name), Some(meta_name)) =
-            (&manifest.derived.embeddings, &manifest.derived.embeddings_meta)
-        else {
+    ) -> Result<Option<EmbeddingsBlob>, IndexError> {
+        let (Some(bin_name), Some(meta_name)) = (
+            &manifest.derived.embeddings,
+            &manifest.derived.embeddings_meta,
+        ) else {
             return Ok(None);
         };
         let meta: Vec<EmbeddingMetaEntry> = match self.read_json_opt(&base_dir.join(meta_name))? {
@@ -463,8 +473,7 @@ fn apply_overrides(mut entry: ObjectEntry, ref_: &str, overrides: &IndexOverride
                 inferred: edge.inferred,
             };
             if let Some(idx) = fks.iter().position(|fk| {
-                fk.ref_table == edge.to
-                    && fk.columns.first() == edge.cols.first().map(|(a, _)| a)
+                fk.ref_table == edge.to && fk.columns.first() == edge.cols.first().map(|(a, _)| a)
             }) {
                 fks[idx] = new_fk;
             } else {
@@ -574,10 +583,7 @@ mod tests {
     fn base_dir_layout_matches_ts() {
         let store = IndexStore::new("/tmp/storage");
         let dir = store.base_dir("conn/1", "my db");
-        assert_eq!(
-            dir,
-            PathBuf::from("/tmp/storage/dbindex/conn_1/my_db")
-        );
+        assert_eq!(dir, PathBuf::from("/tmp/storage/dbindex/conn_1/my_db"));
     }
 
     #[test]

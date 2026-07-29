@@ -151,11 +151,7 @@ fn format_row_estimate(v: f64) -> String {
     }
     // Match JS number stringification for non-integers.
     let s = v.to_string();
-    if s == "0" {
-        "0".into()
-    } else {
-        s
-    }
+    if s == "0" { "0".into() } else { s }
 }
 
 fn hex_sha1(bytes: &[u8]) -> String {

@@ -13,7 +13,7 @@ use crate::model::{
     EmbeddingMetaEntry, IndexOverrides, JoinEdge, JoinGraph, ObjectEntry, TokenIndex, ValueIndex,
 };
 use crate::rrf::{cosine_similarity, fuse_rrf};
-use crate::store::{deserialize_embedding, IndexStore};
+use crate::store::{IndexStore, deserialize_embedding};
 
 /// Boost applied when a query token hits the value inverted index (TS: `+ 2.0`).
 const VALUE_HIT_BOOST: f64 = 2.0;
@@ -42,6 +42,9 @@ pub struct SampleValuesResult {
     /// Present when the index has no profiled samples (or values.json is empty).
     pub message: Option<String>,
 }
+
+/// Optional live-DB fallback for `sample_values` when the index has no profiled samples.
+pub type LiveSampleFn<'a> = dyn Fn(&str, &str) -> Result<Vec<String>, IndexError> + 'a;
 
 /// Optional schema / PII gate for query methods.
 ///
@@ -312,9 +315,7 @@ impl<'a> IndexQueryService<'a> {
             && let Some((meta, bin)) = self.store.read_embeddings(&base, &manifest)?
             && !meta.is_empty()
         {
-            if let Some(semantic) =
-                compute_semantic_hits(query, &meta, &bin, &excluded, embedder)
-            {
+            if let Some(semantic) = compute_semantic_hits(query, &meta, &bin, &excluded, embedder) {
                 scored = fuse_rrf(&scored, &semantic, limit);
             } else if scored.len() > limit {
                 scored.truncate(limit);
@@ -386,7 +387,7 @@ impl<'a> IndexQueryService<'a> {
         ref_: &str,
         col: &str,
         filter: Option<&QueryPolicyFilter>,
-        live_sample: Option<&dyn Fn(&str, &str) -> Result<Vec<String>, IndexError>>,
+        live_sample: Option<&LiveSampleFn>,
     ) -> Result<SampleValuesResult, IndexError> {
         if !allows_ref(filter, ref_) {
             return Err(IndexError::Query(format!(
@@ -711,7 +712,12 @@ mod tests {
             ..Default::default()
         };
         let hits = svc
-            .search_schema("order customer", 10, Some(&filter), SearchOptions::default())
+            .search_schema(
+                "order customer",
+                10,
+                Some(&filter),
+                SearchOptions::default(),
+            )
             .unwrap();
         assert_eq!(
             hits.iter().map(|h| h.ref_.as_str()).collect::<Vec<_>>(),
@@ -903,7 +909,7 @@ mod tests {
 
     fn write_embeddings_fixture(store: &IndexStore, base: &std::path::Path) {
         use crate::model::EmbeddingMetaEntry;
-        use crate::store::{serialize_embeddings, EMBEDDINGS_BIN, EMBEDDINGS_META};
+        use crate::store::{EMBEDDINGS_BIN, EMBEDDINGS_META, serialize_embeddings};
 
         // customers ≈ [1,0], orders ≈ [0,1], payments ≈ [0.7, 0.7]
         let vectors = vec![

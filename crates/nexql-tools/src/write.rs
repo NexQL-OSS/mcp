@@ -5,8 +5,8 @@ use std::sync::Arc;
 use deadpool_postgres::Object;
 use nexql_policy::{AccessMode, SqlDecision, validate_write_sql};
 use serde_json::{Map, Value, json};
-use tokio_postgres::types::ToSql;
 use tokio_postgres::SimpleQueryMessage;
+use tokio_postgres::types::ToSql;
 
 use crate::error::ToolError;
 use crate::exec::ToolOutcome;
@@ -48,14 +48,12 @@ pub async fn execute_sql(
     }
 
     match outcome {
-        Ok((rows, rows_affected)) => {
-            Ok(ToolOutcome::ok_json(json!({
-                "dry_run": dry_run,
-                "rolled_back": rolled_back,
-                "rows_affected": rows_affected,
-                "rows": rows,
-            })))
-        }
+        Ok((rows, rows_affected)) => Ok(ToolOutcome::ok_json(json!({
+            "dry_run": dry_run,
+            "rolled_back": rolled_back,
+            "rows_affected": rows_affected,
+            "rows": rows,
+        }))),
         Err(e) => Err(e),
     }
 }
@@ -66,10 +64,9 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
         .get("table")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ToolError::InvalidArgs("table is required (schema.name)".into()))?;
-    let action = args
-        .get("action")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ToolError::InvalidArgs("action is required (insert|update|delete)".into()))?;
+    let action = args.get("action").and_then(|v| v.as_str()).ok_or_else(|| {
+        ToolError::InvalidArgs("action is required (insert|update|delete)".into())
+    })?;
 
     let (schema, table) = parse_ref(table_ref).map_err(ToolError::InvalidArgs)?;
     if !session.filter.allows_table(&schema, &table) {
@@ -434,14 +431,10 @@ pub async fn run_maintenance(
     session: &Arc<ToolSession>,
     args: &Value,
 ) -> Result<ToolOutcome, ToolError> {
-    let action = args
-        .get("action")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ToolError::InvalidArgs("action is required (vacuum|analyze|reindex)".into()))?;
-    let full = args
-        .get("full")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let action = args.get("action").and_then(|v| v.as_str()).ok_or_else(|| {
+        ToolError::InvalidArgs("action is required (vacuum|analyze|reindex)".into())
+    })?;
+    let full = args.get("full").and_then(|v| v.as_bool()).unwrap_or(false);
     let table_ref = args.get("table").and_then(|v| v.as_str());
 
     let sql = match action.to_ascii_lowercase().as_str() {
@@ -484,12 +477,11 @@ pub async fn terminate_query(
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ToolError::InvalidArgs("pid is required".into()))?;
     if pid <= 0 {
-        return Err(ToolError::InvalidArgs("pid must be a positive integer".into()));
+        return Err(ToolError::InvalidArgs(
+            "pid must be a positive integer".into(),
+        ));
     }
-    let force = args
-        .get("force")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let client = session.checkout().await?;
     let own_pid: i32 = client
@@ -527,10 +519,7 @@ pub async fn terminate_query(
         "pg_cancel_backend"
     };
     let sql = format!("SELECT {fn_name}($1)");
-    let result: bool = client
-        .query_one(&sql, &[&(pid as i32)])
-        .await?
-        .get(0);
+    let result: bool = client.query_one(&sql, &[&(pid as i32)]).await?.get(0);
 
     Ok(ToolOutcome::ok_json(json!({
         "pid": pid,
@@ -572,10 +561,7 @@ fn build_reindex_sql(table_ref: Option<&str>) -> Result<String, ToolError> {
         ToolError::InvalidArgs("table (schema.name) is required for reindex".into())
     })?;
     let (schema, table) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
-    Ok(format!(
-        "REINDEX TABLE {}",
-        quote_ref(&schema, &table)
-    ))
+    Ok(format!("REINDEX TABLE {}", quote_ref(&schema, &table)))
 }
 
 fn assert_ddl_statement(sql: &str) -> Result<(), ToolError> {
@@ -701,13 +687,8 @@ mod tests {
     #[test]
     fn build_batch_insert_sql() {
         let rows = [json!({"id": 1, "name": "a"}), json!({"id": 2, "name": "b"})];
-        let (sql, params) = build_batch_insert(
-            "public",
-            "users",
-            &["id".into(), "name".into()],
-            &rows,
-        )
-        .unwrap();
+        let (sql, params) =
+            build_batch_insert("public", "users", &["id".into(), "name".into()], &rows).unwrap();
         assert!(sql.starts_with("INSERT INTO \"public\".\"users\""));
         assert_eq!(params.len(), 4);
     }

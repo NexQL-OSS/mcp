@@ -293,14 +293,8 @@ impl CompletionBackend for IndexCompletionBackend {
             code: -32602,
             message: "missing argument".into(),
         })?;
-        let name = argument
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let value = argument
-            .get("value")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = argument.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let value = argument.get("value").and_then(|v| v.as_str()).unwrap_or("");
         let (connection_id, database) = self.session.active_context().await;
         self.provider
             .complete_ref(&connection_id, &database, name, value)
@@ -435,8 +429,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
     };
 
     let tools = Arc::new(RouterBackend {
-        router: ToolRouter::new(session.clone())
-            .with_semantic(cli.embeddings.is_local(), embedder),
+        router: ToolRouter::new(session.clone()).with_semantic(cli.embeddings.is_local(), embedder),
     });
 
     let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
@@ -568,15 +561,7 @@ async fn run_build_request(
     #[cfg(not(feature = "embeddings"))]
     let embedder: Option<&dyn nexql_index::Embedder> = None;
 
-    let manifest = build_index(
-        &store,
-        &db,
-        &req,
-        Some(&mut on_progress),
-        None,
-        embedder,
-    )
-    .await?;
+    let manifest = build_index(&store, &db, &req, Some(&mut on_progress), None, embedder).await?;
     eprintln!(
         "index built: conn={connection_id} db={database} tables={} views={} functions={} enums={} shards={} fingerprint={} ({}ms, {} queries)",
         manifest.counts.tables,
@@ -596,10 +581,7 @@ async fn run_build_request(
     Ok(())
 }
 
-async fn run_index_build(
-    cli: &Cli,
-    depth: BuildDepth,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_index_build(cli: &Cli, depth: BuildDepth) -> Result<(), Box<dyn std::error::Error>> {
     let resolved = resolve(&resolve_inputs(cli))?;
     let (connection_id, database) = index_ids(&resolved);
     let req = default_build_request(connection_id, database, depth, cli.embeddings.is_local());
@@ -610,10 +592,7 @@ async fn run_index_status(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let store = IndexStore::new(default_index_root());
     let indexed = store.list_indexed_databases()?;
     if indexed.is_empty() {
-        eprintln!(
-            "index status: no indexes under {}",
-            store.root().display()
-        );
+        eprintln!("index status: no indexes under {}", store.root().display());
         return Ok(());
     }
 

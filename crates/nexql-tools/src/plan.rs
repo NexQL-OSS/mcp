@@ -67,9 +67,7 @@ pub fn extract_plan_metrics(explain_plan: &Value) -> Option<Value> {
 
     let mut recommendations = Vec::new();
     if sequential_scans > 0 && index_scans == 0 {
-        recommendations.push(
-            "Consider adding indexes on frequently filtered columns".to_owned(),
-        );
+        recommendations.push("Consider adding indexes on frequently filtered columns".to_owned());
     }
     if total_cost > 10_000.0 {
         recommendations.push(
@@ -104,8 +102,7 @@ pub fn extract_plan_metrics(explain_plan: &Value) -> Option<Value> {
     }
     if spilled_to_disk > 0 {
         recommendations.push(
-            "Plan node spilled to disk. Consider increasing work_mem for sorts/hashes."
-                .to_owned(),
+            "Plan node spilled to disk. Consider increasing work_mem for sorts/hashes.".to_owned(),
         );
     }
 
@@ -171,12 +168,15 @@ fn analyze_plan_node(
     subquery_scans: &mut u64,
     bottlenecks: &mut Vec<String>,
 ) {
-    let node_type = node
-        .get("Node Type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let actual_rows = node.get("Actual Rows").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let plan_rows = node.get("Plan Rows").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let node_type = node.get("Node Type").and_then(|v| v.as_str()).unwrap_or("");
+    let actual_rows = node
+        .get("Actual Rows")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let plan_rows = node
+        .get("Plan Rows")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let actual_time = node
         .get("Actual Total Time")
         .and_then(|v| v.as_f64())
@@ -322,14 +322,22 @@ pub fn analyze_deep_plan(explain_plan: &Value, query: &str) -> Option<Value> {
     let mut cte_list: Vec<Value> = ctes.into_values().collect();
     cte_list.sort_by(|a, b| {
         f64_desc(
-            a.get("cumulativeCost").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            b.get("cumulativeCost").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            a.get("cumulativeCost")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+            b.get("cumulativeCost")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
         )
     });
     functions.sort_by(|a, b| {
         f64_desc(
-            a.get("cumulativeCost").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            b.get("cumulativeCost").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            a.get("cumulativeCost")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+            b.get("cumulativeCost")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
         )
     });
     subqueries.sort_by(|a, b| {
@@ -449,10 +457,7 @@ fn extract_sql_shape(query: &str) -> Value {
                 {
                     end += 1;
                 }
-                let after = chars.get(end..).and_then(|c| {
-                    let s: String = c.iter().collect();
-                    Some(s)
-                });
+                let after = chars.get(end..).map(|c| c.iter().collect::<String>());
                 if after
                     .as_deref()
                     .map(|s| s.trim_start().starts_with('('))
@@ -485,18 +490,24 @@ fn walk_deep_plan(
     subqueries: &mut Vec<Value>,
     estimate_skew: &mut Vec<Value>,
 ) {
-    let node_type = node
-        .get("Node Type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let node_type = node.get("Node Type").and_then(|v| v.as_str()).unwrap_or("");
     let node_path = format!("{path}/{node_type}");
-    let total_node_cost = node.get("Total Cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let total_node_cost = node
+        .get("Total Cost")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let actual_total_time = node
         .get("Actual Total Time")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
-    let plan_rows = node.get("Plan Rows").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let actual_rows = node.get("Actual Rows").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let plan_rows = node
+        .get("Plan Rows")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let actual_rows = node
+        .get("Actual Rows")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let actual_loops = node
         .get("Actual Loops")
         .and_then(|v| v.as_f64())
@@ -680,12 +691,10 @@ fn build_deep_recommendations(
             "Severe estimate skew ({skew:.1}x) in {node_type}. Run ANALYZE and review predicate selectivity/index coverage."
         ));
     }
-    if let Some(s) = subqueries.iter().find(|s| {
-        s.get("timeMs")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-            >= EXPENSIVE_NODE_TIME_MS
-    }) {
+    if let Some(s) = subqueries
+        .iter()
+        .find(|s| s.get("timeMs").and_then(|v| v.as_f64()).unwrap_or(0.0) >= EXPENSIVE_NODE_TIME_MS)
+    {
         let node_type = s.get("nodeType").and_then(|v| v.as_str()).unwrap_or("node");
         let time = s.get("timeMs").and_then(|v| v.as_f64()).unwrap_or(0.0);
         recommendations.push(format!(
@@ -693,9 +702,8 @@ fn build_deep_recommendations(
         ));
     }
     if recommendations.is_empty() {
-        recommendations.push(
-            "No deep function/CTE/subquery anti-patterns detected in current plan.".into(),
-        );
+        recommendations
+            .push("No deep function/CTE/subquery anti-patterns detected in current plan.".into());
     }
     recommendations
 }

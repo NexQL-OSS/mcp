@@ -125,13 +125,13 @@ mod tests {
         ]);
 
         let cases: &[(&str, &str, Option<&[&str]>)] = &[
-            ("a", "a", Some(&[])),                         // same table
-            ("a", "b", Some(&["fk_ab"])),                  // 1 hop
-            ("a", "c", Some(&["fk_ab", "fk_bc"])),         // 2 hops
+            ("a", "a", Some(&[])),                          // same table
+            ("a", "b", Some(&["fk_ab"])),                   // 1 hop
+            ("a", "c", Some(&["fk_ab", "fk_bc"])),          // 2 hops
             ("a", "d", Some(&["fk_ab", "fk_bc", "fk_cd"])), // 3 hops
-            ("a", "e", None),                              // 4 hops — capped
-            ("a", "z", None),                              // disconnected
-            ("e", "a", None),                              // reverse also 4 hops
+            ("a", "e", None),                               // 4 hops — capped
+            ("a", "z", None),                               // disconnected
+            ("e", "a", None),                               // reverse also 4 hops
             ("d", "a", Some(&["fk_cd", "fk_bc", "fk_ab"])), // reverse 3 hops
         ];
 
@@ -171,7 +171,10 @@ mod tests {
     fn unreachable_message_and_get_join_path() {
         let g = graph(vec![edge("a", "b", "fk")]);
         let msg = unreachable_join_path_message("a", "c");
-        assert_eq!(msg, "No join path found between \"a\" and \"c\" within 3 hops.");
+        assert_eq!(
+            msg,
+            "No join path found between \"a\" and \"c\" within 3 hops."
+        );
 
         assert!(get_join_path("a", "b", &g).is_ok());
         let err = get_join_path("a", "c", &g).unwrap_err();

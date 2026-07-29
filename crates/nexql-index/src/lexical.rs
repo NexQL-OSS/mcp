@@ -97,8 +97,7 @@ pub fn tokenize(text: &str) -> Vec<String> {
 
 /// Basic English plural stemmer for DB identifiers (TS `stemWord`).
 pub fn stem_word(word: &str) -> String {
-    if word.ends_with("ies") {
-        let stem = &word[..word.len() - 3];
+    if let Some(stem) = word.strip_suffix("ies") {
         return format!("{stem}y");
     }
     if word.ends_with("es")
@@ -122,7 +121,10 @@ pub fn stem_word(word: &str) -> String {
 ///
 /// **Divergence:** result is sorted ascending for determinism. TS returns `Set`
 /// insertion order.
-pub fn candidate_refs_from_postings(query_tokens: &[String], token_index: &TokenIndex) -> Vec<String> {
+pub fn candidate_refs_from_postings(
+    query_tokens: &[String],
+    token_index: &TokenIndex,
+) -> Vec<String> {
     let mut candidates: HashSet<String> = HashSet::new();
 
     for token in query_tokens {
@@ -405,7 +407,7 @@ mod tests {
             ("fk_user_id", &["foreign", "key", "user", "id"]),
             ("pk", &["primary", "key"]),
             ("col2Name", &["col", "2", "name"]),
-            ("a", &[]), // single letter dropped
+            ("a", &[]),    // single letter dropped
             ("1", &["1"]), // single digit kept
             // TS stem quirks (not ideal English): sses blocks -es, then -s still strips.
             ("classes", &["classe"]),

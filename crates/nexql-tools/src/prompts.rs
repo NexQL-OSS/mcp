@@ -269,10 +269,7 @@ impl PromptCatalog {
             .collect()
     }
 
-    pub fn get(
-        name: &str,
-        args: &HashMap<String, String>,
-    ) -> Result<PromptGetResult, PromptError> {
+    pub fn get(name: &str, args: &HashMap<String, String>) -> Result<PromptGetResult, PromptError> {
         let prompt = PROMPTS
             .iter()
             .find(|p| p.name == name)
@@ -357,6 +354,11 @@ mod tests {
     #[test]
     fn get_debug_blocking_mentions_tool() {
         let result = PromptCatalog::get("debug-blocking", &HashMap::new()).unwrap();
-        assert!(result.messages[0].content.text.contains("find_blocking_locks"));
+        assert!(
+            result.messages[0]
+                .content
+                .text
+                .contains("find_blocking_locks")
+        );
     }
 }

@@ -26,11 +26,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         nb += y * y;
     }
     let denom = na.sqrt() * nb.sqrt();
-    if denom == 0.0 {
-        0.0
-    } else {
-        dot / denom
-    }
+    if denom == 0.0 { 0.0 } else { dot / denom }
 }
 
 /// Reciprocal Rank Fusion of two ranked lists (both sorted descending by score).

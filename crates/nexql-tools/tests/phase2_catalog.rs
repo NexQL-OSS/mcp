@@ -6,7 +6,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use nexql_conn::params_from_url;
+use nexql_conn::{connect_once, params_from_url};
 use nexql_policy::{AccessMode, PolicyCaps};
 use nexql_tools::{ConnectionInfo, ToolRouter, ToolSession};
 use serde_json::json;
@@ -98,6 +98,23 @@ fn start_temp_pg() -> Option<TempPg> {
 
 async fn router_for(url: &str) -> Arc<ToolRouter> {
     let params = params_from_url(url).unwrap();
+
+    // Seed via a one-shot connection — the tool session below is read-only
+    // (`AccessMode::Read` sets `default_transaction_read_only = ON` on every
+    // pooled checkout), so DDL must land before that guard is in effect.
+    connect_once(&params)
+        .await
+        .unwrap()
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS public.users (id serial PRIMARY KEY, email text);
+             CREATE TABLE IF NOT EXISTS public.orders (
+               id serial PRIMARY KEY,
+               user_id int REFERENCES public.users(id)
+             );",
+        )
+        .await
+        .unwrap();
+
     let info = ConnectionInfo {
         id: "default".into(),
         name: "default".into(),
@@ -114,20 +131,6 @@ async fn router_for(url: &str) -> Arc<ToolRouter> {
     )
     .await
     .unwrap();
-    // seed
-    {
-        let client = session.checkout().await.unwrap();
-        client
-            .batch_execute(
-                "CREATE TABLE IF NOT EXISTS public.users (id serial PRIMARY KEY, email text);
-                 CREATE TABLE IF NOT EXISTS public.orders (
-                   id serial PRIMARY KEY,
-                   user_id int REFERENCES public.users(id)
-                 );",
-            )
-            .await
-            .unwrap();
-    }
     Arc::new(ToolRouter::new(session))
 }
 

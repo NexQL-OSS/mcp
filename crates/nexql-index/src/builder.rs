@@ -16,12 +16,12 @@ use tokio_postgres::Client;
 
 use crate::catalog::{
     COLUMNS_QUERY, CONSTRAINTS_QUERY, DOMAINS_QUERY, ENUMS_QUERY, FUNCTIONS_QUERY, INDEXES_QUERY,
-    RELATIONS_QUERY, SCHEMA_FINGERPRINT_QUERY, VIEW_DEFINITIONS_QUERY, RawColumnRow,
-    RawConstraintRow, RawDomainRow, RawEnumRow, RawFunctionRow, RawIndexRow, RawRelationRow,
-    RawViewRow, map_relkind_to_db_object_kind,
+    RELATIONS_QUERY, RawColumnRow, RawConstraintRow, RawDomainRow, RawEnumRow, RawFunctionRow,
+    RawIndexRow, RawRelationRow, RawViewRow, SCHEMA_FINGERPRINT_QUERY, VIEW_DEFINITIONS_QUERY,
+    map_relkind_to_db_object_kind,
 };
 use crate::embed::{
-    build_object_doc, embeddings_env_local, is_embeddable_kind, Embedder, LOCAL_MODEL_ID,
+    Embedder, LOCAL_MODEL_ID, build_object_doc, embeddings_env_local, is_embeddable_kind,
 };
 use crate::error::IndexError;
 use crate::lexical::{extract_synonyms_from_comment, tokenize};
@@ -33,8 +33,8 @@ use crate::model::{
 };
 use crate::object_hash::{compute_definition_hash, compute_object_hash};
 use crate::store::{
-    serialize_embeddings, IndexStore, EMBEDDINGS_BIN, EMBEDDINGS_META, JOIN_GRAPH_FILE, TOKENS_FILE,
-    VALUES_FILE,
+    EMBEDDINGS_BIN, EMBEDDINGS_META, IndexStore, JOIN_GRAPH_FILE, TOKENS_FILE, VALUES_FILE,
+    serialize_embeddings,
 };
 
 static EMBEDDINGS_FEATURE_WARNED: AtomicBool = AtomicBool::new(false);
@@ -128,11 +128,7 @@ impl CatalogDb for PgCatalogDb<'_> {
             .await
             .map_err(|e| IndexError::Db(format!("SHOW server_version: {e}")))?;
         let full: String = row.get(0);
-        Ok(full
-            .split_whitespace()
-            .next()
-            .unwrap_or("16.0")
-            .to_owned())
+        Ok(full.split_whitespace().next().unwrap_or("16.0").to_owned())
     }
 
     async fn relations(&self, schemas: &[String]) -> Result<Vec<RawRelationRow>, IndexError> {
@@ -348,7 +344,12 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
         ));
     }
 
-    let excluded: HashSet<&str> = req.scope.excluded_objects.iter().map(String::as_str).collect();
+    let excluded: HashSet<&str> = req
+        .scope
+        .excluded_objects
+        .iter()
+        .map(String::as_str)
+        .collect();
     let filtered: Vec<RawRelationRow> = relations
         .into_iter()
         .filter(|r| !excluded.contains(format!("{}.{}", r.schema_name, r.name).as_str()))
@@ -397,8 +398,7 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
 
     if req.depth == BuildDepth::Profiles {
         warnings.push(
-            "BuildDepth::Profiles value profiling not yet ported — structure-only this pass"
-                .into(),
+            "BuildDepth::Profiles value profiling not yet ported — structure-only this pass".into(),
         );
     }
 
@@ -632,6 +632,8 @@ fn object_ref(schema: &str, name: &str) -> String {
     format!("{schema}.{name}")
 }
 
+// One raw-row slice per catalog category being merged into `ObjectEntry`s.
+#[allow(clippy::too_many_arguments)]
 fn assemble_entries(
     relations: &[RawRelationRow],
     columns: &[RawColumnRow],
@@ -1015,8 +1017,7 @@ fn write_shards(
             let entry_str = serde_json::to_string(&entry)?;
             let entry_size = entry_str.len();
 
-            if current.len() >= MAX_OBJECTS_PER_SHARD
-                || current_size + entry_size > MAX_SHARD_BYTES
+            if current.len() >= MAX_OBJECTS_PER_SHARD || current_size + entry_size > MAX_SHARD_BYTES
             {
                 flush(&mut current, &mut current_size, &mut shard_index)?;
             }
@@ -1212,18 +1213,15 @@ fn build_join_graph(entries: &BTreeMap<String, ObjectEntry>) -> JoinGraph {
                 }
 
                 let has_explicit = entry_a.foreign_keys.as_ref().is_some_and(|fks| {
-                    fks.iter()
-                        .any(|fk| fk.ref_table == *ref_b && fk.columns.iter().any(|c| c == &col.name))
+                    fks.iter().any(|fk| {
+                        fk.ref_table == *ref_b && fk.columns.iter().any(|c| c == &col.name)
+                    })
                 });
                 if has_explicit {
                     continue;
                 }
 
-                let target_col = if entry_b
-                    .primary_key
-                    .as_ref()
-                    .is_some_and(|pk| pk.len() == 1)
-                {
+                let target_col = if entry_b.primary_key.as_ref().is_some_and(|pk| pk.len() == 1) {
                     entry_b.primary_key.as_ref().unwrap()[0].clone()
                 } else if entry_b
                     .columns
@@ -1232,7 +1230,8 @@ fn build_join_graph(entries: &BTreeMap<String, ObjectEntry>) -> JoinGraph {
                 {
                     "id".to_owned()
                 } else if let Some(matched) = entry_b.columns.iter().find(|c| {
-                    c.name.eq_ignore_ascii_case(&format!("{}_id", name_b.to_ascii_lowercase()))
+                    c.name
+                        .eq_ignore_ascii_case(&format!("{}_id", name_b.to_ascii_lowercase()))
                 }) {
                     matched.name.clone()
                 } else {
@@ -1530,9 +1529,11 @@ mod tests {
         assert_eq!(manifest.counts.tables, 3);
         assert!(!manifest.shards.is_empty());
         assert!(events.iter().any(|e| matches!(e, BuildProgress::Started)));
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, BuildProgress::Finished { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, BuildProgress::Finished { .. }))
+        );
 
         let base = store.base_dir("conn-1", "appdb");
         assert!(base.join("manifest.json").is_file());
@@ -1560,9 +1561,7 @@ mod tests {
         );
         assert!(
             graph.edges.iter().any(|e| {
-                e.from == "public.orders"
-                    && e.to == "public.users"
-                    && e.inferred == Some(true)
+                e.from == "public.orders" && e.to == "public.users" && e.inferred == Some(true)
             }),
             "inferred user_id → users edge"
         );

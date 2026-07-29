@@ -344,11 +344,15 @@ pub fn compute_schema_diff(source: &SchemaSnapshot, target: &SchemaSnapshot) -> 
                 let constraint_diffs =
                     diff_constraints(&src_table.constraints, &tgt_table.constraints);
                 let index_diffs = diff_indexes(&src_table.indexes, &tgt_table.indexes);
-                let has_changes = column_diffs.iter().any(|d| d.status != DiffStatus::Unchanged)
+                let has_changes = column_diffs
+                    .iter()
+                    .any(|d| d.status != DiffStatus::Unchanged)
                     || constraint_diffs
                         .iter()
                         .any(|d| d.status != DiffStatus::Unchanged)
-                    || index_diffs.iter().any(|d| d.status != DiffStatus::Unchanged);
+                    || index_diffs
+                        .iter()
+                        .any(|d| d.status != DiffStatus::Unchanged);
                 diffs.push(TableDiff {
                     name: table_name.to_owned(),
                     status: if has_changes {
@@ -420,10 +424,7 @@ fn diff_columns(src: &[ColumnSnapshot], tgt: &[ColumnSnapshot]) -> Vec<ColumnDif
     diffs
 }
 
-fn diff_constraints(
-    src: &[ConstraintSnapshot],
-    tgt: &[ConstraintSnapshot],
-) -> Vec<ConstraintDiff> {
+fn diff_constraints(src: &[ConstraintSnapshot], tgt: &[ConstraintSnapshot]) -> Vec<ConstraintDiff> {
     let src_map: std::collections::HashMap<&str, &ConstraintSnapshot> =
         src.iter().map(|c| (c.name.as_str(), c)).collect();
     let tgt_map: std::collections::HashMap<&str, &ConstraintSnapshot> =
@@ -626,14 +627,18 @@ pub fn build_migration_statements(
             match idx.status {
                 DiffStatus::Added => {
                     if let Some(after) = &idx.after {
-                        let rewritten = after
-                            .definition
-                            .replace(&format!("ON {target_schema}."), &format!("ON {source_schema}."));
+                        let rewritten = after.definition.replace(
+                            &format!("ON {target_schema}."),
+                            &format!("ON {source_schema}."),
+                        );
                         stmts.push(format!("{rewritten};"));
                     }
                 }
                 DiffStatus::Removed => {
-                    stmts.push(format!("-- DROP INDEX \"{}\"; -- Uncomment to drop", idx.name));
+                    stmts.push(format!(
+                        "-- DROP INDEX \"{}\"; -- Uncomment to drop",
+                        idx.name
+                    ));
                 }
                 _ => {}
             }

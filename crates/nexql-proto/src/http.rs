@@ -114,11 +114,8 @@ async fn handle_mcp(State(state): State<AppState>, headers: HeaderMap, body: Byt
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => {
-            let resp = JsonRpcResponse::err(
-                Value::Null,
-                ProtoError::PARSE,
-                format!("parse error: {e}"),
-            );
+            let resp =
+                JsonRpcResponse::err(Value::Null, ProtoError::PARSE, format!("parse error: {e}"));
             return json_response(StatusCode::BAD_REQUEST, resp);
         }
     };
@@ -146,12 +143,7 @@ fn unauthorized() -> Response {
 
 fn json_response(status: StatusCode, payload: JsonRpcResponse) -> Response {
     match serde_json::to_string(&payload) {
-        Ok(body) => (
-            status,
-            [(header::CONTENT_TYPE, "application/json")],
-            body,
-        )
-            .into_response(),
+        Ok(body) => (status, [(header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             [(header::CONTENT_TYPE, "application/json")],
@@ -194,9 +186,7 @@ mod tests {
                 token: token.map(str::to_owned),
             },
         };
-        Router::new()
-            .route("/", post(handle_mcp))
-            .with_state(state)
+        Router::new().route("/", post(handle_mcp)).with_state(state)
     }
 
     #[tokio::test]

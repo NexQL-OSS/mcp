@@ -122,7 +122,9 @@ fn row_value<'a>(out: &'a nexql_tools::ToolOutcome, column: &str) -> &'a serde_j
         .get("rows")
         .and_then(|v| v.as_array())
         .expect("rows array");
-    rows[0].get(column).unwrap_or_else(|| panic!("column {column}"))
+    rows[0]
+        .get(column)
+        .unwrap_or_else(|| panic!("column {column}"))
 }
 
 #[tokio::test]

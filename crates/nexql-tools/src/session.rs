@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use deadpool_postgres::{Object, Pool};
 use nexql_conn::{
-    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded,
-    create_pool,
+    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded, create_pool,
 };
 use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter};
@@ -181,10 +180,10 @@ impl ToolSession {
             .unwrap_or_else(|| "postgres".into());
         let key = pool_key(connection_id, &target_db);
         let mut g = self.inner.write().await;
-        if !g.pools.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = g.pools.entry(key) {
             let params = params_for_database(&conn.params, &target_db);
             let pool = create_pool(&params, &self.pool_opts).await?;
-            g.pools.insert(key, pool);
+            e.insert(pool);
         }
         g.active_id = connection_id.to_string();
         g.database = target_db;

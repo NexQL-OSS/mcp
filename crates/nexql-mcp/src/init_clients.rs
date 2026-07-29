@@ -205,10 +205,7 @@ mod tests {
         let url = Some("postgres://u:p@localhost:5432/db");
         for &client in SUPPORTED_CLIENTS {
             let snippet = init_snippet(client, url).unwrap_or_else(|e| panic!("{client}: {e}"));
-            assert!(
-                !snippet.trim().is_empty(),
-                "{client}: empty snippet"
-            );
+            assert!(!snippet.trim().is_empty(), "{client}: empty snippet");
             assert!(
                 snippet.contains("nexql-mcp"),
                 "{client}: snippet must mention nexql-mcp\n{snippet}"

@@ -72,11 +72,11 @@ pub fn sort_json_keys(value: Value) -> Value {
 
 /// Zero / pin fields that vary across PG clusters and wall-clock builds.
 pub fn normalize_index_json(mut value: Value) -> Value {
-    normalize_node(&mut value, None);
+    normalize_node(&mut value);
     sort_json_keys(value)
 }
 
-fn normalize_node(value: &mut Value, parent_key: Option<&str>) {
+fn normalize_node(value: &mut Value) {
     match value {
         Value::Object(map) => {
             // Manifest / stats telemetry
@@ -84,10 +84,7 @@ fn normalize_node(value: &mut Value, parent_key: Option<&str>) {
                 map.insert("indexedAt".into(), Value::String(GOLDEN_INDEXED_AT.into()));
             }
             if map.contains_key("pgVersion") {
-                map.insert(
-                    "pgVersion".into(),
-                    Value::String(GOLDEN_PLACEHOLDER.into()),
-                );
+                map.insert("pgVersion".into(), Value::String(GOLDEN_PLACEHOLDER.into()));
             }
             if map.contains_key("schemaFingerprint") {
                 map.insert(
@@ -130,13 +127,13 @@ fn normalize_node(value: &mut Value, parent_key: Option<&str>) {
             let keys: Vec<String> = map.keys().cloned().collect();
             for k in keys {
                 if let Some(child) = map.get_mut(&k) {
-                    normalize_node(child, Some(&k));
+                    normalize_node(child);
                 }
             }
         }
         Value::Array(items) => {
             for item in items {
-                normalize_node(item, parent_key);
+                normalize_node(item);
             }
         }
         _ => {}
@@ -215,7 +212,7 @@ pub fn assert_structure_invariants(
     assert!(!shards.is_empty(), "expected at least one shard");
 
     let mut refs = BTreeSet::new();
-    for (_file, shard) in shard_objects {
+    for shard in shard_objects.values() {
         let obj = shard.as_object().expect("shard object map");
         for key in obj.keys() {
             refs.insert(key.clone());
@@ -595,8 +592,7 @@ async fn golden_parity_build_against_temp_pg() {
         .expect("build_index");
 
     let base = store.base_dir(CONN_ID, DATABASE);
-    let manifest_json: Value =
-        serde_json::to_value(&manifest).expect("manifest to value");
+    let manifest_json: Value = serde_json::to_value(&manifest).expect("manifest to value");
     let tokens_json = read_json(&base.join(TOKENS_FILE));
     let join_json = read_json(&base.join(JOIN_GRAPH_FILE));
 

@@ -50,7 +50,10 @@ pub fn quote_ref(schema: &str, name: &str) -> String {
 
 /// String literal for `'\"schema\".\"name\"'::regclass`.
 pub fn regclass_literal(schema: &str, name: &str) -> String {
-    format!("'{}'::regclass", quote_ref(schema, name).replace('\'', "''"))
+    format!(
+        "'{}'::regclass",
+        quote_ref(schema, name).replace('\'', "''")
+    )
 }
 
 pub fn table_stats(schema: &str, table: &str) -> String {

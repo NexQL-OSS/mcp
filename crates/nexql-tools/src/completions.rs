@@ -129,11 +129,9 @@ impl CompletionsProvider {
 }
 
 fn is_ref_argument(name: &str) -> bool {
-    matches!(
-        name,
-        "ref" | "table" | "from" | "to" | "a" | "b" | "object"
-    ) || name.ends_with("_ref")
-    || name.ends_with("Ref")
+    matches!(name, "ref" | "table" | "from" | "to" | "a" | "b" | "object")
+        || name.ends_with("_ref")
+        || name.ends_with("Ref")
 }
 
 #[cfg(test)]
