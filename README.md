@@ -4,7 +4,7 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–6 + **Phase 8 HTTP (bearer)** + **Phase 9 write/admin tools** landed. Phase 4b breadth complete (41 tools). Phase 7 extension cutover still deferred. Full OAuth gateway stays pro-only; HTTP sessions/rate-limit polish TBD.
+**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer)** + **Phase 9 write/admin tools** landed. Phase 4b breadth complete (41 tools). Full OAuth gateway stays pro-only; HTTP sessions/rate-limit polish TBD. See [docs/CUTOVER.md](docs/CUTOVER.md).
 
 ## Why this exists
 
@@ -108,19 +108,18 @@ Apache-2.0 for all crates in this repo. Premium extensions (provider embeddings,
 | 4 | Full tool surface, resources, prompts, completions |
 | 5 | Local embeddings + RRF fusion |
 | 6 | v1.0 ship: cargo-dist, npm, brew, Docker, MCPB |
-| 7 | Extension cutover — VS Code spawns binary as MCP client *(deferred)* |
+| 7 | Extension cutover — VS Code spawns binary via stdio MCP definition |
 | 8 | Streamable HTTP + bearer token (`--http` / `NEXQL_MCP_HTTP_TOKEN`) — OAuth gateway = pro |
 | 9 | Write/admin tools + `validate_write_sql` (opt-in `--access-mode write\|admin`) |
 
-Full plan: internal design doc (federated-greeting-badger).
+Full plan: internal design doc (federated-greeting-badger). Cutover details: [docs/CUTOVER.md](docs/CUTOVER.md).
 
 ## Reference implementation
 
-TypeScript sources in the sibling `nexql-pro` checkout:
+TypeScript sources in the sibling `nexql-pro` checkout (chat still uses these; MCP HTTP stack removed):
 
-- `pro/src/mcp/NexqlMcpServer.ts`
-- `pro/src/mcp/McpResourceProvider.ts`
-- `pro/src/mcp/McpPrompts.ts`
+- `pro/src/mcp/McpDefinitionProvider.ts` — stdio spawn of this binary
+- `pro/src/mcp/NexqlMcpStdioHost.ts` — ephemeral profile + binary resolve
 - `pro/src/providers/chat/tools/ToolSpec.ts`
 - `pro/src/providers/chat/tools/ToolExecutor.ts`
 - `pro/src/features/dbindex/*`

@@ -9,6 +9,7 @@ pub mod pgpass;
 pub mod pool;
 pub mod resolve;
 pub mod secret;
+pub mod tls;
 
 pub use config::{ConfigFile, ProfileConfig};
 pub use error::ConnError;

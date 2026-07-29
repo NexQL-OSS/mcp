@@ -1,13 +1,3 @@
-# Stub release workflow for nexql-mcp.
-#
-# Preferred path: install cargo-dist and regenerate this file from dist-workspace.toml:
-#   cargo install cargo-dist --version 0.28.7
-#   dist generate
-#
-# Until then, this placeholder builds a Linux x64 release binary on version tags
-# so GitHub Releases have something attachable. Expand to the full cargo-dist
-# matrix (darwin/windows/arm64) once `dist generate` is run.
-
 name: Release
 
 on:
@@ -22,37 +12,146 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Placeholder — replace with cargo-dist plan/build/host jobs via `dist generate`.
-  linux-x64:
-    runs-on: ubuntu-latest
+  build:
+    name: build-${{ matrix.vendor }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - vendor: linux-x64
+            runner: ubuntu-latest
+            triple: x86_64-unknown-linux-gnu
+            bin: nexql-mcp
+            npm_pkg: mcp-linux-x64
+          - vendor: linux-arm64
+            runner: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-gnu
+            bin: nexql-mcp
+            npm_pkg: mcp-linux-arm64
+          - vendor: darwin-x64
+            runner: macos-13
+            triple: x86_64-apple-darwin
+            bin: nexql-mcp
+            npm_pkg: mcp-darwin-x64
+          - vendor: darwin-arm64
+            runner: macos-latest
+            triple: aarch64-apple-darwin
+            bin: nexql-mcp
+            npm_pkg: mcp-darwin-arm64
+          - vendor: win32-x64
+            runner: windows-latest
+            triple: x86_64-pc-windows-msvc
+            bin: nexql-mcp.exe
+            npm_pkg: mcp-win32-x64
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
 
-      - name: Install clang (pg_query bindgen)
+      - name: Install clang (Linux pg_query bindgen)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release -p nexql-mcp
+        run: cargo build --release -p nexql-mcp --target ${{ matrix.triple }}
 
-      - name: Package
+      - name: Package dist + vendor archives
+        shell: bash
         run: |
           set -euo pipefail
-          STAGE="nexql-mcp-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          TAG="${GITHUB_REF_NAME}"
+          TRIPLE="${{ matrix.triple }}"
+          VENDOR="${{ matrix.vendor }}"
+          BIN="${{ matrix.bin }}"
+          SRC="target/${TRIPLE}/release/${BIN}"
+          test -f "$SRC"
+
+          STAGE="nexql-mcp-${TAG}-${TRIPLE}"
           mkdir -p "$STAGE"
-          cp target/release/nexql-mcp "$STAGE/"
+          cp "$SRC" "$STAGE/"
           cp README.md LICENSE* "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
           tar -czf "${STAGE}.tar.gz" "$STAGE"
 
-      - name: Upload GitHub Release asset
+          mkdir -p "dist/vendor/${VENDOR}"
+          cp "$SRC" "dist/vendor/${VENDOR}/${BIN}"
+          tar -czf "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" -C "dist/vendor" "${VENDOR}"
+
+      - name: Stage npm platform package
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/package-npm-platform.sh
+          ./scripts/package-npm-platform.sh \
+            "${{ matrix.vendor }}" \
+            "target/${{ matrix.triple }}/release/${{ matrix.bin }}"
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.vendor }}
+          path: |
+            nexql-mcp-*-${{ matrix.triple }}.tar.gz
+            nexql-mcp-*-vendor-${{ matrix.vendor }}.tar.gz
+
+      - name: Upload npm platform package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: npm/packages/${{ matrix.npm_pkg }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Upload GitHub Release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: nexql-mcp-*-x86_64-unknown-linux-gnu.tar.gz
+          files: dist-artifacts/**
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download npm platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          path: npm-staged
+          merge-multiple: true
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in mcp-darwin-arm64 mcp-darwin-x64 mcp-linux-arm64 mcp-linux-x64 mcp-win32-x64; do
+            cp -a "npm-staged/${pkg}/." "npm/packages/${pkg}/"
+            (cd "npm/packages/${pkg}" && npm publish --access public)
+          done
+          (cd npm && npm publish --access public)
