@@ -1,7 +1,8 @@
 //! MCP protocol layer — JSON-RPC types and transports.
 //!
 //! Decision: hand-rolled for Phase 2 (see `docs/PROTO_DECISION.md`).
-//! Reference: `nexql-pro/pro/src/mcp/NexqlMcpServer.ts`
+//! Reference: `nexql-pro/pro/src/mcp/NexqlMcpStdioHost.ts` and
+//! `nexql-pro/pro/src/mcp/McpDefinitionProvider.ts`
 
 pub mod backend;
 pub mod error;
@@ -23,7 +24,7 @@ pub use types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, negotiate_protoco
 /// MCP protocol versions negotiated at `initialize` (newest first).
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Server instructions injected at `initialize` — keep verbatim from NexqlMcpServer.ts.
+/// Server instructions injected at `initialize` — keep verbatim from the TS MCP reference.
 pub const MCP_SERVER_INSTRUCTIONS: &str = "\
 NexQL exposes the REAL, live-indexed schema of the connected Postgres database.
 Never invent or assume table, view, or column names from prior knowledge or naming conventions.

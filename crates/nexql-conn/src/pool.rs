@@ -1,14 +1,13 @@
 //! Connection pool with read-only + statement_timeout session guards.
 
-use std::str::FromStr;
 use std::time::Duration;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
-use rustls::ClientConfig;
-use tokio_postgres::{Client, Config, NoTls};
+use tokio_postgres::{Client, NoTls};
 
 use crate::error::ConnError;
 use crate::resolve::ConnectionParams;
+use crate::tls::{build_rustls_connector, connection_needs_tls, pg_config_from_params};
 
 #[derive(Debug, Clone)]
 pub struct PoolOptions {
@@ -27,22 +26,18 @@ impl Default for PoolOptions {
     }
 }
 
-/// Create a deadpool (NoTls). For `sslmode=require`, use [`connect_once`].
+/// Create a deadpool for the resolved connection params (NoTls or rustls per sslmode).
 pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Result<Pool, ConnError> {
-    let url = params.to_url()?;
-    let pg_config = Config::from_str(&url).map_err(|e| ConnError::Pool(e.to_string()))?;
-    if matches!(
-        pg_config.get_ssl_mode(),
-        tokio_postgres::config::SslMode::Require
-    ) {
-        return Err(ConnError::Pool(
-            "pooled connections do not support sslmode=require yet — use connect_once".into(),
-        ));
-    }
+    let pg_config = pg_config_from_params(params)?;
     let mgr_config = ManagerConfig {
         recycling_method: RecyclingMethod::Fast,
     };
-    let manager = Manager::from_config(pg_config, NoTls, mgr_config);
+    let manager = if connection_needs_tls(params) {
+        let tls = build_rustls_connector(params)?;
+        Manager::from_config(pg_config, tls, mgr_config)
+    } else {
+        Manager::from_config(pg_config, NoTls, mgr_config)
+    };
     Pool::builder(manager)
         .max_size(opts.max_connections)
         .runtime(Runtime::Tokio1)
@@ -77,24 +72,11 @@ pub async fn checkout_guarded(
     Ok(client)
 }
 
-/// One-shot connect (supports rustls when `sslmode=require`).
+/// One-shot connect (supports rustls when sslmode requires TLS).
 pub async fn connect_once(params: &ConnectionParams) -> Result<Client, ConnError> {
-    let url = params.to_url()?;
-    let config = Config::from_str(&url).map_err(|e| ConnError::Pool(e.to_string()))?;
-    let force_tls = matches!(
-        config.get_ssl_mode(),
-        tokio_postgres::config::SslMode::Require
-    );
-    if force_tls {
-        let mut root_store = rustls::RootCertStore::empty();
-        let native = rustls_native_certs::load_native_certs();
-        for cert in native.certs {
-            let _ = root_store.add(cert);
-        }
-        let tls_config = ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_config);
+    let config = pg_config_from_params(params)?;
+    if connection_needs_tls(params) {
+        let tls = build_rustls_connector(params)?;
         let (client, conn) = config.connect(tls).await?;
         tokio::spawn(async move {
             let _ = conn.await;
@@ -201,6 +183,18 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
         None
+    }
+
+    #[tokio::test]
+    async fn create_pool_accepts_sslmode_require() {
+        let params = params_from_url("postgres://u@127.0.0.1:5432/db?sslmode=require").unwrap();
+        let opts = PoolOptions::default();
+        let pool = create_pool(&params, &opts).await;
+        assert!(
+            pool.is_ok(),
+            "create_pool must not reject sslmode=require: {:?}",
+            pool.err()
+        );
     }
 
     #[tokio::test]

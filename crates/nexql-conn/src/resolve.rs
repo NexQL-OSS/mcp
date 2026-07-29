@@ -32,6 +32,9 @@ pub struct ConnectionParams {
     pub user: Option<String>,
     pub password: Option<String>,
     pub sslmode: Option<String>,
+    pub sslcert: Option<String>,
+    pub sslkey: Option<String>,
+    pub sslrootcert: Option<String>,
     /// Full URL if the source was a URL string.
     pub url: Option<String>,
 }
@@ -55,6 +58,15 @@ impl ConnectionParams {
         }
         if self.sslmode.is_none() {
             self.sslmode = other.sslmode.clone();
+        }
+        if self.sslcert.is_none() {
+            self.sslcert = other.sslcert.clone();
+        }
+        if self.sslkey.is_none() {
+            self.sslkey = other.sslkey.clone();
+        }
+        if self.sslrootcert.is_none() {
+            self.sslrootcert = other.sslrootcert.clone();
         }
         if self.url.is_none() {
             self.url = other.url.clone();
@@ -134,7 +146,7 @@ pub fn resolve_with_runner(
     // 1. CLI positional URL
     if let Some(ref url) = inputs.cli_url {
         let mut params = params_from_url(url)?;
-        fill_password(&mut params, inputs, &getenv, runner, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::CliArg,
@@ -159,6 +171,7 @@ pub fn resolve_with_runner(
             &getenv,
             runner,
             profile.password_command.as_deref(),
+            profile.password_file.as_deref(),
         )?;
         // Flags can fill holes only — profile wins for set fields.
         overlay_flags_as_fill(&mut params, &inputs.flags);
@@ -177,7 +190,7 @@ pub fn resolve_with_runner(
         // but flags are the source of truth for what's set.
         fill_from_database_url_env(&mut params, &getenv)?;
         fill_from_pg_env(&mut params, &getenv);
-        fill_password(&mut params, inputs, &getenv, runner, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::Flags,
@@ -189,7 +202,7 @@ pub fn resolve_with_runner(
     // 4. DATABASE_URL / POSTGRES_URL
     if let Some(url) = getenv("DATABASE_URL").or_else(|| getenv("POSTGRES_URL")) {
         let mut params = params_from_url(&url)?;
-        fill_password(&mut params, inputs, &getenv, runner, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::DatabaseUrl,
@@ -202,7 +215,7 @@ pub fn resolve_with_runner(
     if pg_env_present(&getenv) {
         let mut params = ConnectionParams::default();
         fill_from_pg_env(&mut params, &getenv);
-        fill_password(&mut params, inputs, &getenv, runner, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::PgEnv,
@@ -226,6 +239,7 @@ pub fn resolve_with_runner(
                 &getenv,
                 runner,
                 profile.password_command.as_deref(),
+                profile.password_file.as_deref(),
             )?;
             return Ok(ResolvedConnection {
                 params,
@@ -315,6 +329,9 @@ pub fn params_from_url(url_str: &str) -> Result<ConnectionParams, ConnError> {
         user,
         password,
         sslmode,
+        sslcert: None,
+        sslkey: None,
+        sslrootcert: None,
         url: Some(normalized),
     })
 }
@@ -337,6 +354,18 @@ fn params_from_profile(
             .as_ref()
             .map(|p| interpolate_env(p, getenv)),
         sslmode: profile.sslmode.clone(),
+        sslcert: profile
+            .sslcert
+            .as_ref()
+            .map(|p| interpolate_env(p, getenv)),
+        sslkey: profile
+            .sslkey
+            .as_ref()
+            .map(|p| interpolate_env(p, getenv)),
+        sslrootcert: profile
+            .sslrootcert
+            .as_ref()
+            .map(|p| interpolate_env(p, getenv)),
         url: None,
     })
 }
@@ -398,6 +427,7 @@ fn fill_password(
     getenv: &dyn Fn(&str) -> Option<String>,
     runner: &dyn CommandRunner,
     password_command: Option<&str>,
+    password_file: Option<&str>,
 ) -> Result<(), ConnError> {
     if params.password.is_some() {
         return Ok(());
@@ -405,6 +435,20 @@ fn fill_password(
     if let Some(cmd) = password_command {
         let expanded = interpolate_env(cmd, getenv);
         params.password = Some(runner.run_stdout(&expanded)?);
+        return Ok(());
+    }
+    if let Some(file) = password_file {
+        let expanded = interpolate_env(file, getenv);
+        let raw = std::fs::read_to_string(&expanded).map_err(|e| {
+            ConnError::Config(format!("password_file {}: {e}", expanded))
+        })?;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ConnError::Config(format!(
+                "password_file {expanded} is empty"
+            )));
+        }
+        params.password = Some(trimmed.to_string());
         return Ok(());
     }
     if let Some(pw) = getenv("PGPASSWORD") {
@@ -676,6 +720,69 @@ mod tests {
     }
 
     #[test]
+    fn password_file_from_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let pass_path = dir.path().join("secret.pass");
+        std::fs::write(&pass_path, "file-secret\n").unwrap();
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "prod".into(),
+            ProfileConfig {
+                host: Some("h".into()),
+                dbname: Some("d".into()),
+                user: Some("u".into()),
+                password_file: Some(pass_path.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        let inputs = ResolveInputs {
+            profile_names: vec!["prod".into()],
+            config: Some(ConfigFile {
+                profiles,
+                ..Default::default()
+            }),
+            env: Some(HashMap::new()),
+            ..Default::default()
+        };
+        let r = resolve(&inputs).unwrap();
+        assert_eq!(r.params.password.as_deref(), Some("file-secret"));
+    }
+
+    #[test]
+    fn ssl_paths_from_profile_interpolate_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cert_path = dir.path().join("client.crt");
+        std::fs::write(&cert_path, "dummy").unwrap();
+        let mut env = HashMap::new();
+        env.insert("NEXQL_CERT".into(), cert_path.to_string_lossy().into_owned());
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "prod".into(),
+            ProfileConfig {
+                host: Some("h".into()),
+                dbname: Some("d".into()),
+                user: Some("u".into()),
+                sslcert: Some("${env:NEXQL_CERT}".into()),
+                ..Default::default()
+            },
+        );
+        let inputs = ResolveInputs {
+            profile_names: vec!["prod".into()],
+            config: Some(ConfigFile {
+                profiles,
+                ..Default::default()
+            }),
+            env: Some(env),
+            ..Default::default()
+        };
+        let r = resolve(&inputs).unwrap();
+        assert_eq!(
+            r.params.sslcert.as_deref(),
+            Some(cert_path.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
     fn password_command_from_profile() {
         let runner = MapRunner(Mutex::new(env(&[("op read op://v/p", "cmd-secret")])));
         let mut profiles = HashMap::new();
@@ -773,6 +880,9 @@ mod tests {
             user: Some("u".into()),
             password: Some("p".into()),
             sslmode: Some("disable".into()),
+            sslcert: None,
+            sslkey: None,
+            sslrootcert: None,
             url: None,
         };
         let u = p.to_url().unwrap();

@@ -9,7 +9,8 @@ artifacts under `expected/` after normalizing non-deterministic fields.
 | --- | --- |
 | `../fixtures/seed_schema.sql` | Fixed `public.users` / `public.orders` (+ comments) |
 | `expected/` | Normalized Rust builder output (committed) |
-| `ts/` | Reserved for future TS `IndexBuilder` golden (not required yet) |
+| `ts/` | Format-v1 twin of `expected/` (stand-in for TS `IndexBuilder` output until a host-free harness exists) |
+| `pre_cutover/` | Same artifacts under `{root}/dbindex/golden-conn/postgres/` — extension layout for Phase 7 |
 
 ## Regenerate expected/
 
@@ -35,15 +36,22 @@ Before write/compare:
 - shard `hash` / `bytes` → `"GOLDEN"` / `0`
 - JSON object keys sorted recursively (HashMap postings order)
 
-## Adding a TS golden later
+## TS / pre-cutover fixtures
 
-1. Run the VS Code / pro `IndexBuilder` against the same `seed_schema.sql`.
-2. Copy output into `ts/` (same filenames as `expected/`).
-3. Wire a cross-lang compare that runs both through the same normalizer, then
-   byte-compares. Defer until the TS harness does not require a full VS Code host.
+`ts/` and `pre_cutover/` are kept in lockstep with `expected/` via:
+
+```bash
+./scripts/sync_pre_cutover_fixture.sh
+```
+
+Gate: `cargo test -p nexql-index --test pre_cutover_compat`.
+
+When a host-free TS `IndexBuilder` harness exists, regenerate `ts/` from that
+builder against `seed_schema.sql` and keep the byte-compare gate green.
 
 ## CI expectation
 
 `cargo test -p nexql-index` skips the live PG integration when `initdb`/`postgres`
-are missing; unit tests for `compare_normalized_manifest` and structure invariants
-always run. With Postgres available, the integration test fails on golden drift.
+are missing; unit tests for `compare_normalized_manifest`, structure invariants,
+and pre-cutover/TS parity always run. With Postgres available, the integration
+test fails on golden drift.

@@ -1,6 +1,6 @@
 # Local MCP testing
 
-Phase 7 (extension cutover) waits until this path is solid.
+Phase 7 (extension cutover) uses this same stdio path — see [CUTOVER.md](CUTOVER.md).
 
 ## Fastest path (scripted)
 

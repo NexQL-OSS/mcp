@@ -14,7 +14,7 @@ members = ["cargo:."]
 
 [dist]
 # Pin when running `dist init`; bump after successful releases.
-cargo-dist-version = "0.28.7"
+cargo-dist-version = "0.32.0"
 ci = ["github"]
 installers = ["shell", "powershell"]
 targets = [
@@ -28,5 +28,5 @@ targets = [
 precise-builds = true
 create-release = true
 
-# clang for pg_query on Linux runners — provide via github-build-setup later:
-# github-build-setup = "build-setup.yml"
+# clang for pg_query on Linux runners:
+github-build-setup = "build-setup.yml"

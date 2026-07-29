@@ -1,0 +1,123 @@
+{
+  "public.orders": {
+    "checks": [],
+    "columns": [
+      {
+        "comment": null,
+        "default": "nextval('orders_id_seq'::regclass)",
+        "isPk": true,
+        "name": "id",
+        "notNull": true,
+        "ordinal": 1,
+        "type": "integer"
+      },
+      {
+        "comment": "Owning account FK",
+        "default": null,
+        "name": "user_id",
+        "notNull": true,
+        "ordinal": 2,
+        "type": "integer"
+      },
+      {
+        "comment": "Order amount (aka amt)",
+        "default": null,
+        "name": "total",
+        "notNull": true,
+        "ordinal": 3,
+        "type": "numeric(12,2)"
+      }
+    ],
+    "comment": "Purchase records (aka purchases)",
+    "foreignKeys": [
+      {
+        "columns": [
+          "user_id"
+        ],
+        "name": "orders_user_id_fkey",
+        "refColumns": [
+          "id"
+        ],
+        "refTable": "public.users"
+      }
+    ],
+    "indexes": [
+      {
+        "columns": [
+          "id"
+        ],
+        "method": "btree",
+        "name": "orders_pkey",
+        "partial": null,
+        "unique": true
+      }
+    ],
+    "kind": "table",
+    "objectHash": "GOLDEN",
+    "oid": 0,
+    "primaryKey": [
+      "id"
+    ],
+    "rowEstimate": 0,
+    "sizeBytes": 0
+  },
+  "public.users": {
+    "checks": [],
+    "columns": [
+      {
+        "comment": null,
+        "default": "nextval('users_id_seq'::regclass)",
+        "isPk": true,
+        "name": "id",
+        "notNull": true,
+        "ordinal": 1,
+        "type": "integer"
+      },
+      {
+        "comment": "Login address (aka username)",
+        "default": null,
+        "name": "email",
+        "notNull": true,
+        "ordinal": 2,
+        "type": "text"
+      },
+      {
+        "comment": "Display name",
+        "default": null,
+        "name": "name",
+        "notNull": false,
+        "ordinal": 3,
+        "type": "text"
+      },
+      {
+        "comment": null,
+        "default": "now()",
+        "name": "created_at",
+        "notNull": true,
+        "ordinal": 4,
+        "type": "timestamp with time zone"
+      }
+    ],
+    "comment": "Application accounts (aka customers)",
+    "foreignKeys": [],
+    "indexes": [
+      {
+        "columns": [
+          "id"
+        ],
+        "method": "btree",
+        "name": "users_pkey",
+        "partial": null,
+        "unique": true
+      }
+    ],
+    "kind": "table",
+    "objectHash": "GOLDEN",
+    "oid": 0,
+    "primaryKey": [
+      "id"
+    ],
+    "rowEstimate": 0,
+    "sizeBytes": 0
+  }
+}

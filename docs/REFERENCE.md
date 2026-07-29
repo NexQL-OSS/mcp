@@ -6,7 +6,7 @@ Paths are relative to the sibling `nexql-pro` checkout in the NexQL-OSS workspac
 
 | TS file | Rust target | Notes |
 |---------|-------------|-------|
-| `pro/src/mcp/NexqlMcpServer.ts` | `nexql-proto` | Session, rate limit, version negotiation; `MCP_SERVER_INSTRUCTIONS` lines 54–63 verbatim |
+| `pro/src/mcp/NexqlMcpStdioHost.ts` / `pro/src/mcp/McpDefinitionProvider.ts` | `nexql-proto` | Stdio host wiring, binary resolution, and ephemeral profile launch; `MCP_SERVER_INSTRUCTIONS` stays verbatim |
 | `pro/src/mcp/McpResourceProvider.ts` | `nexql-tools::resources` | `nexql://` URIs, cursor pagination |
 | `pro/src/mcp/McpPrompts.ts` | `nexql-tools::prompts` | Four prompts, pure data |
 

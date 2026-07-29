@@ -25,6 +25,9 @@ pub struct ProfileConfig {
     pub password_command: Option<String>,
     pub password_file: Option<String>,
     pub sslmode: Option<String>,
+    pub sslcert: Option<String>,
+    pub sslkey: Option<String>,
+    pub sslrootcert: Option<String>,
     pub access_mode: Option<String>,
     #[serde(default)]
     pub schemas: Vec<String>,

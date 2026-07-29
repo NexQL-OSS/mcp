@@ -138,9 +138,13 @@ Resources (`nexql://` URIs, cursor pagination), prompts (4 + 3 new), completions
 
 ---
 
-## Phase 7 — extension cutover (~2 wk)
+## Phase 7 — extension cutover (~2 wk) — LANDED (stdio)
 
-Extension spawns `nexql-mcp` binary as MCP client. Delete `pro/src/mcp/*`, `ToolExecutor.ts`, `features/dbindex/*`. Ephemeral 0600 profile files. Pre-cutover index fixture in CI. `check-no-pro.yml` still green.
+Extension registers `McpStdioServerDefinition` and resolves `nexql-mcp` (bundled /
+`postgresExplorer.mcp.binaryPath` / PATH). Ephemeral 0600 profile + password_file;
+`NEXQL_MCP_INDEX_DIR` = extension `globalStorageUri`. Deleted in-process HTTP MCP
+(`NexqlMcpServer`, `McpResourceProvider`, `McpPrompts`). **Kept** `ToolExecutor` +
+`features/dbindex` for chat. See [docs/CUTOVER.md](../../docs/CUTOVER.md).
 
 ---
 
