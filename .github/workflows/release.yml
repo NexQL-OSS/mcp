@@ -30,7 +30,13 @@ jobs:
             bin: nexql-mcp
             npm_pkg: mcp-linux-arm64
           - vendor: darwin-x64
-            runner: macos-13
+            # macos-13 (Intel) runners were stuck in `queued` for 1h+ / hung
+            # 7h11m in an earlier release run — GH's Intel pool is starved.
+            # Cross-compile x86_64-apple-darwin from an Apple Silicon runner
+            # instead (Xcode's SDK on macos-14 ships both arches; `triple`
+            # below is passed explicitly to rustup/cargo, so the host arch
+            # doesn't need to match the target).
+            runner: macos-14
             triple: x86_64-apple-darwin
             bin: nexql-mcp
             npm_pkg: mcp-darwin-x64
