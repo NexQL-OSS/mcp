@@ -130,6 +130,23 @@ pub fn resolve(inputs: &ResolveInputs) -> Result<ResolvedConnection, ConnError> 
     resolve_with_runner(inputs, &ProcessCommandRunner)
 }
 
+/// Resolve connection params for a `ProfileConfig` that may not be saved to any
+/// config file yet — e.g. a profile being edited/tested in the TUI before the
+/// user confirms `save`. Runs the same password_command/env-interpolation path
+/// as a named profile by routing through the public resolve ladder with a
+/// throwaway single-profile `ConfigFile`.
+pub fn resolve_profile(profile: &ProfileConfig) -> Result<ConnectionParams, ConnError> {
+    const PROBE_NAME: &str = "__nexql_mcp_probe__";
+    let mut cfg = ConfigFile::default();
+    cfg.profiles.insert(PROBE_NAME.to_string(), profile.clone());
+    let inputs = ResolveInputs {
+        profile_names: vec![PROBE_NAME.to_string()],
+        config: Some(cfg),
+        ..Default::default()
+    };
+    Ok(resolve(&inputs)?.params)
+}
+
 pub fn resolve_with_runner(
     inputs: &ResolveInputs,
     runner: &dyn CommandRunner,

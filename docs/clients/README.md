@@ -1,5 +1,7 @@
 # Client setup
 
+For an interactive, guided flow — profile add/edit, live test-connect, and wiring into several clients at once with a diff before writing — run `nexql-mcp tui` instead of the steps below. Everything here still applies to the 3 clients the TUI can't safely merge into (`continue`, `jetbrains`, `openai-agents`) and to anyone who prefers copy-paste.
+
 Generate paste-ready configs:
 
 ```bash

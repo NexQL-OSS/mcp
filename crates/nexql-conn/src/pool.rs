@@ -1,6 +1,6 @@
 //! Connection pool with read-only + statement_timeout session guards.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{Client, NoTls};
@@ -89,6 +89,35 @@ pub async fn connect_once(params: &ConnectionParams) -> Result<Client, ConnError
         });
         Ok(client)
     }
+}
+
+/// Result of a live `test_connection` probe — used by `nexql-mcp doctor`, the
+/// `profile test` CLI, and the TUI's live-test screen so all three report the
+/// same shape.
+#[derive(Debug, Clone)]
+pub struct ConnectionReport {
+    pub server_version: String,
+    pub is_superuser: bool,
+    pub latency: Duration,
+}
+
+/// Connect, run `SELECT version()` + a superuser check, and report round-trip
+/// latency. Does not apply session guards or hold the connection open — pure
+/// probe. Callers that need a guarded session should follow up with
+/// `connect_once` + `apply_session_guards`.
+pub async fn test_connection(params: &ConnectionParams) -> Result<ConnectionReport, ConnError> {
+    let start = Instant::now();
+    let client = connect_once(params).await?;
+    let version: String = client.query_one("SELECT version()", &[]).await?.get(0);
+    let row = client
+        .query_one("SELECT current_setting('is_superuser')", &[])
+        .await?;
+    let is_super: String = row.get(0);
+    Ok(ConnectionReport {
+        server_version: version.split(',').next().unwrap_or(&version).to_string(),
+        is_superuser: is_super.eq_ignore_ascii_case("on"),
+        latency: start.elapsed(),
+    })
 }
 
 #[cfg(test)]
