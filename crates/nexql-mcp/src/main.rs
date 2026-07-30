@@ -1,6 +1,8 @@
 //! CLI entrypoint for the standalone NexQL Postgres MCP server.
 
+mod client_targets;
 mod init_clients;
+mod tui;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,8 +11,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use clap::{Parser, Subcommand};
 use nexql_conn::{
-    ConnectionParams, PoolOptions, ResolveInputs, ResolvedConnection, apply_session_guards,
-    connect_once, resolve,
+    ConfigFile, ConnectionParams, PoolOptions, ResolveInputs, ResolvedConnection,
+    apply_session_guards, connect_once, resolve,
 };
 use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, IndexScope, IndexStore, PgCatalogDb,
@@ -142,6 +144,8 @@ enum Commands {
     Init {
         client: String,
     },
+    /// Interactive profile editor + multi-client wiring.
+    Tui,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -345,16 +349,24 @@ async fn main() -> ExitCode {
                     }
                 };
             }
-            Commands::Profile { action } => match action {
-                ProfileAction::List => eprintln!("profile list: not yet implemented"),
-                ProfileAction::Add => eprintln!("profile add: not yet implemented"),
-                ProfileAction::SetPassword { name } => {
-                    eprintln!("profile set-password {name}: not yet implemented");
-                }
-                ProfileAction::Test { name } => {
-                    eprintln!("profile test {name:?}: not yet implemented");
-                }
-            },
+            Commands::Profile { action } => {
+                return match run_profile_action(&cli, action).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            Commands::Tui => {
+                return match tui::run(cli.connection.config.clone()).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("tui error: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
         }
         return ExitCode::SUCCESS;
     }
@@ -367,6 +379,26 @@ async fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
+    }
+
+    // A truly bare `nexql-mcp` (no URL, no --profile, no flags, no subcommand)
+    // used to just fail resolution with an unhelpful error — that invocation
+    // shape was never a usable state, so launch the TUI instead. Anything that
+    // *would* resolve (DATABASE_URL, PG* env, default_profile) still serves
+    // stdio exactly as before.
+    let looks_bare = cli.connection_string.is_none()
+        && cli.connection.profiles.is_empty()
+        && cli.connection.host.is_none()
+        && cli.connection.dbname.is_none()
+        && cli.connection.user.is_none();
+    if looks_bare && resolve(&resolve_inputs(&cli)).is_err() {
+        return match tui::run(cli.connection.config.clone()).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("tui error: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     match run_stdio_server(&cli).await {
@@ -706,6 +738,96 @@ async fn run_index_clear(cli: &Cli, all: bool) -> Result<(), Box<dyn std::error:
     store.clear_index(&connection_id, &database)?;
     eprintln!("index cleared: conn={connection_id} db={database}");
     Ok(())
+}
+
+fn profile_config_path(cli: &Cli) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    cli.connection
+        .config
+        .clone()
+        .or_else(ConfigFile::default_path)
+        .ok_or_else(|| "could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG".into())
+}
+
+fn load_profile_config(cli: &Cli) -> Result<(PathBuf, ConfigFile), Box<dyn std::error::Error>> {
+    let path = profile_config_path(cli)?;
+    let config = if path.exists() {
+        ConfigFile::load_path(&path)?
+    } else {
+        ConfigFile::default()
+    };
+    Ok((path, config))
+}
+
+async fn run_profile_action(
+    cli: &Cli,
+    action: &ProfileAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        ProfileAction::List => {
+            let (path, config) = load_profile_config(cli)?;
+            if config.profiles.is_empty() {
+                println!("no profiles under {} — try `nexql-mcp tui`", path.display());
+                return Ok(());
+            }
+            let mut names: Vec<&String> = config.profiles.keys().collect();
+            names.sort();
+            for name in names {
+                let marker = if config.default_profile.as_deref() == Some(name.as_str()) {
+                    " (default)"
+                } else {
+                    ""
+                };
+                println!("{name}{marker}");
+            }
+            Ok(())
+        }
+        ProfileAction::Add => {
+            println!(
+                "profile add has no flags to fill in a connection non-interactively yet — \
+                 run `nexql-mcp tui` for a guided add/test/save flow, or hand-edit config.toml \
+                 (see docs/config.example.toml)."
+            );
+            Ok(())
+        }
+        ProfileAction::SetPassword { name } => {
+            let (path, mut config) = load_profile_config(cli)?;
+            let mut profile = config
+                .profiles
+                .get(name)
+                .cloned()
+                .ok_or_else(|| format!("profile not found: {name}"))?;
+            eprint!("password for '{name}' (visible — not hidden input): ");
+            use std::io::Write;
+            std::io::stderr().flush()?;
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line)?;
+            profile.password = Some(line.trim_end_matches(['\r', '\n']).to_string());
+            config.upsert_profile(name.clone(), profile);
+            config.save(&path)?;
+            println!("password updated for '{name}'");
+            Ok(())
+        }
+        ProfileAction::Test { name } => {
+            let (_path, config) = load_profile_config(cli)?;
+            let profile_name = name
+                .clone()
+                .or_else(|| config.default_profile.clone())
+                .ok_or("no profile name given and no default_profile set")?;
+            let params = if let Some(profile) = config.profiles.get(&profile_name) {
+                nexql_conn::resolve_profile(profile)?
+            } else {
+                return Err(format!("profile not found: {profile_name}").into());
+            };
+            let report = nexql_conn::test_connection(&params).await?;
+            println!(
+                "connected in {:.0}ms: {} (superuser={})",
+                report.latency.as_secs_f64() * 1000.0,
+                report.server_version,
+                report.is_superuser
+            );
+            Ok(())
+        }
+    }
 }
 
 async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {

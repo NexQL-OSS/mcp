@@ -49,6 +49,9 @@ base64 = "0.22"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["json", "http1", "tokio"] }
 tower = "0.5"
+ratatui = "0.30"
+crossterm = "0.29"
+similar = "3"
 
 # `version` is required for `cargo publish` (path-only deps are rejected on crates.io).
 # Keep these in sync with [workspace.package] version above on every release bump.

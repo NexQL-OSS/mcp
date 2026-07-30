@@ -77,6 +77,16 @@ Per-client paste blocks: [docs/clients/README.md](docs/clients/README.md).
 
 Config: `~/.config/nexql-mcp/config.toml` (override with `NEXQL_MCP_CONFIG`). See [docs/config.example.toml](docs/config.example.toml).
 
+### Interactive TUI
+
+```bash
+nexql-mcp tui
+```
+
+Guided profile editor: add/edit/delete a connection profile, test-connect it live before saving, then pick any of 7 clients (Claude Desktop, Claude Code, Cursor, VS Code, Copilot Chat, Zed, Windsurf) to wire it into at once. Each selected client's real config file is read, merged (existing unrelated servers are preserved), shown as a diff, and only written after you confirm — a timestamped backup is kept alongside it. `continue` / `jetbrains` / `openai-agents` have no safe on-disk merge target, so those stay copy-paste snippets in the summary screen, same as `init`.
+
+Keys: `n` new · `e`/Enter edit · `d` delete · `t` test · `w` wire into clients · `q` quit. Bare `nexql-mcp` (no URL, no flags) launches the TUI automatically when nothing else resolves a connection.
+
 ### Releases (cargo-dist)
 
 [`dist-workspace.toml`](dist-workspace.toml) targets darwin arm64/x64, linux gnu arm64/x64, windows x64. Regenerate CI with `dist generate` (see [`.github/workflows/release.yml`](.github/workflows/release.yml) stub). Musl deferred until pg_query + clang builder setup is validated.

@@ -11,10 +11,14 @@ pub mod resolve;
 pub mod secret;
 pub mod tls;
 
-pub use config::{ConfigFile, ProfileConfig};
+pub use config::{ConfigFile, ProfileConfig, write_with_backup};
 pub use error::ConnError;
-pub use pool::{PoolOptions, apply_session_guards, checkout_guarded, connect_once, create_pool};
+pub use pool::{
+    ConnectionReport, PoolOptions, apply_session_guards, checkout_guarded, connect_once,
+    create_pool, test_connection,
+};
 pub use resolve::{
-    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url, resolve,
+    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url,
+    resolve, resolve_profile,
 };
 pub use secret::{CommandRunner, ProcessCommandRunner};
