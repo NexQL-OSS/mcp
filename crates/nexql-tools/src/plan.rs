@@ -128,14 +128,12 @@ fn resolve_plan_root(explain_plan: &Value) -> Option<&Value> {
     if explain_plan.get("Plan").is_some() {
         return Some(explain_plan);
     }
-    if let Some(arr) = explain_plan.as_array() {
-        return arr.first().and_then(|v| {
-            if v.get("Plan").is_some() {
-                Some(v)
-            } else {
-                None
-            }
-        });
+    if let Some(v) = explain_plan
+        .as_array()
+        .and_then(|a| a.first())
+        .filter(|v| v.get("Plan").is_some())
+    {
+        return Some(v);
     }
     // EXPLAIN rows: [{ "QUERY PLAN": [ { Plan: ... } ] }] or [{ "QUERY PLAN": { Plan } }]
     if let Some(qp) = explain_plan
