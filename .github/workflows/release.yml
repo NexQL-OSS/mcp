@@ -185,8 +185,14 @@ jobs:
           # tools needs conn+index+policy; mcp (bin) needs all of them.
           # crates.io index propagation lags a publish by a few seconds,
           # so pause between each so the next crate's path-dep resolves.
+          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
           crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
           for crate in "${crates[@]}"; do
+            status="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
+            if [ "$status" = "200" ]; then
+              echo "skip: ${crate} ${version} already published"
+              continue
+            fi
             cargo publish -p "$crate" --locked
             sleep 20
           done
