@@ -1,6 +1,6 @@
 {
   "name": "@nexql/mcp-darwin-x64",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "nexql-mcp macOS x64 binary (optionalDependency of nexql-mcp)",
   "license": "Apache-2.0",
   "repository": "github:NexQL-OSS/mcp",

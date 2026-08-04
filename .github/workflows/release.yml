@@ -149,7 +149,6 @@ jobs:
         with:
           pattern: npm-*
           path: npm-staged
-          merge-multiple: true
 
       - name: Publish platform packages
         env:
@@ -157,7 +156,37 @@ jobs:
         run: |
           set -euo pipefail
           for pkg in mcp-darwin-arm64 mcp-darwin-x64 mcp-linux-arm64 mcp-linux-x64 mcp-win32-x64; do
-            cp -a "npm-staged/${pkg}/." "npm/packages/${pkg}/"
+            cp -a "npm-staged/npm-${pkg}/." "npm/packages/${pkg}/"
             (cd "npm/packages/${pkg}" && npm publish --access public)
           done
           (cd npm && npm publish --access public)
+
+  publish-cargo:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install clang (pg_query bindgen)
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # policy/proto/conn have no internal deps; index needs conn;
+          # tools needs conn+index+policy; mcp (bin) needs all of them.
+          # crates.io index propagation lags a publish by a few seconds,
+          # so pause between each so the next crate's path-dep resolves.
+          crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
+          for crate in "${crates[@]}"; do
+            cargo publish -p "$crate" --locked
+            sleep 20
+          done
