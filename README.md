@@ -27,55 +27,127 @@ docs/               per-client setup, tool reference
 
 Layering is one-directional: `policy` + `conn` are leaves → `index` → `tools` → binary. `nexql-tools` never depends on `nexql-proto`.
 
-## Local MCP testing
+## Install
 
-See **[docs/LOCAL.md](docs/LOCAL.md)**. Short version:
+Pick whichever fits your workflow — all methods ship the same binary.
+
+### npm / npx
 
 ```bash
-cargo build -p nexql-mcp --release
-./scripts/local_mcp_smoke.sh          # throwaway PG + JSON-RPC smoke
-# or
-npx -y @modelcontextprotocol/inspector ./target/release/nexql-mcp 'postgres://…'
+npx -y nexql-mcp postgres://dev@localhost:5432/appdb   # one-off, no install
+npm install -g nexql-mcp                                # or install it once
 ```
 
-Phase 7 (extension cutover) waits until this path is reliable.
+[`nexql-mcp`](https://www.npmjs.com/package/nexql-mcp) is a shim ([`npm/bin/nexql-mcp.js`](npm/bin/nexql-mcp.js)) that resolves the right prebuilt binary from a per-platform `optionalDependency` (`@nexql/mcp-<os>-<arch>`) — no Rust toolchain needed.
+
+### cargo (crates.io)
+
+```bash
+cargo install nexql-mcp
+```
+
+Builds from source, so you need clang/libclang first (`pg_query`'s bindgen requires it):
+
+```bash
+sudo apt install clang libclang-dev   # Debian/Ubuntu
+sudo pacman -S clang                  # Arch
+```
+
+### curl (prebuilt binary, no npm/cargo)
+
+```bash
+TAG=$(curl -fsSL https://api.github.com/repos/NexQL-OSS/mcp/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64)   TRIPLE=x86_64-unknown-linux-gnu ;;
+  Linux-aarch64)  TRIPLE=aarch64-unknown-linux-gnu ;;
+  Darwin-x86_64)  TRIPLE=x86_64-apple-darwin ;;
+  Darwin-arm64)   TRIPLE=aarch64-apple-darwin ;;
+  *) echo "no prebuilt binary for this platform — see the Releases page" >&2; exit 1 ;;
+esac
+curl -fsSL -o /tmp/nexql-mcp.tar.gz \
+  "https://github.com/NexQL-OSS/mcp/releases/download/${TAG}/nexql-mcp-${TAG}-${TRIPLE}.tar.gz"
+tar -xzf /tmp/nexql-mcp.tar.gz -C /tmp
+sudo install -m 0755 "/tmp/nexql-mcp-${TAG}-${TRIPLE}/nexql-mcp" /usr/local/bin/nexql-mcp
+nexql-mcp --version
+```
+
+Windows: grab `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` from the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest) and extract manually.
+
+### Docker
+
+```bash
+docker build -t nexql-mcp:0.1.3 .
+docker run --rm -i nexql-mcp:0.1.3 postgres://dev@host.docker.internal:5432/appdb
+```
 
 ### From source
 
 ```bash
-# pg_query needs clang + libclang
 export LIBCLANG_PATH="${LIBCLANG_PATH:-/usr/lib}"   # or your llvm lib dir
 cargo build --release -p nexql-mcp
 ./target/release/nexql-mcp postgres://dev@localhost:5432/appdb
 ```
 
-### npx (once platform packages are published)
+## Set up a connection
+
+**One-off**, no config — pass a connection string directly:
 
 ```bash
-npx -y nexql-mcp postgres://dev@localhost:5432/appdb
+nexql-mcp postgres://dev@localhost:5432/appdb
 ```
 
-Shim: [`npm/bin/nexql-mcp.js`](npm/bin/nexql-mcp.js) resolves `@nexql/mcp-<os>-<arch>` optionalDependencies (stubs under [`npm/packages/`](npm/packages/)).
+**Saved profiles** — put connections in `~/.config/nexql-mcp/config.toml` (override the path with `NEXQL_MCP_CONFIG`):
 
-### Docker
+```toml
+default_profile = "local"
+
+[profiles.local]
+url = "postgres://dev@localhost:5432/appdb"
+access_mode = "read"
+
+[profiles.prod]
+host = "prod.example.com"
+dbname = "app"
+user = "readonly_agent"
+password_command = "op read op://vault/pg/password"   # never store plaintext secrets
+sslmode = "verify-full"
+access_mode = "read"
+schemas = ["public", "billing"]
+deny_tables = ["auth.*"]
+pii_columns = ["public.users.ssn", "public.users.email"]
+max_rows = 200
+```
+
+Full field reference: [docs/config.example.toml](docs/config.example.toml). Then run bare (`nexql-mcp`) to use `default_profile`, or `nexql-mcp --profile prod`.
+
+**Test a connection** before wiring it into a client:
 
 ```bash
-docker build -t nexql-mcp:0.1.0 .
-docker run --rm -i nexql-mcp:0.1.0 postgres://dev@host.docker.internal:5432/appdb
+nexql-mcp postgres://dev@localhost:5432/appdb doctor
+# or, for a saved profile (note: --profile goes before the subcommand):
+nexql-mcp --profile prod doctor
 ```
+
+**Guided setup** — an interactive profile editor plus one-keystroke wiring into whichever clients you use: `nexql-mcp tui` (see [Interactive TUI](#interactive-tui) below).
 
 ### Wire a client
 
 ```bash
-nexql-mcp init cursor postgres://dev@localhost:5432/appdb
-nexql-mcp doctor postgres://dev@localhost:5432/appdb
+nexql-mcp postgres://dev@localhost:5432/appdb init cursor
 ```
 
 Supported `init` clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `continue` | `jetbrains` | `openai-agents`.
 
 Per-client paste blocks: [docs/clients/README.md](docs/clients/README.md).
 
-Config: `~/.config/nexql-mcp/config.toml` (override with `NEXQL_MCP_CONFIG`). See [docs/config.example.toml](docs/config.example.toml).
+## Use with the NexQL VS Code extension
+
+If you already use [`ric-v.postgres-explorer`](https://marketplace.visualstudio.com/items?itemName=ric-v.postgres-explorer) (+ NexQL Pro), you don't need any of the above — the extension can spawn this binary itself and reuse your existing saved connections instead of a separate `config.toml`.
+
+1. Settings → search **NexQL: Mcp: Enabled** (`postgresExplorer.mcp.enabled`) → check it. Off by default.
+2. That's it — it takes effect immediately (no reload needed) and picks up every connection already saved in `postgresExplorer.connections`. It shows up as an MCP server named **NexQL** in Copilot Chat / agent-mode tool pickers.
+
+The extension resolves the binary in this order: `postgresExplorer.mcp.binaryPath` setting → `NEXQL_MCP_BIN` env var → a copy bundled with the extension → whatever `nexql-mcp` is on your `PATH` (i.e. anything installed via npm/cargo/curl above). Set `postgresExplorer.mcp.binaryPath` explicitly if you want the extension to use a specific install.
 
 ### Interactive TUI
 
@@ -87,9 +159,9 @@ Guided profile editor: add/edit/delete a connection profile, test-connect it liv
 
 Keys: `n` new · `e`/Enter edit · `d` delete · `t` test · `w` wire into clients · `q` quit. Bare `nexql-mcp` (no URL, no flags) launches the TUI automatically when nothing else resolves a connection.
 
-### Releases (cargo-dist)
+### Releases
 
-[`dist-workspace.toml`](dist-workspace.toml) targets darwin arm64/x64, linux gnu arm64/x64, windows x64. Regenerate CI with `dist generate` (see [`.github/workflows/release.yml`](.github/workflows/release.yml) stub). Musl deferred until pg_query + clang builder setup is validated.
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): builds darwin arm64/x64, linux gnu arm64/x64, and windows x64, attaches archives to a GitHub release, publishes the npm packages, and publishes the workspace crates to crates.io in dependency order. Musl targets deferred until a clang-enabled musl builder is validated.
 
 ## Development
 
