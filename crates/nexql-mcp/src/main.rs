@@ -431,12 +431,56 @@ fn resolve_inputs(cli: &Cli) -> ResolveInputs {
 
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
     let mode: AccessMode = cli.access.access_mode.parse()?;
-    let resolved = resolve(&resolve_inputs(cli))?;
+    let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
     let mut caps = PolicyCaps::default();
     if let Some(n) = cli.access.max_rows {
         caps = caps.with_max_rows(n);
     }
-    let session = ToolSession::from_resolved(resolved, mode, caps).await?;
+
+    let active_id = resolved_list.first().and_then(|r| r.profile_name.clone());
+    let connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
+        .iter()
+        .map(|r| {
+            let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
+            nexql_tools::ConnectionInfo {
+                id: id.clone(),
+                name: id,
+                host: r.params.host.clone(),
+                port: r.params.port,
+                database: r.params.dbname.clone(),
+                params: r.params.clone(),
+            }
+        })
+        .collect();
+
+    let session = ToolSession::from_connections(connections, mode, caps, active_id).await?;
+
+    if let Some(store) = session.index_store.clone() {
+        for resolved in &resolved_list {
+            let (connection_id, database) = index_ids(resolved);
+            let base = store.base_dir(&connection_id, &database);
+            if store.read_manifest(&base)?.is_none() {
+                let req = default_build_request(
+                    connection_id.clone(),
+                    database.clone(),
+                    BuildDepth::Structure,
+                    cli.embeddings.is_local(),
+                );
+                let resolved_for_index = resolved.clone();
+                tokio::task::spawn_blocking(move || {
+                    eprintln!(
+                        "index: no schema index for {connection_id}/{database} — building automatically"
+                    );
+                    let handle = tokio::runtime::Handle::current();
+                    if let Err(e) = handle.block_on(run_build_request(&resolved_for_index, req)) {
+                        eprintln!(
+                            "warning: automatic index build failed for {connection_id}/{database}: {e}"
+                        );
+                    }
+                });
+            }
+        }
+    }
 
     #[cfg(feature = "embeddings")]
     let embedder: Option<std::sync::Arc<dyn nexql_index::Embedder>> = if cli.embeddings.is_local() {
@@ -557,7 +601,7 @@ fn default_build_request(
         connection_id,
         database,
         scope: IndexScope {
-            included_schemas: vec!["public".into()],
+            included_schemas: vec![],
             excluded_objects: vec![],
             pii_excluded_columns: vec![],
         },
