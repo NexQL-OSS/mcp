@@ -83,6 +83,7 @@ pub trait CatalogDb: Send + Sync {
     async fn functions(&self, schemas: &[String]) -> Result<Vec<RawFunctionRow>, IndexError>;
     async fn enums(&self, schemas: &[String]) -> Result<Vec<RawEnumRow>, IndexError>;
     async fn domains(&self, schemas: &[String]) -> Result<Vec<RawDomainRow>, IndexError>;
+    async fn non_system_schemas(&self) -> Result<Vec<String>, IndexError>;
 }
 
 /// Live Postgres adapter for [`CatalogDb`].
@@ -271,6 +272,15 @@ impl CatalogDb for PgCatalogDb<'_> {
             })
             .collect())
     }
+
+    async fn non_system_schemas(&self) -> Result<Vec<String>, IndexError> {
+        let rows = self
+            .client
+            .query(crate::catalog::NON_SYSTEM_SCHEMAS_QUERY, &[])
+            .await
+            .map_err(|e| IndexError::Db(format!("NON_SYSTEM_SCHEMAS_QUERY: {e}")))?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
 }
 
 /// Format fingerprint pipe-string — matches TS `fetchSchemaFingerprint`.
@@ -331,7 +341,12 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
     check_cancel(cancel)?;
 
     let schemas = if req.scope.included_schemas.is_empty() {
-        vec!["public".to_owned()]
+        let discovered = db.non_system_schemas().await?;
+        if discovered.is_empty() {
+            vec!["public".to_owned()]
+        } else {
+            discovered
+        }
     } else {
         req.scope.included_schemas.clone()
     };
@@ -1370,6 +1385,19 @@ mod tests {
         }
         async fn domains(&self, _schemas: &[String]) -> Result<Vec<RawDomainRow>, IndexError> {
             Ok(self.domains.clone())
+        }
+        async fn non_system_schemas(&self) -> Result<Vec<String>, IndexError> {
+            let mut schemas: Vec<String> = self
+                .relations
+                .iter()
+                .map(|r| r.schema_name.clone())
+                .collect();
+            schemas.sort();
+            schemas.dedup();
+            if schemas.is_empty() {
+                schemas.push("public".to_string());
+            }
+            Ok(schemas)
         }
     }
 

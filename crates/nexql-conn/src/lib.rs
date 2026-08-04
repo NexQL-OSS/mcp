@@ -19,6 +19,6 @@ pub use pool::{
 };
 pub use resolve::{
     ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url,
-    resolve, resolve_profile,
+    resolve, resolve_all, resolve_profile,
 };
 pub use secret::{CommandRunner, ProcessCommandRunner};

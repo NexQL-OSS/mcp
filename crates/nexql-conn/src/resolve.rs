@@ -130,6 +130,10 @@ pub fn resolve(inputs: &ResolveInputs) -> Result<ResolvedConnection, ConnError> 
     resolve_with_runner(inputs, &ProcessCommandRunner)
 }
 
+pub fn resolve_all(inputs: &ResolveInputs) -> Result<Vec<ResolvedConnection>, ConnError> {
+    resolve_all_with_runner(inputs, &ProcessCommandRunner)
+}
+
 /// Resolve connection params for a `ProfileConfig` that may not be saved to any
 /// config file yet — e.g. a profile being edited/tested in the TUI before the
 /// user confirms `save`. Runs the same password_command/env-interpolation path
@@ -268,6 +272,48 @@ pub fn resolve_with_runner(
     }
 
     Err(ConnError::NoSource)
+}
+
+pub fn resolve_all_with_runner(
+    inputs: &ResolveInputs,
+    runner: &dyn CommandRunner,
+) -> Result<Vec<ResolvedConnection>, ConnError> {
+    if inputs.cli_url.is_some() || !inputs.profile_names.is_empty() || flags_present(&inputs.flags)
+    {
+        return Ok(vec![resolve_with_runner(inputs, runner)?]);
+    }
+
+    let config = load_config(inputs)?;
+    let Some(cfg) = config else {
+        return Ok(vec![resolve_with_runner(inputs, runner)?]);
+    };
+
+    if cfg.profiles.is_empty() {
+        return Ok(vec![resolve_with_runner(inputs, runner)?]);
+    }
+
+    let mut keys: Vec<String> = cfg.profiles.keys().cloned().collect();
+    keys.sort();
+    if let Some(ref def) = cfg.default_profile {
+        if let Some(pos) = keys.iter().position(|k| k == def) {
+            keys.swap(0, pos);
+        }
+    }
+
+    let mut results = Vec::new();
+    for key in keys {
+        let mut single_inputs = inputs.clone();
+        single_inputs.profile_names = vec![key];
+        if let Ok(res) = resolve_with_runner(&single_inputs, runner) {
+            results.push(res);
+        }
+    }
+
+    if results.is_empty() {
+        Ok(vec![resolve_with_runner(inputs, runner)?])
+    } else {
+        Ok(results)
+    }
 }
 
 fn collect_env(inputs: &ResolveInputs) -> Result<HashMap<String, String>, ConnError> {

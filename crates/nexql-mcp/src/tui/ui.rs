@@ -127,6 +127,24 @@ fn draw_profile_form(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(title)),
         area,
     );
+
+    let (label_len, text_len) = if app.form.focused == 0 {
+        ("Name: ".len(), app.form.name.chars().count())
+    } else {
+        let i = app.form.focused - 1;
+        (
+            FIELD_LABELS[i].len() + 2,
+            app.form.fields[i].chars().count(),
+        )
+    };
+    let line_idx = if app.form.focused == 0 {
+        0
+    } else {
+        app.form.focused + 1
+    };
+    let cursor_x = area.x + 1 + label_len as u16 + text_len as u16;
+    let cursor_y = area.y + 1 + line_idx as u16;
+    frame.set_cursor_position((cursor_x, cursor_y));
 }
 
 fn draw_testing(frame: &mut Frame, app: &App, area: Rect) {

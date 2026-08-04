@@ -286,7 +286,15 @@ fn object_schema(props: &[(&str, &str, bool)]) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
     for (name, ty, req) in props {
-        properties.insert((*name).into(), json!({ "type": *ty }));
+        let prop_val = match *ty {
+            "array" => match *name {
+                "columns" => json!({ "type": "array", "items": { "type": "string" } }),
+                "rows" => json!({ "type": "array", "items": { "type": "object" } }),
+                _ => json!({ "type": "array", "items": {} }),
+            },
+            _ => json!({ "type": *ty }),
+        };
+        properties.insert((*name).into(), prop_val);
         if *req {
             required.push(json!(*name));
         }
@@ -316,5 +324,27 @@ mod tests {
     #[test]
     fn phase9_write_tools_count() {
         assert_eq!(phase9_write_tools().len(), ToolName::PHASE9.len());
+    }
+
+    #[test]
+    fn array_properties_have_items() {
+        for tool in active_tools() {
+            if let Some(props) = tool
+                .input_schema
+                .get("properties")
+                .and_then(|p| p.as_object())
+            {
+                for (prop_name, prop_val) in props {
+                    if prop_val.get("type").and_then(|t| t.as_str()) == Some("array") {
+                        assert!(
+                            prop_val.get("items").is_some(),
+                            "Tool '{}' parameter '{}' is array type but missing 'items'",
+                            tool.name.as_str(),
+                            prop_name
+                        );
+                    }
+                }
+            }
+        }
     }
 }
