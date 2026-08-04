@@ -188,7 +188,7 @@ jobs:
           version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
           crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
           for crate in "${crates[@]}"; do
-            status="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
+            status="$(curl -s -o /dev/null -w '%{http_code}' -A "nexql-mcp-release-ci (github.com/NexQL-OSS/mcp)" "https://crates.io/api/v1/crates/${crate}/${version}")"
             if [ "$status" = "200" ]; then
               echo "skip: ${crate} ${version} already published"
               continue
