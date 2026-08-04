@@ -90,6 +90,14 @@ function main() {
     process.exit(1);
   }
 
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(binaryPath, 0o755);
+    } catch {
+      // best-effort; spawnSync below will surface a clear error if this didn't help
+    }
+  }
+
   const result = spawnSync(binaryPath, process.argv.slice(2), {
     stdio: 'inherit',
     windowsHide: true,

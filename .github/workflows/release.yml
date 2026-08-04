@@ -155,8 +155,12 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          # actions/upload-artifact + download-artifact does not reliably
+          # preserve the executable bit (zip-based transport); restore it
+          # before packing, or npm ships a binary spawnSync can't exec.
           for pkg in mcp-darwin-arm64 mcp-darwin-x64 mcp-linux-arm64 mcp-linux-x64 mcp-win32-x64; do
             cp -a "npm-staged/npm-${pkg}/." "npm/packages/${pkg}/"
+            chmod +x npm/packages/${pkg}/bin/* 2>/dev/null || true
             (cd "npm/packages/${pkg}" && npm publish --access public)
           done
           (cd npm && npm publish --access public)
