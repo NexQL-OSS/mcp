@@ -2164,7 +2164,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "nexql-conn"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "deadpool-postgres",
  "rustls",
@@ -2183,7 +2183,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-index"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "candle-core",
@@ -2203,7 +2203,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-mcp"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "clap",
@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-policy"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "pg_query",
  "serde",
@@ -2235,7 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-proto"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "axum",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-spike"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -2269,7 +2269,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-tools"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
