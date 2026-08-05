@@ -53,27 +53,98 @@ pub fn build_rustls_connector(params: &ConnectionParams) -> Result<MakeRustlsCon
         ));
     }
 
-    let root_store = load_root_store(params)?;
-    let tls_config = if let (Some(cert_path), Some(key_path)) =
+    let is_require_only = matches!(
+        params.sslmode.as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("require")
+    ) && params.sslrootcert.is_none();
+
+    let client_auth = if let (Some(cert_path), Some(key_path)) =
         (params.sslcert.as_deref(), params.sslkey.as_deref())
     {
         let certs = load_certs(Path::new(cert_path))?;
         let key = load_private_key(Path::new(key_path))?;
-        ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_client_auth_cert(certs, key)
-            .map_err(|e| ConnError::Config(format!("client auth TLS config: {e}")))?
+        Some((certs, key))
     } else if params.sslcert.is_some() || params.sslkey.is_some() {
         return Err(ConnError::Config(
             "sslcert and sslkey must both be set for client certificate auth".into(),
         ));
     } else {
-        ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth()
+        None
+    };
+
+    let tls_config = if is_require_only {
+        let builder = ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(std::sync::Arc::new(NoServerCertVerifier));
+        if let Some((certs, key)) = client_auth {
+            builder
+                .with_client_auth_cert(certs, key)
+                .map_err(|e| ConnError::Config(format!("client auth TLS config: {e}")))?
+        } else {
+            builder.with_no_client_auth()
+        }
+    } else {
+        let root_store = load_root_store(params)?;
+        let builder = ClientConfig::builder().with_root_certificates(root_store);
+        if let Some((certs, key)) = client_auth {
+            builder
+                .with_client_auth_cert(certs, key)
+                .map_err(|e| ConnError::Config(format!("client auth TLS config: {e}")))?
+        } else {
+            builder.with_no_client_auth()
+        }
     };
 
     Ok(MakeRustlsConnect::new(tls_config))
+}
+
+#[derive(Debug)]
+struct NoServerCertVerifier;
+
+impl rustls::client::danger::ServerCertVerifier for NoServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
+            rustls::SignatureScheme::ED25519,
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PSS_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA512,
+        ]
+    }
 }
 
 fn load_root_store(params: &ConnectionParams) -> Result<RootCertStore, ConnError> {
