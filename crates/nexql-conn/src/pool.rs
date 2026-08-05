@@ -77,15 +77,25 @@ pub async fn connect_once(params: &ConnectionParams) -> Result<Client, ConnError
     let config = pg_config_from_params(params)?;
     if connection_needs_tls(params) {
         let tls = build_rustls_connector(params)?;
-        let (client, conn) = config.connect(tls).await?;
+        let (client, conn) = config.connect(tls).await.map_err(|e| {
+            tracing::error!(error = %e, "postgres connection failed");
+            ConnError::Postgres(e)
+        })?;
         tokio::spawn(async move {
-            let _ = conn.await;
+            if let Err(e) = conn.await {
+                tracing::error!(error = %e, "postgres connection error in background worker");
+            }
         });
         Ok(client)
     } else {
-        let (client, conn) = config.connect(NoTls).await?;
+        let (client, conn) = config.connect(NoTls).await.map_err(|e| {
+            tracing::error!(error = %e, "postgres connection failed");
+            ConnError::Postgres(e)
+        })?;
         tokio::spawn(async move {
-            let _ = conn.await;
+            if let Err(e) = conn.await {
+                tracing::error!(error = %e, "postgres connection error in background worker");
+            }
         });
         Ok(client)
     }

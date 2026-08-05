@@ -1,6 +1,6 @@
 {
   "name": "@nexql/mcp-linux-arm64",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "nexql-mcp Linux arm64 binary (optionalDependency of nexql-mcp)",
   "license": "Apache-2.0",
   "repository": "github:NexQL-OSS/mcp",
