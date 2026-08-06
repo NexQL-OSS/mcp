@@ -76,8 +76,8 @@ Windows: grab `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` from the [Releases
 ### Docker
 
 ```bash
-docker build -t nexql-mcp:0.1.5 .
-docker run --rm -i nexql-mcp:0.1.5 postgres://dev@host.docker.internal:5432/appdb
+docker build -t nexql-mcp:0.1.6 .
+docker run --rm -i nexql-mcp:0.1.6 postgres://dev@host.docker.internal:5432/appdb
 ```
 
 ### From source
