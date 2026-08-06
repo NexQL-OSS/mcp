@@ -235,7 +235,7 @@ impl CatalogDb for PgCatalogDb<'_> {
                 arguments: r.get("arguments"),
                 result_type: r.get("result_type"),
                 language: r.get("language"),
-                volatility: r.get("volatility"),
+                volatility: pg_char_col(r, "volatility"),
                 body: r.get("body"),
                 comment: r.get("comment"),
             })

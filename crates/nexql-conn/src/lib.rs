@@ -18,7 +18,7 @@ pub use pool::{
     create_pool, test_connection,
 };
 pub use resolve::{
-    ConnectionParams, ConnectionSource, ResolveInputs, ResolvedConnection, params_from_url,
-    resolve, resolve_all, resolve_profile,
+    ConnectionParams, ConnectionSource, DbEngine, ResolveInputs, ResolvedConnection,
+    params_from_url, resolve, resolve_all, resolve_profile,
 };
 pub use secret::{CommandRunner, ProcessCommandRunner};

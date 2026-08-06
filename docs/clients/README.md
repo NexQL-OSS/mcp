@@ -11,7 +11,7 @@ nexql-mcp init <client> postgres://user:pass@localhost:5432/dbname
 nexql-mcp postgres://… init <client>
 ```
 
-Supported clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `continue` | `jetbrains` | `openai-agents`
+Supported clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `antigravity` | `deepseek` | `kimi` | `ollama` | `qwen` | `continue` | `jetbrains` | `openai-agents`
 
 Install the binary first (`cargo install --path crates/nexql-mcp`, GitHub Release, `npx -y nexql-mcp`, or Docker) so the `command` resolves on `PATH`.
 

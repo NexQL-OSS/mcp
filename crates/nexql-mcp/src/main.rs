@@ -43,6 +43,26 @@ impl EmbeddingsMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+enum CliToolProfile {
+    Query,
+    Dba,
+    Meta,
+    #[default]
+    Full,
+}
+
+impl From<CliToolProfile> for nexql_tools::ToolProfile {
+    fn from(p: CliToolProfile) -> Self {
+        match p {
+            CliToolProfile::Query => nexql_tools::ToolProfile::Query,
+            CliToolProfile::Dba => nexql_tools::ToolProfile::Dba,
+            CliToolProfile::Meta => nexql_tools::ToolProfile::Meta,
+            CliToolProfile::Full => nexql_tools::ToolProfile::Full,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "nexql-mcp",
@@ -67,6 +87,11 @@ struct Cli {
     /// Env: `NEXQL_MCP_EMBEDDINGS=off|local` (default off).
     #[arg(long, value_enum, default_value_t = EmbeddingsMode::Off, env = "NEXQL_MCP_EMBEDDINGS")]
     embeddings: EmbeddingsMode,
+
+    /// Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all 41 tools).
+    /// Env: `NEXQL_MCP_TOOLS=query|dba|full` (default full).
+    #[arg(long, value_enum, default_value_t = CliToolProfile::Full, env = "NEXQL_MCP_TOOLS")]
+    tools: CliToolProfile,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -130,6 +155,14 @@ struct AccessArgs {
     max_rows: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+enum OutputFormat {
+    #[default]
+    Table,
+    Json,
+    Csv,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     Index {
@@ -141,11 +174,40 @@ enum Commands {
         action: ProfileAction,
     },
     Doctor,
+    /// Onboard to AI models / client setup (interactive wizard or snippet printing).
     Init {
-        client: String,
+        /// Target client (e.g. claude, cursor, zed, windsurf, vscode). If omitted, opens the TUI wizard.
+        client: Option<String>,
+
+        /// Force interactive TUI onboarding wizard.
+        #[arg(long)]
+        tui: bool,
     },
+    /// Interactive AI model onboarding & client configuration wizard TUI.
+    Onboarding,
     /// Interactive profile editor + multi-client wiring.
     Tui,
+    /// Execute a read-only SELECT or WITH query and format results in the terminal.
+    Query {
+        /// SQL statement to execute
+        sql: String,
+
+        /// Output format (table, json, csv)
+        #[arg(long, short, value_enum, default_value_t = OutputFormat::Table)]
+        format: OutputFormat,
+    },
+    /// Compare two database schemas and display table, column, and index differences.
+    Diff {
+        /// Source schema name (e.g. public)
+        source_schema: String,
+
+        /// Target schema name (e.g. staging)
+        target_schema: String,
+
+        /// Emit step-by-step SQL migration script instead of structured diff
+        #[arg(long)]
+        migration: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -331,14 +393,33 @@ async fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
-            Commands::Init { client } => {
-                match init_clients::init_snippet(client, cli.connection_string.as_deref()) {
+            Commands::Init { client, tui } => {
+                if *tui || client.is_none() {
+                    return match tui::run_onboarding(cli.connection.config.clone()).await {
+                        Ok(()) => ExitCode::SUCCESS,
+                        Err(e) => {
+                            eprintln!("onboarding tui error: {e}");
+                            ExitCode::FAILURE
+                        }
+                    };
+                }
+                let client_name = client.as_deref().unwrap();
+                match init_clients::init_snippet(client_name, cli.connection_string.as_deref()) {
                     Ok(snippet) => println!("{snippet}"),
                     Err(e) => {
                         eprintln!("{e}");
                         return ExitCode::FAILURE;
                     }
                 }
+            }
+            Commands::Onboarding => {
+                return match tui::run_onboarding(cli.connection.config.clone()).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("onboarding tui error: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
             }
             Commands::Index { action } => {
                 return match run_index_action(&cli, action).await {
@@ -363,6 +444,28 @@ async fn main() -> ExitCode {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
                         eprintln!("tui error: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            Commands::Query { sql, format } => {
+                return match run_query_cmd(&cli, sql, *format).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("query failed: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            Commands::Diff {
+                source_schema,
+                target_schema,
+                migration,
+            } => {
+                return match run_diff_cmd(&cli, source_schema, target_schema, *migration).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("diff failed: {e}");
                         ExitCode::FAILURE
                     }
                 };
@@ -505,7 +608,9 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
     };
 
     let tools = Arc::new(RouterBackend {
-        router: ToolRouter::new(session.clone()).with_semantic(cli.embeddings.is_local(), embedder),
+        router: ToolRouter::new(session.clone())
+            .with_profile(cli.tools.into())
+            .with_semantic(cli.embeddings.is_local(), embedder),
     });
 
     let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
@@ -964,4 +1069,275 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     println!("doctor: ok");
     Ok(())
+}
+
+async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error::Error>> {
+    let mode: AccessMode = cli.access.access_mode.parse()?;
+    let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
+    let mut caps = PolicyCaps::default();
+    if let Some(n) = cli.access.max_rows {
+        caps = caps.with_max_rows(n);
+    }
+
+    let active_id = resolved_list.first().and_then(|r| r.profile_name.clone());
+    let connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
+        .iter()
+        .map(|r| {
+            let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
+            nexql_tools::ConnectionInfo {
+                id: id.clone(),
+                name: id,
+                host: r.params.host.clone(),
+                port: r.params.port,
+                database: r.params.dbname.clone(),
+                params: r.params.clone(),
+            }
+        })
+        .collect();
+
+    let session = ToolSession::from_connections(connections, mode, caps, active_id).await?;
+    Ok(session)
+}
+
+async fn run_query_cmd(
+    cli: &Cli,
+    sql: &str,
+    format: OutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let session = build_session(cli).await?;
+    let router = ToolRouter::new(session);
+    let outcome = router.call("run_select", json!({ "sql": sql })).await;
+    if outcome.is_error {
+        return Err(outcome.text.into());
+    }
+
+    match format {
+        OutputFormat::Json => {
+            if let Some(val) = outcome.structured {
+                println!("{}", serde_json::to_string_pretty(&val)?);
+            } else {
+                println!("{}", outcome.text);
+            }
+        }
+        OutputFormat::Csv => {
+            if let Some(val) = outcome.structured {
+                let empty = Vec::new();
+                let rows = val.get("rows").and_then(|v| v.as_array()).unwrap_or(&empty);
+                if !rows.is_empty() {
+                    let mut keys = Vec::new();
+                    if let Some(obj) = rows[0].as_object() {
+                        keys = obj.keys().cloned().collect();
+                        println!("{}", keys.join(","));
+                    }
+                    for row in rows {
+                        if let Some(obj) = row.as_object() {
+                            let vals: Vec<String> = keys
+                                .iter()
+                                .map(|k| {
+                                    obj.get(k)
+                                        .map(|v| v.to_string().replace('"', "\"\""))
+                                        .unwrap_or_default()
+                                })
+                                .collect();
+                            println!("{}", vals.join(","));
+                        }
+                    }
+                }
+            } else {
+                println!("{}", outcome.text);
+            }
+        }
+        OutputFormat::Table => {
+            if let Some(val) = outcome.structured {
+                let empty = Vec::new();
+                let rows = val.get("rows").and_then(|v| v.as_array()).unwrap_or(&empty);
+                if rows.is_empty() {
+                    println!("(0 rows)");
+                } else {
+                    print_ascii_table(rows);
+                }
+            } else {
+                println!("{}", outcome.text);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn run_diff_cmd(
+    cli: &Cli,
+    source_schema: &str,
+    target_schema: &str,
+    migration: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let session = build_session(cli).await?;
+    let router = ToolRouter::new(session);
+
+    if migration {
+        let outcome = router
+            .call(
+                "generate_migration",
+                json!({
+                    "sourceSchema": source_schema,
+                    "targetSchema": target_schema
+                }),
+            )
+            .await;
+        if outcome.is_error {
+            return Err(outcome.text.into());
+        }
+        println!("{}", outcome.text);
+    } else {
+        let outcome = router
+            .call(
+                "schema_diff",
+                json!({
+                    "sourceSchema": source_schema,
+                    "targetSchema": target_schema
+                }),
+            )
+            .await;
+        if outcome.is_error {
+            return Err(outcome.text.into());
+        }
+        if let Some(val) = outcome.structured {
+            println!("{}", serde_json::to_string_pretty(&val)?);
+        } else {
+            println!("{}", outcome.text);
+        }
+    }
+    Ok(())
+}
+
+fn print_ascii_table(rows: &[Value]) {
+    if rows.is_empty() {
+        return;
+    }
+    let mut cols: Vec<String> = Vec::new();
+    if let Some(first) = rows[0].as_object() {
+        cols = first.keys().cloned().collect();
+    }
+    if cols.is_empty() {
+        return;
+    }
+
+    let mut col_widths: Vec<usize> = cols.iter().map(|c| c.len()).collect();
+    let mut grid: Vec<Vec<String>> = Vec::new();
+
+    for row in rows {
+        let mut row_strs = Vec::new();
+        if let Some(obj) = row.as_object() {
+            for (idx, col) in cols.iter().enumerate() {
+                let val_str = match obj.get(col) {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(Value::Null) | None => "NULL".to_string(),
+                    Some(other) => other.to_string(),
+                };
+                col_widths[idx] = col_widths[idx].max(val_str.len());
+                row_strs.push(val_str);
+            }
+        }
+        grid.push(row_strs);
+    }
+
+    let header = cols
+        .iter()
+        .zip(&col_widths)
+        .map(|(c, w)| format!("{:<width$}", c, width = w))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let separator = col_widths
+        .iter()
+        .map(|w| "-".repeat(*w))
+        .collect::<Vec<_>>()
+        .join("-+-");
+
+    println!("{header}");
+    println!("{separator}");
+    for row in grid {
+        let line = row
+            .iter()
+            .zip(&col_widths)
+            .map(|(v, w)| format!("{:<width$}", v, width = w))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        println!("{line}");
+    }
+    println!("({} rows)", rows.len());
+}
+
+#[cfg(test)]
+mod main_cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn cli_subcommand_query_parse() {
+        let cli =
+            Cli::try_parse_from(["nexql-mcp", "query", "SELECT 1", "--format", "json"]).unwrap();
+        match cli.command {
+            Some(Commands::Query { sql, format }) => {
+                assert_eq!(sql, "SELECT 1");
+                assert_eq!(format, OutputFormat::Json);
+            }
+            _ => panic!("Expected Commands::Query"),
+        }
+    }
+
+    #[test]
+    fn cli_subcommand_diff_parse() {
+        let cli =
+            Cli::try_parse_from(["nexql-mcp", "diff", "public", "v2", "--migration"]).unwrap();
+        match cli.command {
+            Some(Commands::Diff {
+                source_schema,
+                target_schema,
+                migration,
+            }) => {
+                assert_eq!(source_schema, "public");
+                assert_eq!(target_schema, "v2");
+                assert!(migration);
+            }
+            _ => panic!("Expected Commands::Diff"),
+        }
+    }
+
+    #[test]
+    fn cli_subcommand_init_optional_client_parse() {
+        let cli = Cli::try_parse_from(["nexql-mcp", "init"]).unwrap();
+        match cli.command {
+            Some(Commands::Init { client, tui }) => {
+                assert_eq!(client, None);
+                assert!(!tui);
+            }
+            _ => panic!("Expected Commands::Init"),
+        }
+
+        let cli_with_client = Cli::try_parse_from(["nexql-mcp", "init", "claude"]).unwrap();
+        match cli_with_client.command {
+            Some(Commands::Init { client, tui }) => {
+                assert_eq!(client.as_deref(), Some("claude"));
+                assert!(!tui);
+            }
+            _ => panic!("Expected Commands::Init"),
+        }
+
+        let cli_tui = Cli::try_parse_from(["nexql-mcp", "init", "--tui"]).unwrap();
+        match cli_tui.command {
+            Some(Commands::Init { client, tui }) => {
+                assert_eq!(client, None);
+                assert!(tui);
+            }
+            _ => panic!("Expected Commands::Init"),
+        }
+    }
+
+    #[test]
+    fn cli_subcommand_onboarding_parse() {
+        let cli = Cli::try_parse_from(["nexql-mcp", "onboarding"]).unwrap();
+        match cli.command {
+            Some(Commands::Onboarding) => {}
+            _ => panic!("Expected Commands::Onboarding"),
+        }
+    }
 }

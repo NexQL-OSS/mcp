@@ -141,7 +141,7 @@ async fn phase2_catalog_tools_smoke() {
         return;
     };
     let router = router_for(&pg.url).await;
-    assert_eq!(router.specs().len(), 41);
+    assert_eq!(router.specs().len(), 45);
 
     let ctx = router.call("get_current_context", json!({})).await;
     assert!(!ctx.is_error, "{}", ctx.text);

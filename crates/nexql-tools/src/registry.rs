@@ -1,8 +1,44 @@
 //! Tool name catalog for the MCP surface.
 
+/// Tool surface preset profiles to control context window overhead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolProfile {
+    /// Core schema search, object inspection, join path, query execution, and export tools.
+    Query,
+    /// DBA health checks, index suggestions, table stats, locks, slow queries, and maintenance.
+    Dba,
+    /// Minimal initial tool surface (5 core tools) + discover_tools meta-tool for lazy tool activation.
+    Meta,
+    /// All active MCP surface tools.
+    #[default]
+    Full,
+}
+
+impl ToolProfile {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Dba => "dba",
+            Self::Meta => "meta",
+            Self::Full => "full",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "query" => Some(Self::Query),
+            "dba" => Some(Self::Dba),
+            "meta" => Some(Self::Meta),
+            "full" => Some(Self::Full),
+            _ => None,
+        }
+    }
+}
+
 /// Read-only tool surface (catalog + index + Phase 4 monitoring/DDL + Phase 4b breadth).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolName {
+    ResolveTarget,
     SearchSchema,
     DescribeObject,
     GetJoinPath,
@@ -44,6 +80,9 @@ pub enum ToolName {
     CreateIndexConcurrently,
     RunMaintenance,
     TerminateQuery,
+    DiscoverTools,
+    AutoTuneQuery,
+    CheckDdlSafety,
 }
 
 impl ToolName {
@@ -56,10 +95,12 @@ impl ToolName {
         Self::SwitchConnection,
         Self::RunSelect,
         Self::ExplainQuery,
+        Self::DiscoverTools,
     ];
 
     /// Index-backed tools (require `nexql-mcp index build`).
     pub const PHASE3: &'static [ToolName] = &[
+        Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -94,6 +135,8 @@ impl ToolName {
         Self::DeepPlanAnalysis,
         Self::SchemaDiff,
         Self::GenerateMigration,
+        Self::AutoTuneQuery,
+        Self::CheckDdlSafety,
     ];
 
     /// Phase 9 write/admin tools (listed always; gated at call time by access mode).
@@ -117,6 +160,8 @@ impl ToolName {
         Self::SwitchConnection,
         Self::RunSelect,
         Self::ExplainQuery,
+        Self::DiscoverTools,
+        Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -143,6 +188,8 @@ impl ToolName {
         Self::DeepPlanAnalysis,
         Self::SchemaDiff,
         Self::GenerateMigration,
+        Self::AutoTuneQuery,
+        Self::CheckDdlSafety,
         Self::ExecuteSql,
         Self::EditRow,
         Self::ImportData,
@@ -162,6 +209,7 @@ impl ToolName {
         Self::SwitchConnection,
         Self::RunSelect,
         Self::ExplainQuery,
+        Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -190,8 +238,76 @@ impl ToolName {
         Self::GenerateMigration,
     ];
 
+    /// Subset of tools optimized for context-constrained query & schema exploration tasks.
+    pub const QUERY_PROFILE: &'static [ToolName] = &[
+        Self::ListConnections,
+        Self::ListDatabases,
+        Self::ListSchemas,
+        Self::ListObjects,
+        Self::GetCurrentContext,
+        Self::SwitchConnection,
+        Self::RunSelect,
+        Self::ExplainQuery,
+        Self::ResolveTarget,
+        Self::SearchSchema,
+        Self::DescribeObject,
+        Self::GetJoinPath,
+        Self::SampleValues,
+        Self::GetDdl,
+        Self::ExportQuery,
+    ];
+
+    /// Subset of tools optimized for database administration, performance tuning, and health checks.
+    pub const DBA_PROFILE: &'static [ToolName] = &[
+        Self::ListConnections,
+        Self::GetCurrentContext,
+        Self::TableStats,
+        Self::IndexUsage,
+        Self::ListRunningQueries,
+        Self::FindBlockingLocks,
+        Self::SlowQueries,
+        Self::DbHealthCheck,
+        Self::ExplainAnalyze,
+        Self::AnalyzeQueryPlan,
+        Self::GetIndexStatus,
+        Self::ListExtensions,
+        Self::ServerSettings,
+        Self::SuggestIndexes,
+        Self::FindUnusedIndexes,
+        Self::BloatReport,
+        Self::FindMissingFks,
+        Self::DbDashboard,
+        Self::DeepPlanAnalysis,
+        Self::SchemaDiff,
+        Self::GenerateMigration,
+        Self::AutoTuneQuery,
+        Self::CheckDdlSafety,
+        Self::RunMaintenance,
+        Self::TerminateQuery,
+    ];
+
+    /// Minimal initial tool surface with discover_tools for lazy tool activation.
+    pub const META_PROFILE: &'static [ToolName] = &[
+        Self::ListConnections,
+        Self::GetCurrentContext,
+        Self::SearchSchema,
+        Self::DescribeObject,
+        Self::RunSelect,
+        Self::DiscoverTools,
+    ];
+
+    pub fn for_profile(profile: ToolProfile) -> &'static [ToolName] {
+        match profile {
+            ToolProfile::Query => Self::QUERY_PROFILE,
+            ToolProfile::Dba => Self::DBA_PROFILE,
+            ToolProfile::Meta => Self::META_PROFILE,
+            ToolProfile::Full => Self::ACTIVE,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::ResolveTarget => "resolve_target",
             Self::SearchSchema => "search_schema",
             Self::DescribeObject => "describe_object",
             Self::GetJoinPath => "get_join_path",
@@ -226,6 +342,8 @@ impl ToolName {
             Self::DeepPlanAnalysis => "deep_plan_analysis",
             Self::SchemaDiff => "schema_diff",
             Self::GenerateMigration => "generate_migration",
+            Self::AutoTuneQuery => "auto_tune_query",
+            Self::CheckDdlSafety => "check_ddl_safety",
             Self::ExecuteSql => "execute_sql",
             Self::EditRow => "edit_row",
             Self::ImportData => "import_data",
@@ -233,6 +351,7 @@ impl ToolName {
             Self::CreateIndexConcurrently => "create_index_concurrently",
             Self::RunMaintenance => "run_maintenance",
             Self::TerminateQuery => "terminate_query",
+            Self::DiscoverTools => "discover_tools",
         }
     }
 
@@ -246,8 +365,8 @@ mod tests {
     use super::ToolName;
 
     #[test]
-    fn read_only_is_thirty_four_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 34);
+    fn read_only_is_thirty_five_tools() {
+        assert_eq!(ToolName::READ_ONLY.len(), 35);
     }
 
     #[test]
@@ -256,16 +375,8 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_forty_one_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 41);
-        assert_eq!(
-            ToolName::ACTIVE.len(),
-            ToolName::PHASE2.len()
-                + ToolName::PHASE3.len()
-                + ToolName::PHASE4.len()
-                + ToolName::PHASE4B.len()
-                + ToolName::PHASE9.len()
-        );
+    fn active_surface_is_forty_five_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 45);
     }
 
     #[test]

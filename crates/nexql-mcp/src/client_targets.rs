@@ -91,6 +91,36 @@ pub fn mergeable_targets() -> Vec<ClientTarget> {
             shape: ConfigShape::Claude,
             config_path: windsurf_config_path,
         },
+        ClientTarget {
+            key: "antigravity",
+            display_name: "Antigravity (Google DeepMind AI)",
+            shape: ConfigShape::Claude,
+            config_path: antigravity_config_path,
+        },
+        ClientTarget {
+            key: "deepseek",
+            display_name: "DeepSeek AI / DeepSeek Coder",
+            shape: ConfigShape::Claude,
+            config_path: deepseek_config_path,
+        },
+        ClientTarget {
+            key: "kimi",
+            display_name: "Kimi (Moonshot AI)",
+            shape: ConfigShape::Claude,
+            config_path: kimi_config_path,
+        },
+        ClientTarget {
+            key: "ollama",
+            display_name: "Ollama (Local LLMs)",
+            shape: ConfigShape::Claude,
+            config_path: ollama_config_path,
+        },
+        ClientTarget {
+            key: "qwen",
+            display_name: "Qwen (Alibaba Cloud AI)",
+            shape: ConfigShape::Claude,
+            config_path: qwen_config_path,
+        },
     ]
 }
 
@@ -180,11 +210,39 @@ fn zed_config_path() -> Option<PathBuf> {
 }
 
 fn windsurf_config_path() -> Option<PathBuf> {
-    // Best-effort: not documented in docs/clients/README.md (Windsurf's own docs
-    // point at Settings → Cascade). Codeium/Windsurf's on-disk MCP config lives
-    // here as of this writing; verify against your installed version before relying
-    // on the diff-write flow, and edit via Settings → Cascade if this is stale.
     home_dir().map(|h| h.join(".codeium").join("windsurf").join("mcp_config.json"))
+}
+
+fn antigravity_config_path() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".gemini").join("antigravity-ide").join("mcp_config.json"))
+}
+
+fn deepseek_config_path() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .map(|d| d.join(".deepseek").join("mcp.json"))
+        .or_else(|| home_dir().map(|h| h.join(".config").join("deepseek").join("mcp.json")))
+}
+
+fn kimi_config_path() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .map(|d| d.join(".kimi").join("mcp.json"))
+        .or_else(|| home_dir().map(|h| h.join(".config").join("kimi").join("mcp.json")))
+}
+
+fn ollama_config_path() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .map(|d| d.join(".ollama").join("mcp.json"))
+        .or_else(|| home_dir().map(|h| h.join(".ollama").join("mcp.json")))
+}
+
+fn qwen_config_path() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .map(|d| d.join(".qwen").join("mcp.json"))
+        .or_else(|| home_dir().map(|h| h.join(".config").join("qwen").join("mcp.json")))
 }
 
 #[cfg(test)]
@@ -261,9 +319,9 @@ mod tests {
     }
 
     #[test]
-    fn mergeable_targets_cover_seven_clients() {
+    fn mergeable_targets_cover_twelve_clients() {
         let targets = mergeable_targets();
-        assert_eq!(targets.len(), 7);
+        assert_eq!(targets.len(), 12);
         let keys: Vec<_> = targets.iter().map(|t| t.key).collect();
         for expected in [
             "claude-desktop",
@@ -273,6 +331,11 @@ mod tests {
             "vscode-copilot",
             "zed",
             "windsurf",
+            "antigravity",
+            "deepseek",
+            "kimi",
+            "ollama",
+            "qwen",
         ] {
             assert!(keys.contains(&expected), "missing {expected}");
         }

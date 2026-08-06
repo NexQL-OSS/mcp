@@ -13,6 +13,11 @@ pub const SUPPORTED_CLIENTS: &[&str] = &[
     "continue",
     "jetbrains",
     "openai-agents",
+    "antigravity",
+    "deepseek",
+    "kimi",
+    "ollama",
+    "qwen",
 ];
 
 /// Build a paste-ready config snippet for `client`.
@@ -138,6 +143,66 @@ command = "nexql-mcp"
 args = {args}"#,
             args = args_toml,
             args_py = args_json
+        ),
+        "antigravity" => format!(
+            r#"// Antigravity (Google DeepMind AI IDE) — merge into ~/.gemini/antigravity-ide/mcp_config.json
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args}
+    }}
+  }}
+}}"#,
+            args = args_json
+        ),
+        "deepseek" => format!(
+            r#"// DeepSeek AI / DeepSeek Coder — save as .deepseek/mcp.json or ~/.config/deepseek/mcp.json
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args}
+    }}
+  }}
+}}"#,
+            args = args_json
+        ),
+        "kimi" => format!(
+            r#"// Kimi (Moonshot AI) — save as .kimi/mcp.json or ~/.config/kimi/mcp.json
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args}
+    }}
+  }}
+}}"#,
+            args = args_json
+        ),
+        "ollama" => format!(
+            r#"// Ollama (Local LLMs) — save as .ollama/mcp.json or ~/.ollama/mcp.json
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args}
+    }}
+  }}
+}}"#,
+            args = args_json
+        ),
+        "qwen" => format!(
+            r#"// Qwen (Alibaba Cloud AI) — save as .qwen/mcp.json or ~/.config/qwen/mcp.json
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args}
+    }}
+  }}
+}}"#,
+            args = args_json
         ),
         other => {
             return Err(format!(

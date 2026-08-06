@@ -2,13 +2,81 @@
 
 use serde_json::{Value, json};
 
-use crate::registry::ToolName;
+use crate::registry::{ToolName, ToolProfile};
 
 #[derive(Debug, Clone)]
 pub struct ToolSpec {
     pub name: ToolName,
     pub description: &'static str,
     pub input_schema: Value,
+}
+
+/// Tools filtered by the requested `ToolProfile`.
+pub fn tools_for_profile(profile: ToolProfile) -> Vec<ToolSpec> {
+    let names = ToolName::for_profile(profile);
+    active_tools()
+        .into_iter()
+        .filter(|spec| names.contains(&spec.name))
+        .collect()
+}
+
+/// Generate a formatted Mermaid ERD snippet for an object's column & key structure.
+pub fn generate_mermaid_erd_for_object(obj: &serde_json::Map<String, Value>) -> Option<String> {
+    let ref_name = obj.get("ref").and_then(|v| v.as_str()).unwrap_or("table");
+    let safe_table_name = ref_name.replace(['.', '-'], "_");
+    let mut diagram = String::from("erDiagram\n");
+    diagram.push_str(&format!("    {safe_table_name} {{\n"));
+    if let Some(columns) = obj.get("columns").and_then(|v| v.as_array()) {
+        for col in columns {
+            let name = col.get("name").and_then(|v| v.as_str()).unwrap_or("col");
+            let data_type = col.get("type").and_then(|v| v.as_str()).unwrap_or("string");
+            let pk = col.get("is_pk").and_then(|v| v.as_bool()).unwrap_or(false);
+            let fk = col.get("is_fk").and_then(|v| v.as_bool()).unwrap_or(false);
+            let key_str = match (pk, fk) {
+                (true, true) => " PK,FK",
+                (true, false) => " PK",
+                (false, true) => " FK",
+                _ => "",
+            };
+            diagram.push_str(&format!(
+                "        {} {}{}\n",
+                data_type.replace(' ', "_"),
+                name,
+                key_str
+            ));
+        }
+    }
+    diagram.push_str("    }\n");
+    Some(diagram)
+}
+
+/// Generate a formatted Mermaid ERD diagram snippet for a FK join path.
+pub fn generate_mermaid_diagram_for_path(path_val: &Value) -> Option<String> {
+    let edges = path_val
+        .as_array()
+        .or_else(|| path_val.get("path").and_then(|v| v.as_array()))?;
+    if edges.is_empty() {
+        return None;
+    }
+    let mut diagram = String::from("erDiagram\n");
+    for edge in edges {
+        let from = edge
+            .get("from")
+            .and_then(|v| v.as_str())
+            .unwrap_or("A")
+            .replace(['.', '-'], "_");
+        let to = edge
+            .get("to")
+            .and_then(|v| v.as_str())
+            .unwrap_or("B")
+            .replace(['.', '-'], "_");
+        let from_col = edge.get("from_col").and_then(|v| v.as_str()).unwrap_or("");
+        let to_col = edge.get("to_col").and_then(|v| v.as_str()).unwrap_or("");
+        diagram.push_str(&format!(
+            "    {from} }}|--|| {to} : \"{from_col} -> {to_col}\"\n"
+        ));
+    }
+    Some(diagram)
 }
 
 /// Phase 2 catalog tools (live Postgres; no index required).
@@ -57,12 +125,25 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
             description: "Run EXPLAIN (no ANALYZE execute) for a SELECT/WITH query.",
             input_schema: object_schema(&[("sql", "string", true)]),
         },
+        ToolSpec {
+            name: ToolName::DiscoverTools,
+            description: "Dynamically discover and inspect specialized MCP database tools by keyword query (e.g., 'locks', 'bloat', 'index') or category ('query', 'dba', 'write'). Use this when you need specialized tools beyond the core surface.",
+            input_schema: object_schema(&[
+                ("query", "string", false),
+                ("category", "string", false),
+            ]),
+        },
     ]
 }
 
 /// Phase 3 index tools (require `nexql-mcp index build`).
 pub fn phase3_index_tools() -> Vec<ToolSpec> {
     vec![
+        ToolSpec {
+            name: ToolName::ResolveTarget,
+            description: "Autonomously find which connection/database matches a user's hint (a database name, environment, host fragment) and/or an object hint (a table/view name), searching across ALL configured connections and their indexed schemas. Call this FIRST whenever the request references a database, environment, or object that is not the current session context — before search_schema, before list_connections. When the match is unambiguous it switches the session context automatically and returns the resolved connection/database; only returns `ambiguous: true` with a candidate list when multiple equally-plausible matches exist, in which case surface those candidates to the user rather than guessing.",
+            input_schema: object_schema(&[("hint", "string", false), ("objectHint", "string", false)]),
+        },
         ToolSpec {
             name: ToolName::SearchSchema,
             description: "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Call this FIRST before writing any SQL — do not assume a table exists without finding it here.",
@@ -215,6 +296,16 @@ pub fn phase4b_tools() -> Vec<ToolSpec> {
                 ("targetSchema", "string", true),
             ]),
         },
+        ToolSpec {
+            name: ToolName::AutoTuneQuery,
+            description: "Autonomous query tuner: executes EXPLAIN ANALYZE, checks table statistics, evaluates missing indexes, and outputs step-by-step performance tuning recommendations.",
+            input_schema: object_schema(&[("sql", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::CheckDdlSafety,
+            description: "Safety guard for migration DDL: inspects SQL for dangerous exclusive locks (e.g. non-concurrent index builds, column drops, table rewrites) and outputs risk scores and safe zero-downtime alternatives.",
+            input_schema: object_schema(&[("ddl", "string", true)]),
+        },
     ]
 }
 
@@ -312,9 +403,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_forty_one() {
+    fn active_tools_lists_forty_five() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 41);
+        assert_eq!(specs.len(), 45);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -346,5 +437,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn profile_tools_filtering() {
+        let query_specs = tools_for_profile(ToolProfile::Query);
+        assert_eq!(query_specs.len(), 15);
+
+        let dba_specs = tools_for_profile(ToolProfile::Dba);
+        assert_eq!(dba_specs.len(), 25);
+
+        let meta_specs = tools_for_profile(ToolProfile::Meta);
+        assert_eq!(meta_specs.len(), 6);
+
+        let full_specs = tools_for_profile(ToolProfile::Full);
+        assert_eq!(full_specs.len(), 45);
+    }
+
+    #[test]
+    fn generate_mermaid_erd_test() {
+        let obj = json!({
+            "ref": "public.users",
+            "columns": [
+                { "name": "id", "type": "uuid", "is_pk": true, "is_fk": false },
+                { "name": "email", "type": "varchar", "is_pk": false, "is_fk": false },
+                { "name": "org_id", "type": "uuid", "is_pk": false, "is_fk": true }
+            ]
+        });
+        let diagram = generate_mermaid_erd_for_object(obj.as_object().unwrap()).unwrap();
+        assert!(diagram.contains("erDiagram"));
+        assert!(diagram.contains("public_users"));
+        assert!(diagram.contains("uuid id PK"));
+        assert!(diagram.contains("uuid org_id FK"));
+    }
+
+    #[test]
+    fn generate_mermaid_diagram_for_path_test() {
+        let path = json!([
+            { "from": "public.orders", "to": "public.users", "from_col": "user_id", "to_col": "id" }
+        ]);
+        let diagram = generate_mermaid_diagram_for_path(&path).unwrap();
+        assert!(diagram.contains("erDiagram"));
+        assert!(diagram.contains("public_orders }|--|| public_users : \"user_id -> id\""));
     }
 }

@@ -1,6 +1,7 @@
 //! `nexql-mcp tui` — interactive profile editor + multi-client wiring.
 
 mod app;
+mod onboarding;
 mod ui;
 
 use std::io;
@@ -32,6 +33,26 @@ pub async fn run(config_path: Option<PathBuf>) -> Result<(), Box<dyn std::error:
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_loop(&mut terminal, config_path).await;
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+pub async fn run_onboarding(config_path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    let config_path = config_path
+        .or_else(ConfigFile::default_path)
+        .ok_or("could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG")?;
+
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = onboarding::run_loop(&mut terminal, config_path).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

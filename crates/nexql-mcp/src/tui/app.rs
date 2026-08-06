@@ -46,6 +46,20 @@ pub const FIELD_LABELS: [&str; 9] = [
     "SSL mode (disable/prefer/require/verify-full)",
     "Access mode (read/write/admin)",
 ];
+
+pub const FIELD_DESCRIPTIONS: [&str; 10] = [
+    "Profile Name: Unique identifier for this connection profile (e.g., 'dev', 'staging', 'production').",
+    "Database URL: PostgreSQL connection string (postgres://user:pass@host:5432/dbname). Overrides individual fields below.",
+    "Host: Server address or IP (e.g. 127.0.0.1 or db.example.com). Default: 127.0.0.1.",
+    "Port: PostgreSQL server port number. Default: 5432.",
+    "Database Name: Target database name to connect to.",
+    "User: Username for database authentication.",
+    "Password: User password for database authentication (stored securely in local config).",
+    "Password Command: Shell command outputting password dynamically (e.g. 'aws secretsmanager ...').",
+    "SSL Mode: Security level: disable (local dev) | prefer | require (cloud DB) | verify-full.",
+    "Access Mode: MCP permissions policy: read (read-only queries) | write (queries + DML) | admin (full DDL).",
+];
+
 const FIELD_COUNT: usize = FIELD_LABELS.len();
 /// Focus stops = name field (0) + FIELD_COUNT data fields (1..=FIELD_COUNT).
 const FOCUS_STOPS: usize = FIELD_COUNT + 1;
@@ -156,6 +170,7 @@ pub struct App {
     pub diffs: Vec<DiffEntry>,
     pub diff_idx: usize,
     pub summary: Vec<SummaryEntry>,
+    pub checked_profiles: std::collections::HashSet<String>,
     pub should_quit: bool,
 }
 
@@ -185,6 +200,7 @@ impl App {
             diffs: Vec::new(),
             diff_idx: 0,
             summary: Vec::new(),
+            checked_profiles: std::collections::HashSet::new(),
             should_quit: false,
         }
     }
@@ -263,18 +279,32 @@ impl App {
     }
 
     fn build_diffs_and_snippets(&mut self) {
-        let Some(name) = self.selected_name() else {
+        let mut selected_names: Vec<String> = self
+            .profile_names
+            .iter()
+            .filter(|n| self.checked_profiles.contains(*n))
+            .cloned()
+            .collect();
+        if selected_names.is_empty() {
+            if let Some(name) = self.selected_name() {
+                selected_names.push(name);
+            }
+        }
+        if selected_names.is_empty() {
             return;
-        };
-        let Some(profile) = self.config.profiles.get(&name).cloned() else {
-            return;
-        };
+        }
+
+        let first_profile = self.config.profiles.get(&selected_names[0]).cloned();
 
         self.diffs.clear();
         self.summary.clear();
 
         let targets = client_targets::mergeable_targets();
-        let profile_args = vec!["--profile".to_string(), name.clone()];
+        let mut profile_args: Vec<String> = Vec::new();
+        for name in &selected_names {
+            profile_args.push("--profile".to_string());
+            profile_args.push(name.clone());
+        }
         for item in self
             .picker_items
             .iter()
@@ -321,9 +351,10 @@ impl App {
         }
 
         // Copy-only clients: build a paste-ready snippet with a resolved URL.
-        let url = nexql_conn::resolve_profile(&profile)
-            .and_then(|p| p.to_url())
-            .ok();
+        let url = first_profile
+            .as_ref()
+            .and_then(|p| nexql_conn::resolve_profile(p).ok())
+            .and_then(|p| p.to_url().ok());
         for item in self
             .picker_items
             .iter()
@@ -450,8 +481,33 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char(' ') => {
+                if let Some(name) = self.selected_name() {
+                    if self.checked_profiles.contains(&name) {
+                        self.checked_profiles.remove(&name);
+                    } else {
+                        self.checked_profiles.insert(name);
+                    }
+                }
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                if self.checked_profiles.len() == self.profile_names.len() {
+                    self.checked_profiles.clear();
+                } else {
+                    self.checked_profiles = self.profile_names.iter().cloned().collect();
+                }
+            }
             KeyCode::Char('w') if self.selected_name().is_some() => {
                 self.open_client_picker();
+            }
+            KeyCode::Char('s') => {
+                if let Some(name) = self.selected_name() {
+                    self.config.default_profile = Some(name.clone());
+                    match self.config.save(&self.config_path) {
+                        Ok(_) => self.status = Some(format!("set default profile to '{name}'")),
+                        Err(e) => self.status = Some(format!("failed to save config: {e}")),
+                    }
+                }
             }
             _ => {}
         }

@@ -24,8 +24,37 @@ pub enum ConnectionSource {
     EnvFile,
 }
 
+/// Target database engine dialect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DbEngine {
+    #[default]
+    Postgres,
+    Sqlite,
+    DuckDb,
+}
+
+impl DbEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::Sqlite => "sqlite",
+            Self::DuckDb => "duckdb",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "postgres" | "postgresql" | "pg" => Some(Self::Postgres),
+            "sqlite" | "sqlite3" => Some(Self::Sqlite),
+            "duckdb" => Some(Self::DuckDb),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConnectionParams {
+    pub engine: DbEngine,
     pub host: Option<String>,
     pub port: Option<u16>,
     pub dbname: Option<String>,
@@ -41,6 +70,9 @@ pub struct ConnectionParams {
 
 impl ConnectionParams {
     pub fn merge_from(&mut self, other: &Self) {
+        if self.engine == DbEngine::Postgres && other.engine != DbEngine::Postgres {
+            self.engine = other.engine;
+        }
         if self.host.is_none() {
             self.host = other.host.clone();
         }
@@ -360,21 +392,29 @@ pub fn params_from_url(url_str: &str) -> Result<ConnectionParams, ConnError> {
         url_str.to_string()
     };
     let parsed = Url::parse(&normalized).map_err(|e| ConnError::InvalidUrl(e.to_string()))?;
-    if parsed.scheme() != "postgres" && parsed.scheme() != "postgresql" {
-        return Err(ConnError::InvalidUrl(format!(
-            "unsupported scheme {}",
-            parsed.scheme()
-        )));
-    }
+    let engine = match parsed.scheme() {
+        "postgres" | "postgresql" => DbEngine::Postgres,
+        "sqlite" | "sqlite3" => DbEngine::Sqlite,
+        "duckdb" => DbEngine::DuckDb,
+        scheme => {
+            return Err(ConnError::InvalidUrl(format!(
+                "unsupported scheme {scheme}"
+            )));
+        }
+    };
     let host = parsed.host_str().map(str::to_owned);
     let port = parsed.port();
-    let dbname = parsed
-        .path()
-        .trim_start_matches('/')
-        .split('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
+    let dbname = if engine == DbEngine::Sqlite || engine == DbEngine::DuckDb {
+        Some(parsed.path().to_string())
+    } else {
+        parsed
+            .path()
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
     let user = if parsed.username().is_empty() {
         None
     } else {
@@ -386,6 +426,7 @@ pub fn params_from_url(url_str: &str) -> Result<ConnectionParams, ConnError> {
         .find(|(k, _)| k == "sslmode")
         .map(|(_, v)| v.into_owned());
     Ok(ConnectionParams {
+        engine,
         host,
         port,
         dbname,
@@ -408,6 +449,7 @@ fn params_from_profile(
         return params_from_url(&expanded);
     }
     Ok(ConnectionParams {
+        engine: DbEngine::default(),
         host: profile.host.clone(),
         port: profile.port,
         dbname: profile.dbname.clone(),
@@ -933,6 +975,7 @@ mod tests {
     #[test]
     fn to_url_builds_from_parts() {
         let p = ConnectionParams {
+            engine: DbEngine::default(),
             host: Some("h".into()),
             port: Some(1),
             dbname: Some("d".into()),
@@ -1115,5 +1158,16 @@ mod tests {
         let r = resolve(&inputs).unwrap();
         assert_eq!(r.params.dbname.as_deref(), Some("urldb"));
         assert_ne!(r.params.host.as_deref(), Some("ignored"));
+    }
+
+    #[test]
+    fn parses_sqlite_and_duckdb_urls() {
+        let sqlite_params = params_from_url("sqlite:///path/to/app.db").unwrap();
+        assert_eq!(sqlite_params.engine, DbEngine::Sqlite);
+        assert_eq!(sqlite_params.dbname.as_deref(), Some("/path/to/app.db"));
+
+        let duck_params = params_from_url("duckdb:///path/to/analytics.db").unwrap();
+        assert_eq!(duck_params.engine, DbEngine::DuckDb);
+        assert_eq!(duck_params.dbname.as_deref(), Some("/path/to/analytics.db"));
     }
 }

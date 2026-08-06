@@ -116,6 +116,12 @@ impl ToolRouter {
         self
     }
 
+    /// Filter active tools by requested `ToolProfile`.
+    pub fn with_profile(mut self, profile: crate::registry::ToolProfile) -> Self {
+        self.specs = crate::schema::tools_for_profile(profile);
+        self
+    }
+
     pub fn specs(&self) -> &[ToolSpec] {
         &self.specs
     }
@@ -182,6 +188,10 @@ impl ToolRouter {
             ToolName::CreateIndexConcurrently => self.create_index_concurrently_tool(&args).await,
             ToolName::RunMaintenance => self.run_maintenance_tool(&args).await,
             ToolName::TerminateQuery => self.terminate_query_tool(&args).await,
+            ToolName::ResolveTarget => self.resolve_target(&args).await,
+            ToolName::DiscoverTools => self.discover_tools(&args).await,
+            ToolName::AutoTuneQuery => self.auto_tune_query(&args).await,
+            ToolName::CheckDdlSafety => self.check_ddl_safety_tool(&args).await,
         }
     }
 
@@ -256,6 +266,292 @@ impl ToolRouter {
     async fn terminate_query_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         self.require_admin()?;
         terminate_query(&self.session, args).await
+    }
+
+    /// Autonomously resolve which connection/database matches a free-text `hint` and/or
+    /// `objectHint`, then switch the session context to it.
+    async fn resolve_target(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let hint = args
+            .get("hint")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let object_hint = args
+            .get("objectHint")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if hint.is_none() && object_hint.is_none() {
+            return Err(ToolError::InvalidArgs(
+                "At least one of \"hint\" or \"objectHint\" is required.".into(),
+            ));
+        }
+
+        let connections = &self.session.connections;
+        if connections.is_empty() {
+            return Ok(ToolOutcome::err("No connections configured."));
+        }
+
+        #[derive(Clone)]
+        struct Candidate {
+            connection_id: String,
+            database: String,
+        }
+        fn key_of(c: &Candidate) -> String {
+            format!("{}\u{0}{}", c.connection_id, c.database)
+        }
+
+        let indexed: Vec<(String, String)> = self
+            .index_store()
+            .map(|store| store.list_indexed_databases().unwrap_or_default())
+            .unwrap_or_default();
+
+        let mut seen = std::collections::HashSet::new();
+        let mut candidates: Vec<Candidate> = Vec::new();
+        let mut add_candidate = |connection_id: &str, database: &str| {
+            if !connections.iter().any(|c| c.id == connection_id) {
+                return;
+            }
+            let key = format!("{connection_id}\u{0}{database}");
+            if !seen.insert(key) {
+                return;
+            }
+            candidates.push(Candidate {
+                connection_id: connection_id.to_string(),
+                database: database.to_string(),
+            });
+        };
+        for (cid, db) in &indexed {
+            add_candidate(cid, db);
+        }
+        for c in connections {
+            let db = c.database.clone().unwrap_or_else(|| "postgres".into());
+            add_candidate(&c.id, &db);
+        }
+
+        let mut scored: std::collections::HashMap<String, (Candidate, f64, Vec<String>)> =
+            std::collections::HashMap::new();
+
+        if let Some(hint) = hint {
+            for c in &candidates {
+                let Some(conn) = connections.iter().find(|x| x.id == c.connection_id) else {
+                    continue;
+                };
+                let fields: [(&str, &str); 3] = [
+                    ("connection name", conn.name.as_str()),
+                    ("host", conn.host.as_deref().unwrap_or("")),
+                    ("database", c.database.as_str()),
+                ];
+                let mut best = 0.0f64;
+                let mut best_field = "";
+                for (label, value) in fields {
+                    let s = fuzzy_score(hint, value);
+                    if s > best {
+                        best = s;
+                        best_field = label;
+                    }
+                }
+                if best > 0.0 {
+                    let entry = scored
+                        .entry(key_of(c))
+                        .or_insert_with(|| (c.clone(), 0.0, Vec::new()));
+                    entry.1 += best;
+                    entry
+                        .2
+                        .push(format!("{best_field} matched hint \"{hint}\" ({best:.0})"));
+                }
+            }
+        }
+
+        if let Some(object_hint) = object_hint
+            && let Some(store) = self.index_store()
+        {
+            let filter = self.query_filter();
+            for (cid, db) in &indexed {
+                let svc = IndexQueryService::new(store, cid.clone(), db.clone());
+                if let Ok(hits) = svc.search_schema(
+                    object_hint,
+                    3,
+                    Some(&filter),
+                    SearchOptions {
+                        use_semantic: self.use_semantic,
+                        embedder: self.embedder.as_deref(),
+                    },
+                ) && let Some(top) = hits.first()
+                {
+                    let c = Candidate {
+                        connection_id: cid.clone(),
+                        database: db.clone(),
+                    };
+                    let entry = scored
+                        .entry(key_of(&c))
+                        .or_insert_with(|| (c.clone(), 0.0, Vec::new()));
+                    entry.1 += top.score * 10.0;
+                    entry.2.push(format!(
+                        "schema search for \"{object_hint}\" found {} (score {:.2})",
+                        top.ref_, top.score
+                    ));
+                }
+            }
+        }
+
+        let mut ranked: Vec<(Candidate, f64, Vec<String>)> = scored.into_values().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        if ranked.is_empty() {
+            let candidates_json: Vec<Value> = connections
+                .iter()
+                .map(|c| {
+                    json!({
+                        "connectionId": c.id,
+                        "connectionName": c.name,
+                        "database": c.database.clone().unwrap_or_else(|| "postgres".into()),
+                    })
+                })
+                .collect();
+            return Ok(ToolOutcome::ok_json(json!({
+                "ambiguous": true,
+                "message": format!(
+                    "No connection/database matched \"{}\". Choose from the configured connections.",
+                    hint.or(object_hint).unwrap_or_default()
+                ),
+                "candidates": candidates_json
+            })));
+        }
+
+        let winner = &ranked[0];
+        let is_tied = ranked
+            .get(1)
+            .is_some_and(|runner_up| runner_up.1 >= winner.1 * 0.85);
+
+        if is_tied {
+            let threshold = winner.1 * 0.85;
+            let tied: Vec<&(Candidate, f64, Vec<String>)> =
+                ranked.iter().filter(|r| r.1 >= threshold).take(5).collect();
+            let candidates_json: Vec<Value> = tied
+                .iter()
+                .filter_map(|(c, score, evidence)| {
+                    connections.iter().find(|x| x.id == c.connection_id).map(|conn| {
+                        json!({
+                            "connectionId": c.connection_id,
+                            "connectionName": conn.name,
+                            "database": c.database,
+                            "score": score,
+                            "evidence": evidence,
+                        })
+                    })
+                })
+                .collect();
+            return Ok(ToolOutcome::ok_json(json!({
+                "ambiguous": true,
+                "message": format!("{} equally-plausible candidates matched.", tied.len()),
+                "candidates": candidates_json
+            })));
+        }
+
+        let (winner_candidate, winner_score, winner_evidence) = winner;
+        self.session
+            .switch(&winner_candidate.connection_id, Some(winner_candidate.database.clone()))
+            .await?;
+        let conn = connections
+            .iter()
+            .find(|x| x.id == winner_candidate.connection_id)
+            .ok_or_else(|| ToolError::Execution("resolved connection vanished".into()))?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "resolved": true,
+            "connectionId": winner_candidate.connection_id,
+            "connectionName": conn.name,
+            "database": winner_candidate.database,
+            "confidence": winner_score,
+            "evidence": winner_evidence,
+        })))
+    }
+
+    async fn discover_tools(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(str::to_lowercase);
+        let category = args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .map(str::to_lowercase);
+
+        let all_specs = active_tools();
+        let filtered: Vec<Value> = all_specs
+            .into_iter()
+            .filter(|spec| {
+                if spec.name == ToolName::DiscoverTools {
+                    return false;
+                }
+                if let Some(ref cat) = category {
+                    match cat.as_str() {
+                        "query" if !ToolName::QUERY_PROFILE.contains(&spec.name) => return false,
+                        "dba" if !ToolName::DBA_PROFILE.contains(&spec.name) => return false,
+                        "write" if !ToolName::PHASE9.contains(&spec.name) => return false,
+                        _ => {}
+                    }
+                }
+                if let Some(ref q) = query {
+                    let name_match = spec.name.as_str().contains(q.as_str());
+                    let desc_match = spec.description.to_lowercase().contains(q.as_str());
+                    if !name_match && !desc_match {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|spec| {
+                json!({
+                    "name": spec.name.as_str(),
+                    "description": spec.description,
+                    "input_schema": spec.input_schema,
+                })
+            })
+            .collect();
+
+        Ok(ToolOutcome::ok_json(json!({
+            "query": args.get("query"),
+            "category": args.get("category"),
+            "count": filtered.len(),
+            "tools": filtered,
+        })))
+    }
+
+    async fn auto_tune_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+
+        let deep_plan = self
+            .deep_plan_analysis(&json!({ "sql": sql, "analyze": true }))
+            .await?;
+
+        let suggestions_data = match self.suggest_indexes(&json!({})).await {
+            Ok(outcome) => outcome.structured.unwrap_or(json!([])),
+            Err(_) => json!([]),
+        };
+
+        let summary = json!({
+            "target_query": sql,
+            "deep_plan_analysis": deep_plan.structured,
+            "index_suggestions": suggestions_data,
+            "tuning_summary": "Auto-tune evaluation complete. Inspect plan findings and index recommendations.",
+        });
+
+        Ok(ToolOutcome::ok_json(summary))
+    }
+
+    async fn check_ddl_safety_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let ddl = args
+            .get("ddl")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("ddl is required".into()))?;
+
+        let report = crate::dba_guard::analyze_ddl_safety(ddl);
+        Ok(ToolOutcome::ok_json(report))
     }
 
     async fn index_service(&self) -> Result<(&IndexStore, String, String), ToolError> {
@@ -1413,6 +1709,44 @@ impl ToolRouter {
     }
 }
 
+/// Lowercase + collapse to alphanumeric-separated-by-single-spaces, for `fuzzy_score`.
+fn normalize_for_match(s: &str) -> String {
+    let mut out = String::new();
+    let mut last_was_sep = true;
+    for ch in s.to_lowercase().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            last_was_sep = false;
+        } else if !last_was_sep {
+            out.push(' ');
+            last_was_sep = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Cheap fuzzy match, 0-100: exact > substring > token overlap.
+fn fuzzy_score(hint: &str, candidate: &str) -> f64 {
+    let h = normalize_for_match(hint);
+    let c = normalize_for_match(candidate);
+    if h.is_empty() || c.is_empty() {
+        return 0.0;
+    }
+    if h == c {
+        return 100.0;
+    }
+    if c.contains(&h) || h.contains(&c) {
+        return 75.0;
+    }
+    let h_tokens: std::collections::HashSet<&str> = h.split(' ').filter(|s| !s.is_empty()).collect();
+    let c_tokens: std::collections::HashSet<&str> = c.split(' ').filter(|s| !s.is_empty()).collect();
+    let overlap = h_tokens.intersection(&c_tokens).count();
+    if overlap == 0 {
+        return 0.0;
+    }
+    (overlap as f64 / h_tokens.len().max(c_tokens.len()) as f64) * 60.0
+}
+
 fn policy_to_query_filter(filter: &PolicyFilter) -> QueryPolicyFilter {
     QueryPolicyFilter {
         allow_schemas: filter.allow_schemas.clone(),
@@ -1745,7 +2079,7 @@ mod tests {
     fn router_specs_include_phase4_and_phase9() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 41);
+        assert_eq!(router.specs().len(), 45);
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));

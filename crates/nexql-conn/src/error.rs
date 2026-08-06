@@ -50,4 +50,3 @@ fn format_pg_err(e: &tokio_postgres::Error) -> String {
         e.to_string()
     }
 }
-

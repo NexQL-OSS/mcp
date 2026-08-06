@@ -54,7 +54,11 @@ pub fn build_rustls_connector(params: &ConnectionParams) -> Result<MakeRustlsCon
     }
 
     let is_require_only = matches!(
-        params.sslmode.as_deref().map(str::to_ascii_lowercase).as_deref(),
+        params
+            .sslmode
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("require")
     ) && params.sslrootcert.is_none();
 
