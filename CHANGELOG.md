@@ -40,3 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Mcp-Session-Id` lifecycle**: issued on `initialize`, required on every subsequent HTTP request (400 if missing, 404 if unknown/expired), released via `DELETE`.
 - **Rate limiting**: fixed-window (60s) limit per bearer token, or per client IP when no token is configured; `--http-rate-limit` / `NEXQL_MCP_HTTP_RATE_LIMIT` (default 600, `0` disables).
 - Known gap: the session store has no LRU eviction cap yet — acceptable for single-tenant loopback use, not yet hardened for long-running multi-client HTTP exposure.
+
+### Added (Phase 5 close-out — embeddings exit gate)
+- `crates/nexql-index/tests/embeddings_semantic_gate.rs` (`--features embeddings`): proves the real MiniLM embedder — not the `FakeEmbedder` used by the existing RRF-fusion unit tests — ranks a synonym query ("client") to `public.customers` when lexical search (zero postings for that term) finds nothing. This was the documented but previously untested Phase 5 exit gate.
+- New `cargo test (embeddings)` CI step (`cargo test --workspace --features embeddings`). Skips gracefully rather than failing CI when the model can't be downloaded, matching the existing `embed.rs` test's behavior.
+- Fixed 3 pre-existing warnings in `builder.rs` that only surfaced under `--features embeddings` (unused `AtomicBool`/`Ordering`/`LOCAL_MODEL_ID` imports, dead `EMBEDDINGS_FEATURE_WARNED` static) by gating them to the non-`embeddings` build where they're actually used.

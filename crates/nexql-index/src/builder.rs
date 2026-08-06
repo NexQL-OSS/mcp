@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+#[cfg(not(feature = "embeddings"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -20,9 +21,9 @@ use crate::catalog::{
     RawIndexRow, RawRelationRow, RawViewRow, SCHEMA_FINGERPRINT_QUERY, VIEW_DEFINITIONS_QUERY,
     map_relkind_to_db_object_kind,
 };
-use crate::embed::{
-    Embedder, LOCAL_MODEL_ID, build_object_doc, embeddings_env_local, is_embeddable_kind,
-};
+#[cfg(not(feature = "embeddings"))]
+use crate::embed::LOCAL_MODEL_ID;
+use crate::embed::{Embedder, build_object_doc, embeddings_env_local, is_embeddable_kind};
 use crate::error::IndexError;
 use crate::lexical::{extract_synonyms_from_comment, tokenize};
 use crate::migrate::CURRENT_FORMAT_VERSION;
@@ -37,6 +38,7 @@ use crate::store::{
     VALUES_FILE, serialize_embeddings,
 };
 
+#[cfg(not(feature = "embeddings"))]
 static EMBEDDINGS_FEATURE_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Max objects per shard — matches TS IndexBuilder.

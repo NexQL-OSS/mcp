@@ -116,9 +116,17 @@ Resources (`nexql://` URIs, cursor pagination), prompts (4 + 3 new), completions
 
 ---
 
-## Phase 5 — embeddings (~2 wk)
+## Phase 5 — embeddings (~2 wk) — LANDED
 
-`candle` MiniLM local; `embeddings.bin` cross-read with TS; RRF fusion (port `IndexQueryService.test.ts`); context packing; `--embeddings off|local`.
+`candle` MiniLM local; RRF fusion (`fuse_rrf`, ported from `IndexQueryService.test.ts`); `--embeddings off|local`.
+
+**Exit gate:** `crates/nexql-index/tests/embeddings_semantic_gate.rs`
+(`--features embeddings`, run in CI) proves the real MiniLM embedder beats lexical search on a synonym
+query ("client" → `public.customers`, zero lexical postings) — not just the `FakeEmbedder` RRF-fusion
+unit tests in `query.rs`. Skips (doesn't fail) without network/model access.
+
+**Deferred:** `embeddings.bin` cross-read against a real TS `IndexBuilder` output (no host-free TS harness
+exists yet — same caveat as the Phase 3 golden gate); context packing.
 
 **Exit:** Semantic search beats lexical on synonym fixture.
 

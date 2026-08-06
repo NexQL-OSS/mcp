@@ -53,6 +53,13 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+      # Phase 5 exit gate ("semantic search beats lexical on a synonym
+      # fixture") — crates/nexql-index/tests/embeddings_semantic_gate.rs.
+      # Downloads MiniLM from the HF hub on first run; skips (doesn't fail)
+      # if that's unavailable, so this can't flake CI red on network access.
+      - name: cargo test (embeddings)
+        run: cargo test --workspace --features embeddings
+
   msrv:
     runs-on: ubuntu-latest
     steps:
