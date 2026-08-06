@@ -1,0 +1,98 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nexql-oss/nexql-mcp",
+  "description": "Standalone Postgres MCP server — schema-aware, read-only by default, installable everywhere.",
+  "title": "NexQL Postgres MCP",
+  "websiteUrl": "https://github.com/NexQL-OSS/mcp",
+  "repository": {
+    "url": "https://github.com/NexQL-OSS/mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "nexql-mcp",
+      "version": "0.2.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "connection_string",
+          "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Omit to use a saved --profile or DATABASE_URL.",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "Postgres connection string, used when no positional URL or --profile is given.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "NEXQL_MCP_CONFIG",
+          "description": "Path to config.toml (default: ~/.config/nexql-mcp/config.toml).",
+          "isRequired": false
+        }
+      ]
+    },
+    {
+      "registryType": "cargo",
+      "registryBaseUrl": "https://crates.io",
+      "identifier": "nexql-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "connection_string",
+          "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Omit to use a saved --profile or DATABASE_URL.",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "Postgres connection string, used when no positional URL or --profile is given.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "NEXQL_MCP_CONFIG",
+          "description": "Path to config.toml (default: ~/.config/nexql-mcp/config.toml).",
+          "isRequired": false
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/nexql-oss/mcp:0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "connection_string",
+          "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Omit to use DATABASE_URL.",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "Postgres connection string, used when no positional URL is given.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
