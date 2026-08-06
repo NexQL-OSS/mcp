@@ -145,6 +145,15 @@ struct TransportArgs {
     /// Bearer token for HTTP transport. Env: `NEXQL_MCP_HTTP_TOKEN`.
     #[arg(long = "http-token", env = "NEXQL_MCP_HTTP_TOKEN")]
     http_token: Option<String>,
+
+    /// Requests per 60s window per bearer token (or per client IP with no
+    /// token). `0` disables the limit. Env: `NEXQL_MCP_HTTP_RATE_LIMIT`.
+    #[arg(
+        long = "http-rate-limit",
+        env = "NEXQL_MCP_HTTP_RATE_LIMIT",
+        default_value_t = 600
+    )]
+    http_rate_limit: u32,
 }
 
 #[derive(clap::Args, Default)]
@@ -803,7 +812,8 @@ async fn run_http_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         cli.transport.bind.clone(),
         cli.transport.http_port,
         auth,
-    );
+    )
+    .with_rate_limit_per_min(cli.transport.http_rate_limit);
     server.serve().await?;
     Ok(())
 }

@@ -155,9 +155,15 @@ Extension registers `McpStdioServerDefinition` and resolves `nexql-mcp` (bundled
 
 ## Phase 8 — HTTP + OAuth (~2.5 wk) — PARTIAL
 
-**Landed:** Streamable HTTP (`POST /` + `/mcp`) via axum; shared `McpHandler` with stdio; bearer via `--http-token` / `NEXQL_MCP_HTTP_TOKEN`; refuse non-loopback without token; 1MB body cap.
+**Landed:** Streamable HTTP (`POST`/`DELETE /` + `/mcp`) via axum; shared `McpHandler` with stdio; bearer
+via `--http-token` / `NEXQL_MCP_HTTP_TOKEN`; refuse non-loopback without token; 1MB body cap;
+`Mcp-Session-Id` issued on `initialize`, required on every subsequent request, released via `DELETE`;
+fixed-window rate limit per bearer token (or per client IP with no token), `--http-rate-limit` /
+`NEXQL_MCP_HTTP_RATE_LIMIT` (default 600/min, `0` disables).
 
-**Deferred (pro / later):** OAuth authorization-server gateway, `Mcp-Session-Id` sessions, rate limiting.
+**Deferred (pro / later):** OAuth authorization-server gateway; session-store LRU eviction cap (store is
+currently unbounded — fine for a single-tenant local/loopback deployment, not yet hardened for
+long-running multi-client HTTP exposure).
 
 ---
 
