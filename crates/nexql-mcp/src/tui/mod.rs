@@ -41,7 +41,9 @@ pub async fn run(config_path: Option<PathBuf>) -> Result<(), Box<dyn std::error:
     result
 }
 
-pub async fn run_onboarding(config_path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_onboarding(
+    config_path: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let config_path = config_path
         .or_else(ConfigFile::default_path)
         .ok_or("could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG")?;

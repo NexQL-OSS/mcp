@@ -47,3 +47,21 @@ pub trait PromptBackend: Send + Sync {
 pub trait CompletionBackend: Send + Sync {
     async fn complete(&self, params: Value) -> Result<Value, RpcFailure>;
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct ClientCapabilities {
+    pub elicitation: bool,
+    pub roots: bool,
+    pub sampling: bool,
+}
+
+#[async_trait]
+pub trait ClientRequester: Send + Sync {
+    fn client_capabilities(&self) -> ClientCapabilities;
+    async fn request_elicitation(
+        &self,
+        prompt: &str,
+        requested_schema: Value,
+    ) -> Result<Value, String>;
+    async fn request_roots(&self) -> Result<Vec<Value>, String>;
+}

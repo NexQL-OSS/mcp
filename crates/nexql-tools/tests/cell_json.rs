@@ -104,15 +104,15 @@ async fn router_for(url: &str) -> ToolRouter {
         port: params.port,
         database: params.dbname.clone(),
         params,
+        policy: nexql_tools::session::policy_from_profile(
+            None,
+            AccessMode::Read,
+            PolicyCaps::default().with_max_rows(10),
+        ),
     };
-    let session = ToolSession::from_connections(
-        vec![info],
-        AccessMode::Read,
-        PolicyCaps::default().with_max_rows(10),
-        None,
-    )
-    .await
-    .unwrap();
+    let session = ToolSession::from_connections(vec![info], None)
+        .await
+        .unwrap();
     ToolRouter::new(session)
 }
 

@@ -1,11 +1,9 @@
 //! Shared rustls connector for pooled and one-shot Postgres connections.
 
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 use std::str::FromStr;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use rustls::{ClientConfig, RootCertStore};
 use tokio_postgres::Config;
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -176,10 +174,9 @@ fn load_root_store(params: &ConnectionParams) -> Result<RootCertStore, ConnError
 }
 
 fn add_pem_roots(path: &Path, store: &mut RootCertStore) -> Result<(), ConnError> {
-    let file = File::open(path)
-        .map_err(|e| ConnError::Config(format!("sslrootcert {}: {e}", path.display())))?;
-    let mut reader = BufReader::new(file);
-    for item in rustls_pemfile::certs(&mut reader) {
+    for item in CertificateDer::pem_file_iter(path)
+        .map_err(|e| ConnError::Config(format!("sslrootcert {}: {e}", path.display())))?
+    {
         let der = item.map_err(|e| ConnError::Config(format!("sslrootcert PEM: {e}")))?;
         store
             .add(der)
@@ -189,10 +186,8 @@ fn add_pem_roots(path: &Path, store: &mut RootCertStore) -> Result<(), ConnError
 }
 
 fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, ConnError> {
-    let file = File::open(path)
-        .map_err(|e| ConnError::Config(format!("sslcert {}: {e}", path.display())))?;
-    let mut reader = BufReader::new(file);
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(path)
+        .map_err(|e| ConnError::Config(format!("sslcert {}: {e}", path.display())))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| ConnError::Config(format!("sslcert PEM: {e}")))?;
     if certs.is_empty() {
@@ -205,17 +200,8 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, ConnError> {
 }
 
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, ConnError> {
-    let file = File::open(path)
+    let key = PrivateKeyDer::from_pem_file(path)
         .map_err(|e| ConnError::Config(format!("sslkey {}: {e}", path.display())))?;
-    let mut reader = BufReader::new(file);
-    let key = rustls_pemfile::private_key(&mut reader)
-        .map_err(|e| ConnError::Config(format!("sslkey PEM: {e}")))?
-        .ok_or_else(|| {
-            ConnError::Config(format!(
-                "sslkey {} contained no private key",
-                path.display()
-            ))
-        })?;
     Ok(key)
 }
 

@@ -1,8 +1,8 @@
 //! Session state: resolved profiles + active pool + optional schema index.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use deadpool_postgres::{Object, Pool};
 use nexql_conn::{
@@ -10,7 +10,7 @@ use nexql_conn::{
 };
 use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter};
-use tokio::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::ToolError;
 
@@ -23,6 +23,31 @@ pub fn default_index_root() -> PathBuf {
     PathBuf::from(home).join(".local/share/nexql-mcp")
 }
 
+/// Determine index root with workspace override support.
+/// Priority: explicit env var → project config index_dir → global default.
+pub fn resolve_index_root(
+    workspace_root: Option<&Path>,
+    project_config: Option<&nexql_conn::ProjectConfigFile>,
+) -> PathBuf {
+    if let Ok(p) = std::env::var("NEXQL_MCP_INDEX_DIR") {
+        return PathBuf::from(p);
+    }
+    if let (Some(root), Some(cfg)) = (workspace_root, project_config) {
+        if let Some(ref index_dir) = cfg.index_dir {
+            return root.join(".nexql").join(index_dir);
+        }
+    }
+    default_index_root()
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionPolicy {
+    pub access_mode: AccessMode,
+    pub caps: PolicyCaps,
+    pub filter: PolicyFilter,
+    pub environment: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
     pub id: String,
@@ -31,17 +56,23 @@ pub struct ConnectionInfo {
     pub port: Option<u16>,
     pub database: Option<String>,
     pub params: ConnectionParams,
+    pub policy: ConnectionPolicy,
+}
+
+#[derive(Debug, Clone)]
+struct ActivePolicy {
+    access_mode: AccessMode,
+    caps: PolicyCaps,
+    filter: PolicyFilter,
+    pool_opts: PoolOptions,
 }
 
 pub struct ToolSession {
     pub connections: Vec<ConnectionInfo>,
-    pub access_mode: AccessMode,
-    pub caps: PolicyCaps,
-    pub filter: PolicyFilter,
-    pub pool_opts: PoolOptions,
+    policy: RwLock<ActivePolicy>,
     /// Schema index root; `None` disables Phase 3 tools with an actionable error.
     pub index_store: Option<IndexStore>,
-    inner: RwLock<SessionInner>,
+    inner: AsyncRwLock<SessionInner>,
 }
 
 fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
@@ -50,6 +81,28 @@ fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
         deny_schemas: profile.deny_schemas.clone(),
         deny_tables: profile.deny_tables.clone(),
         pii_columns: profile.pii_columns.clone(),
+    }
+}
+
+pub fn policy_from_profile(
+    profile: Option<&ProfileConfig>,
+    default_mode: AccessMode,
+    default_caps: PolicyCaps,
+) -> ConnectionPolicy {
+    let access_mode = profile
+        .and_then(|p| p.access_mode.as_deref())
+        .and_then(|m| m.parse::<AccessMode>().ok())
+        .unwrap_or(default_mode);
+    let mut caps = default_caps;
+    if let Some(n) = profile.and_then(|p| p.max_rows) {
+        caps = caps.with_max_rows(n);
+    }
+    let filter = profile.map(filter_from_profile).unwrap_or_default();
+    ConnectionPolicy {
+        access_mode,
+        caps,
+        filter,
+        environment: None,
     }
 }
 
@@ -73,7 +126,53 @@ fn params_for_database(base: &ConnectionParams, database: &str) -> ConnectionPar
     params
 }
 
+fn active_policy_from(policy: &ConnectionPolicy) -> ActivePolicy {
+    ActivePolicy {
+        access_mode: policy.access_mode,
+        caps: policy.caps.clone(),
+        filter: policy.filter.clone(),
+        pool_opts: PoolOptions {
+            read_only: !policy.access_mode.allows_writes(),
+            ..Default::default()
+        },
+    }
+}
+
 impl ToolSession {
+    pub fn access_mode(&self) -> AccessMode {
+        self.policy
+            .read()
+            .map(|p| p.access_mode)
+            .unwrap_or(AccessMode::Read)
+    }
+
+    pub fn caps(&self) -> PolicyCaps {
+        self.policy
+            .read()
+            .map(|p| p.caps.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn filter(&self) -> PolicyFilter {
+        self.policy
+            .read()
+            .map(|p| p.filter.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn pool_opts(&self) -> PoolOptions {
+        self.policy
+            .read()
+            .map(|p| p.pool_opts.clone())
+            .unwrap_or_default()
+    }
+
+    fn apply_policy(&self, policy: &ConnectionPolicy) {
+        if let Ok(mut active) = self.policy.write() {
+            *active = active_policy_from(policy);
+        }
+    }
+
     pub async fn from_resolved(
         resolved: ResolvedConnection,
         access_mode: AccessMode,
@@ -83,11 +182,7 @@ impl ToolSession {
             .profile_name
             .clone()
             .unwrap_or_else(|| "default".into());
-        let filter = resolved
-            .profile
-            .as_ref()
-            .map(filter_from_profile)
-            .unwrap_or_default();
+        let conn_policy = policy_from_profile(resolved.profile.as_ref(), access_mode, caps);
         let info = ConnectionInfo {
             id: id.clone(),
             name: id.clone(),
@@ -95,24 +190,45 @@ impl ToolSession {
             port: resolved.params.port,
             database: resolved.params.dbname.clone(),
             params: resolved.params,
+            policy: conn_policy,
         };
-        Self::from_connections_with_filter(vec![info], access_mode, caps, Some(id), filter).await
+        Self::from_connections(vec![info], Some(id)).await
     }
 
     pub async fn from_connections(
         connections: Vec<ConnectionInfo>,
-        access_mode: AccessMode,
-        caps: PolicyCaps,
         active_id: Option<String>,
     ) -> Result<Arc<Self>, ToolError> {
-        Self::from_connections_with_filter(
+        if connections.is_empty() {
+            return Err(ToolError::Execution("no connections configured".into()));
+        }
+        let active = active_id.unwrap_or_else(|| connections[0].id.clone());
+        let active_conn = connections
+            .iter()
+            .find(|c| c.id == active)
+            .unwrap_or(&connections[0]);
+        let active_policy = active_policy_from(&active_conn.policy);
+        let pool_opts = active_policy.pool_opts.clone();
+        let mut pools = HashMap::new();
+        for c in &connections {
+            let database = c.database.as_deref().unwrap_or("postgres");
+            let pool = create_pool(&c.params, &pool_opts).await?;
+            pools.insert(pool_key(&c.id, database), pool);
+        }
+        let database = active_conn
+            .database
+            .clone()
+            .unwrap_or_else(|| "postgres".into());
+        Ok(Arc::new(Self {
             connections,
-            access_mode,
-            caps,
-            active_id,
-            PolicyFilter::default(),
-        )
-        .await
+            policy: RwLock::new(active_policy),
+            index_store: Some(IndexStore::new(default_index_root())),
+            inner: AsyncRwLock::new(SessionInner {
+                active_id: active,
+                database,
+                pools,
+            }),
+        }))
     }
 
     pub async fn from_connections_with_filter(
@@ -122,38 +238,16 @@ impl ToolSession {
         active_id: Option<String>,
         filter: PolicyFilter,
     ) -> Result<Arc<Self>, ToolError> {
-        if connections.is_empty() {
-            return Err(ToolError::Execution("no connections configured".into()));
-        }
-        let pool_opts = PoolOptions {
-            read_only: !access_mode.allows_writes(),
-            ..Default::default()
-        };
-        let active = active_id.unwrap_or_else(|| connections[0].id.clone());
-        let mut pools = HashMap::new();
-        for c in &connections {
-            let database = c.database.as_deref().unwrap_or("postgres");
-            let pool = create_pool(&c.params, &pool_opts).await?;
-            pools.insert(pool_key(&c.id, database), pool);
-        }
-        let database = connections
-            .iter()
-            .find(|c| c.id == active)
-            .and_then(|c| c.database.clone())
-            .unwrap_or_else(|| "postgres".into());
-        Ok(Arc::new(Self {
-            connections,
-            access_mode,
-            caps,
-            filter,
-            pool_opts,
-            index_store: Some(IndexStore::new(default_index_root())),
-            inner: RwLock::new(SessionInner {
-                active_id: active,
-                database,
-                pools,
-            }),
-        }))
+        let connections = connections
+            .into_iter()
+            .map(|mut c| {
+                c.policy.access_mode = access_mode;
+                c.policy.caps = caps.clone();
+                c.policy.filter = filter.clone();
+                c
+            })
+            .collect();
+        Self::from_connections(connections, active_id).await
     }
 
     pub async fn active_context(&self) -> (String, String) {
@@ -178,11 +272,13 @@ impl ToolSession {
         let target_db = database
             .or_else(|| conn.database.clone())
             .unwrap_or_else(|| "postgres".into());
+        self.apply_policy(&conn.policy);
+        let pool_opts = self.pool_opts();
         let key = pool_key(connection_id, &target_db);
         let mut g = self.inner.write().await;
         if let std::collections::hash_map::Entry::Vacant(e) = g.pools.entry(key) {
             let params = params_for_database(&conn.params, &target_db);
-            let pool = create_pool(&params, &self.pool_opts).await?;
+            let pool = create_pool(&params, &pool_opts).await?;
             e.insert(pool);
         }
         g.active_id = connection_id.to_string();
@@ -197,7 +293,8 @@ impl ToolSession {
             .pools
             .get(&key)
             .ok_or_else(|| ToolError::Execution("no active pool".into()))?;
-        Ok(checkout_guarded(pool, &self.pool_opts).await?)
+        let pool_opts = self.pool_opts();
+        Ok(checkout_guarded(pool, &pool_opts).await?)
     }
 
     /// Test helper: session with no live pools (index tools only).
@@ -213,14 +310,17 @@ impl ToolSession {
             .database
             .clone()
             .unwrap_or_else(|| "postgres".into());
-        Arc::new(Self {
-            connections,
+        let policy = ConnectionPolicy {
             access_mode: AccessMode::Read,
             caps: PolicyCaps::default(),
             filter,
-            pool_opts: PoolOptions::default(),
+            environment: None,
+        };
+        Arc::new(Self {
+            connections,
+            policy: RwLock::new(active_policy_from(&policy)),
             index_store,
-            inner: RwLock::new(SessionInner {
+            inner: AsyncRwLock::new(SessionInner {
                 active_id: active,
                 database,
                 pools: HashMap::new(),

@@ -133,6 +133,66 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                 ("category", "string", false),
             ]),
         },
+        ToolSpec {
+            name: ToolName::RunDoctor,
+            description: "Run diagnostic health checks on active database connection, permissions, session guards, and index status.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: ToolName::SetupConnection,
+            description: "Automatically detect or configure a database connection. Scans environment variables, workspace files, and local settings, eliciting missing credentials when supported.",
+            input_schema: object_schema(&[
+                ("name", "string", false),
+                ("url", "string", false),
+                ("host", "string", false),
+                ("port", "number", false),
+                ("dbname", "string", false),
+                ("user", "string", false),
+                ("password", "string", false),
+                ("sslmode", "string", false),
+                ("interactive", "boolean", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::SaveProfile,
+            description: "Save or update a database connection profile in user configuration with atomic backup and dynamic session reload.",
+            input_schema: object_schema(&[
+                ("name", "string", true),
+                ("url", "string", false),
+                ("host", "string", false),
+                ("port", "number", false),
+                ("dbname", "string", false),
+                ("user", "string", false),
+                ("password", "string", false),
+                ("sslmode", "string", false),
+                ("access_mode", "string", false),
+                ("max_rows", "number", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::TestProfile,
+            description: "Test a database connection profile or inline parameters and return server version, superuser status, and round-trip latency.",
+            input_schema: object_schema(&[
+                ("name", "string", false),
+                ("url", "string", false),
+                ("host", "string", false),
+                ("port", "number", false),
+                ("dbname", "string", false),
+                ("user", "string", false),
+                ("password", "string", false),
+                ("sslmode", "string", false),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::ExportProfile,
+            description: "Export a secret-sanitized TOML configuration for team sharing (.nexql/config.toml) with all passwords and credentials stripped.",
+            input_schema: object_schema(&[("format", "string", false)]),
+        },
+        ToolSpec {
+            name: ToolName::ImportProfile,
+            description: "Import a team configuration file (.nexql/config.toml) or TOML content into local user configuration.",
+            input_schema: object_schema(&[("content", "string", false), ("path", "string", false)]),
+        },
     ]
 }
 
@@ -142,7 +202,10 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
         ToolSpec {
             name: ToolName::ResolveTarget,
             description: "Autonomously find which connection/database matches a user's hint (a database name, environment, host fragment) and/or an object hint (a table/view name), searching across ALL configured connections and their indexed schemas. Call this FIRST whenever the request references a database, environment, or object that is not the current session context — before search_schema, before list_connections. When the match is unambiguous it switches the session context automatically and returns the resolved connection/database; only returns `ambiguous: true` with a candidate list when multiple equally-plausible matches exist, in which case surface those candidates to the user rather than guessing.",
-            input_schema: object_schema(&[("hint", "string", false), ("objectHint", "string", false)]),
+            input_schema: object_schema(&[
+                ("hint", "string", false),
+                ("objectHint", "string", false),
+            ]),
         },
         ToolSpec {
             name: ToolName::SearchSchema,
@@ -163,6 +226,16 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             name: ToolName::SampleValues,
             description: "Retrieve a list of sample values from a specific table column to inspect its contents. Only works on read-only SELECT queries.",
             input_schema: object_schema(&[("ref", "string", true), ("col", "string", true)]),
+        },
+        ToolSpec {
+            name: ToolName::RebuildIndex,
+            description: "Rebuild the schema index for the active database connection.",
+            input_schema: object_schema(&[("depth", "string", false)]),
+        },
+        ToolSpec {
+            name: ToolName::RefreshIndex,
+            description: "Refresh the schema index for the active database connection using previous build scope.",
+            input_schema: object_schema(&[]),
         },
     ]
 }
@@ -403,9 +476,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_forty_five() {
+    fn active_tools_lists_fifty_three() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 45);
+        assert_eq!(specs.len(), 53);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -442,16 +515,16 @@ mod tests {
     #[test]
     fn profile_tools_filtering() {
         let query_specs = tools_for_profile(ToolProfile::Query);
-        assert_eq!(query_specs.len(), 15);
+        assert_eq!(query_specs.len(), 18);
 
         let dba_specs = tools_for_profile(ToolProfile::Dba);
-        assert_eq!(dba_specs.len(), 25);
+        assert_eq!(dba_specs.len(), 28);
 
         let meta_specs = tools_for_profile(ToolProfile::Meta);
-        assert_eq!(meta_specs.len(), 6);
+        assert_eq!(meta_specs.len(), 10);
 
         let full_specs = tools_for_profile(ToolProfile::Full);
-        assert_eq!(full_specs.len(), 45);
+        assert_eq!(full_specs.len(), 53);
     }
 
     #[test]

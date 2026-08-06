@@ -105,8 +105,13 @@ async fn session_for(url: &str) -> Arc<ToolSession> {
         port: params.port,
         database: params.dbname.clone(),
         params,
+        policy: nexql_tools::session::policy_from_profile(
+            None,
+            AccessMode::Read,
+            PolicyCaps::default(),
+        ),
     };
-    ToolSession::from_connections(vec![info], AccessMode::Read, PolicyCaps::default(), None)
+    ToolSession::from_connections(vec![info], None)
         .await
         .unwrap()
 }
@@ -128,9 +133,12 @@ async fn switch_connection_uses_target_database() {
                 port: params.port,
                 database: params.dbname.clone(),
                 params,
+                policy: nexql_tools::session::policy_from_profile(
+                    None,
+                    AccessMode::Write,
+                    PolicyCaps::default(),
+                ),
             }],
-            AccessMode::Write,
-            PolicyCaps::default(),
             None,
         )
         .await

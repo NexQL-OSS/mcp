@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 rust-version.workspace = true
 description = "Connection resolution ladder, pool, credential providers"
 
@@ -19,7 +23,7 @@ tokio-postgres-rustls = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
-rustls-pemfile = "2"
+keyring = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -22,6 +22,7 @@ pub enum ConnectionSource {
     /// Password-only fill from pgpass (params already resolved).
     PgPass,
     EnvFile,
+    ProjectConfig,
 }
 
 /// Target database engine dialect.
@@ -142,6 +143,7 @@ pub struct ResolvedConnection {
     pub source: ConnectionSource,
     pub profile_name: Option<String>,
     pub profile: Option<ProfileConfig>,
+    pub project_config: Option<crate::config::ProjectConfigFile>,
 }
 
 /// Inputs for the resolution ladder. Tests supply a controlled env map.
@@ -156,6 +158,10 @@ pub struct ResolveInputs {
     pub pgpass_path: Option<PathBuf>,
     /// Explicit env overlay (tests). When `None`, read process env.
     pub env: Option<HashMap<String, String>>,
+    /// Workspace root directory for project config discovery.
+    pub workspace_root: Option<PathBuf>,
+    /// Pre-loaded project config.
+    pub project_config: Option<crate::config::ProjectConfigFile>,
 }
 
 pub fn resolve(inputs: &ResolveInputs) -> Result<ResolvedConnection, ConnError> {
@@ -199,12 +205,13 @@ pub fn resolve_with_runner(
     // 1. CLI positional URL
     if let Some(ref url) = inputs.cli_url {
         let mut params = params_from_url(url)?;
-        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::CliArg,
             profile_name: None,
             profile: None,
+            project_config: None,
         });
     }
 
@@ -225,6 +232,10 @@ pub fn resolve_with_runner(
             runner,
             profile.password_command.as_deref(),
             profile.password_file.as_deref(),
+            profile
+                .credential_provider
+                .as_deref()
+                .or(Some(name.as_str())),
         )?;
         // Flags can fill holes only — profile wins for set fields.
         overlay_flags_as_fill(&mut params, &inputs.flags);
@@ -233,34 +244,34 @@ pub fn resolve_with_runner(
             source: ConnectionSource::Profile,
             profile_name: Some(name.clone()),
             profile: Some(profile),
+            project_config: None,
         });
     }
-
     // 3. Explicit host/port/user/dbname flags (any of them)
     if flags_present(&inputs.flags) {
         let mut params = inputs.flags.clone();
-        // DATABASE_URL / PG* can fill missing pieces at lower priority later —
-        // but flags are the source of truth for what's set.
         fill_from_database_url_env(&mut params, &getenv)?;
         fill_from_pg_env(&mut params, &getenv);
-        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::Flags,
             profile_name: None,
             profile: None,
+            project_config: None,
         });
     }
 
     // 4. DATABASE_URL / POSTGRES_URL
     if let Some(url) = getenv("DATABASE_URL").or_else(|| getenv("POSTGRES_URL")) {
         let mut params = params_from_url(&url)?;
-        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::DatabaseUrl,
             profile_name: None,
             profile: None,
+            project_config: None,
         });
     }
 
@@ -268,16 +279,65 @@ pub fn resolve_with_runner(
     if pg_env_present(&getenv) {
         let mut params = ConnectionParams::default();
         fill_from_pg_env(&mut params, &getenv);
-        fill_password(&mut params, inputs, &getenv, runner, None, None)?;
+        fill_password(&mut params, inputs, &getenv, runner, None, None, None)?;
         return Ok(ResolvedConnection {
             params,
             source: ConnectionSource::PgEnv,
             profile_name: None,
             profile: None,
+            project_config: None,
         });
     }
 
-    // 6. default_profile in config
+    // 6. Project .nexql/config.toml → default_profile
+    let project = inputs.project_config.clone().or_else(|| {
+        inputs
+            .workspace_root
+            .as_ref()
+            .and_then(|root| crate::config::find_project_config(root))
+            .and_then(|path| match crate::config::load_project_config(&path) {
+                Ok((cfg, warnings)) => {
+                    for w in &warnings {
+                        eprintln!("[nexql-mcp] {w}");
+                    }
+                    Some(cfg)
+                }
+                Err(e) => {
+                    eprintln!("[nexql-mcp] warning: failed to load project config: {e}");
+                    None
+                }
+            })
+    });
+    if let Some(ref proj) = project {
+        if let Some(ref name) = proj.default_profile {
+            if let Some(ref cfg) = config {
+                if let Some(profile) = cfg.profiles.get(name).cloned() {
+                    let mut params = params_from_profile(&profile, &getenv)?;
+                    fill_password(
+                        &mut params,
+                        inputs,
+                        &getenv,
+                        runner,
+                        profile.password_command.as_deref(),
+                        profile.password_file.as_deref(),
+                        profile
+                            .credential_provider
+                            .as_deref()
+                            .or(Some(name.as_str())),
+                    )?;
+                    return Ok(ResolvedConnection {
+                        params,
+                        source: ConnectionSource::ProjectConfig,
+                        profile_name: Some(name.clone()),
+                        profile: Some(profile),
+                        project_config: Some(proj.clone()),
+                    });
+                }
+            }
+        }
+    }
+
+    // 7. default_profile in config
     if let Some(ref cfg) = config {
         if let Some(ref name) = cfg.default_profile {
             let profile = cfg
@@ -293,12 +353,17 @@ pub fn resolve_with_runner(
                 runner,
                 profile.password_command.as_deref(),
                 profile.password_file.as_deref(),
+                profile
+                    .credential_provider
+                    .as_deref()
+                    .or(Some(name.as_str())),
             )?;
             return Ok(ResolvedConnection {
                 params,
                 source: ConnectionSource::DefaultProfile,
                 profile_name: Some(name.clone()),
                 profile: Some(profile),
+                project_config: project.clone(),
             });
         }
     }
@@ -310,8 +375,21 @@ pub fn resolve_all_with_runner(
     inputs: &ResolveInputs,
     runner: &dyn CommandRunner,
 ) -> Result<Vec<ResolvedConnection>, ConnError> {
-    if inputs.cli_url.is_some() || !inputs.profile_names.is_empty() || flags_present(&inputs.flags)
-    {
+    // If explicit --profile names were given, resolve each one in order so that
+    // all named profiles (e.g. `--profile "FalconDB Admin" --profile "SSP Dev"`)
+    // are loaded as separate connections rather than only the first being used.
+    if !inputs.profile_names.is_empty() {
+        let mut results = Vec::new();
+        for name in &inputs.profile_names {
+            let mut single_inputs = inputs.clone();
+            single_inputs.profile_names = vec![name.clone()];
+            results.push(resolve_with_runner(&single_inputs, runner)?);
+        }
+        return Ok(results);
+    }
+
+    // Single CLI URL or explicit flags → single connection.
+    if inputs.cli_url.is_some() || flags_present(&inputs.flags) {
         return Ok(vec![resolve_with_runner(inputs, runner)?]);
     }
 
@@ -335,9 +413,10 @@ pub fn resolve_all_with_runner(
     let mut results = Vec::new();
     for key in keys {
         let mut single_inputs = inputs.clone();
-        single_inputs.profile_names = vec![key];
-        if let Ok(res) = resolve_with_runner(&single_inputs, runner) {
-            results.push(res);
+        single_inputs.profile_names = vec![key.clone()];
+        match resolve_with_runner(&single_inputs, runner) {
+            Ok(res) => results.push(res),
+            Err(e) => eprintln!("warning: profile \"{key}\" could not be resolved: {e}"),
         }
     }
 
@@ -527,6 +606,7 @@ fn fill_password(
     runner: &dyn CommandRunner,
     password_command: Option<&str>,
     password_file: Option<&str>,
+    profile_name_or_provider: Option<&str>,
 ) -> Result<(), ConnError> {
     if params.password.is_some() {
         return Ok(());
@@ -548,6 +628,22 @@ fn fill_password(
         }
         params.password = Some(trimmed.to_string());
         return Ok(());
+    }
+    if let Some(name_or_prov) = profile_name_or_provider {
+        if name_or_prov == "keyring" || name_or_prov == "os_keyring" {
+            let name = inputs
+                .profile_names
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or(name_or_prov);
+            if let Ok(pw) = crate::secret::resolve_keyring_password(name) {
+                params.password = Some(pw);
+                return Ok(());
+            }
+        } else if let Ok(pw) = crate::secret::resolve_keyring_password(name_or_prov) {
+            params.password = Some(pw);
+            return Ok(());
+        }
     }
     if let Some(pw) = getenv("PGPASSWORD") {
         params.password = Some(pw);

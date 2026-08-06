@@ -25,10 +25,10 @@ use nexql_proto::{
 };
 use nexql_tools::{
     CompletionsProvider, PromptCatalog, ResourceProvider, ToolRouter, ToolSession,
-    default_index_root,
+    default_index_root, policy_from_profile,
 };
 use serde_json::{Value, json};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, Layer};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
 enum EmbeddingsMode {
@@ -122,6 +122,10 @@ struct ConnectionArgs {
 
     #[arg(long = "config")]
     config: Option<PathBuf>,
+
+    /// Workspace root directory for project config discovery (.nexql/config.toml).
+    #[arg(long = "workspace-root", env = "NEXQL_MCP_WORKSPACE_ROOT")]
+    workspace_root: Option<PathBuf>,
 }
 
 #[derive(clap::Args, Default)]
@@ -153,6 +157,10 @@ struct AccessArgs {
 
     #[arg(long = "max-rows")]
     max_rows: Option<u32>,
+
+    /// Managed extension mode: read-only, excludes setup/profile mutation tools.
+    #[arg(long = "managed-extension", env = "NEXQL_MCP_MANAGED")]
+    managed_extension: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -253,9 +261,54 @@ enum IndexAction {
 #[derive(Subcommand)]
 enum ProfileAction {
     List,
-    Add,
-    SetPassword { name: String },
-    Test { name: Option<String> },
+    Add {
+        /// Profile name.
+        name: String,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long)]
+        dbname: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        password_command: Option<String>,
+        #[arg(long)]
+        password_file: Option<String>,
+        #[arg(long)]
+        credential_provider: Option<String>,
+        #[arg(long)]
+        access_mode: Option<String>,
+        /// Set this profile as the default.
+        #[arg(long)]
+        set_default: bool,
+        /// Skip connection test.
+        #[arg(long)]
+        no_test: bool,
+    },
+    SetPassword {
+        name: String,
+    },
+    Test {
+        name: Option<String>,
+    },
+    Export {
+        /// Format: project (.nexql/config.toml) or full (sanitized config).
+        #[arg(long, default_value = "project")]
+        format: String,
+        /// Output path (default: stdout).
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    Import {
+        /// File path to import.
+        path: PathBuf,
+    },
 }
 
 struct RouterBackend {
@@ -293,23 +346,28 @@ struct IndexResourceBackend {
 #[async_trait]
 impl ResourceBackend for IndexResourceBackend {
     async fn list_resources(&self, cursor: Option<String>) -> Result<Value, RpcFailure> {
-        self.provider
+        let r = self
+            .provider
             .list(cursor.as_deref())
-            .map(|r| serde_json::to_value(r).expect("resource list serialize"))
             .map_err(|e| RpcFailure {
                 code: e.code(),
                 message: e.to_string(),
-            })
+            })?;
+        serde_json::to_value(r).map_err(|e| RpcFailure {
+            code: -32603,
+            message: e.to_string(),
+        })
     }
 
     async fn read_resource(&self, uri: &str) -> Result<Value, RpcFailure> {
-        self.provider
-            .read(uri)
-            .map(|r| serde_json::to_value(r).expect("resource read serialize"))
-            .map_err(|e| RpcFailure {
-                code: e.code(),
-                message: e.to_string(),
-            })
+        let r = self.provider.read(uri).map_err(|e| RpcFailure {
+            code: e.code(),
+            message: e.to_string(),
+        })?;
+        serde_json::to_value(r).map_err(|e| RpcFailure {
+            code: -32603,
+            message: e.to_string(),
+        })
     }
 
     fn list_templates(&self) -> Value {
@@ -338,12 +396,14 @@ impl PromptBackend for StaticPromptBackend {
                 }
             }
         }
-        PromptCatalog::get(name, &args)
-            .map(|r| serde_json::to_value(r).expect("prompt get serialize"))
-            .map_err(|e| RpcFailure {
-                code: e.code(),
-                message: e.to_string(),
-            })
+        let r = PromptCatalog::get(name, &args).map_err(|e| RpcFailure {
+            code: e.code(),
+            message: e.to_string(),
+        })?;
+        serde_json::to_value(r).map_err(|e| RpcFailure {
+            code: -32603,
+            message: e.to_string(),
+        })
     }
 }
 
@@ -374,13 +434,63 @@ impl CompletionBackend for IndexCompletionBackend {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> ExitCode {
-    // MCP stdio: never log to stdout.
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
-        )
-        .init();
+    // MCP stdio: never log to stdout. File logging supported if NEXQL_MCP_LOG set or default path available.
+    let log_path = std::env::var("NEXQL_MCP_LOG")
+        .map(PathBuf::from)
+        .ok()
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| {
+                PathBuf::from(h)
+                    .join(".config")
+                    .join("nexql-mcp")
+                    .join("logs")
+                    .join("nexql-mcp.log")
+            })
+        });
+
+    if let Some(ref path) = log_path {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            use tracing_subscriber::layer::SubscriberExt;
+            use tracing_subscriber::util::SubscriberInitExt;
+
+            let stderr_layer = tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+                );
+
+            let file_layer = tracing_subscriber::fmt::layer()
+                .with_writer(Arc::new(file))
+                .with_ansi(false)
+                .with_filter(EnvFilter::new("info"));
+
+            let _ = tracing_subscriber::registry()
+                .with(stderr_layer)
+                .with(file_layer)
+                .try_init();
+        } else {
+            let _ = tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+                )
+                .try_init();
+        }
+    } else {
+        let _ = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+            )
+            .try_init();
+    }
 
     let cli = Cli::parse();
 
@@ -484,17 +594,14 @@ async fn main() -> ExitCode {
         }
     }
 
-    // A truly bare `nexql-mcp` (no URL, no --profile, no flags, no subcommand)
-    // used to just fail resolution with an unhelpful error — that invocation
-    // shape was never a usable state, so launch the TUI instead. Anything that
-    // *would* resolve (DATABASE_URL, PG* env, default_profile) still serves
-    // stdio exactly as before.
+    use std::io::IsTerminal;
+    let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     let looks_bare = cli.connection_string.is_none()
         && cli.connection.profiles.is_empty()
         && cli.connection.host.is_none()
         && cli.connection.dbname.is_none()
         && cli.connection.user.is_none();
-    if looks_bare && resolve(&resolve_inputs(&cli)).is_err() {
+    if is_tty && looks_bare && resolve(&resolve_inputs(&cli)).is_err() {
         return match tui::run(cli.connection.config.clone()).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -527,24 +634,40 @@ fn resolve_inputs(cli: &Cli) -> ResolveInputs {
         },
         env_file: cli.connection.env_file.clone(),
         config_path: cli.connection.config.clone(),
+        workspace_root: cli.connection.workspace_root.clone(),
         env: None,
         ..Default::default()
     }
 }
 
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
-    let mode: AccessMode = cli.access.access_mode.parse()?;
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
-    let mut caps = PolicyCaps::default();
+    let active_resolved = resolved_list.first();
+
+    let cli_mode: AccessMode = if cli.access.managed_extension {
+        AccessMode::Read
+    } else {
+        cli.access.access_mode.parse()?
+    };
+
+    let mut default_caps = PolicyCaps::default();
     if let Some(n) = cli.access.max_rows {
-        caps = caps.with_max_rows(n);
+        default_caps = default_caps.with_max_rows(n);
     }
 
-    let active_id = resolved_list.first().and_then(|r| r.profile_name.clone());
+    let active_id = active_resolved.and_then(|r| r.profile_name.clone());
     let connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
         .iter()
         .map(|r| {
             let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
+            let mut policy =
+                policy_from_profile(r.profile.as_ref(), cli_mode, default_caps.clone());
+            if cli.access.managed_extension {
+                policy.access_mode = AccessMode::Read;
+            }
+            if let Some(n) = cli.access.max_rows {
+                policy.caps = policy.caps.with_max_rows(n);
+            }
             nexql_tools::ConnectionInfo {
                 id: id.clone(),
                 name: id,
@@ -552,14 +675,29 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
                 port: r.params.port,
                 database: r.params.dbname.clone(),
                 params: r.params.clone(),
+                policy,
             }
         })
         .collect();
 
-    let session = ToolSession::from_connections(connections, mode, caps, active_id).await?;
+    if let Some(resolved) = active_resolved {
+        let client = connect_once(&resolved.params).await?;
+        let row = client
+            .query_one("SELECT current_setting('is_superuser')", &[])
+            .await?;
+        let is_super: String = row.get(0);
+        let is_superuser = is_super.eq_ignore_ascii_case("on");
+        let mode = connections
+            .first()
+            .map(|c| c.policy.access_mode)
+            .unwrap_or(cli_mode);
+        check_superuser_guard(mode, is_superuser, cli.access.i_know_what_im_doing)?;
+    }
+
+    let session = ToolSession::from_connections(connections, active_id).await?;
 
     if let Some(store) = session.index_store.clone() {
-        for resolved in &resolved_list {
+        if let Some(resolved) = active_resolved {
             let (connection_id, database) = index_ids(resolved);
             let base = store.base_dir(&connection_id, &database);
             if store.read_manifest(&base)?.is_none() {
@@ -607,11 +745,14 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
         None
     };
 
-    let tools = Arc::new(RouterBackend {
-        router: ToolRouter::new(session.clone())
-            .with_profile(cli.tools.into())
-            .with_semantic(cli.embeddings.is_local(), embedder),
-    });
+    let mut router = ToolRouter::new(session.clone())
+        .with_profile(cli.tools.into())
+        .with_semantic(cli.embeddings.is_local(), embedder);
+    if cli.access.managed_extension {
+        router = router.with_managed_extension(true);
+    }
+
+    let tools = Arc::new(RouterBackend { router });
 
     let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
 
@@ -689,10 +830,10 @@ fn index_ids(resolved: &ResolvedConnection) -> (String, String) {
         .dbname
         .clone()
         .unwrap_or_else(|| "postgres".into());
-    let connection_id = resolved.profile_name.clone().unwrap_or_else(|| {
-        let host = resolved.params.host.as_deref().unwrap_or("localhost");
-        format!("{host}/{database}")
-    });
+    let connection_id = resolved
+        .profile_name
+        .clone()
+        .unwrap_or_else(|| "default".into());
     (connection_id, database)
 }
 
@@ -930,12 +1071,53 @@ async fn run_profile_action(
             }
             Ok(())
         }
-        ProfileAction::Add => {
-            println!(
-                "profile add has no flags to fill in a connection non-interactively yet — \
-                 run `nexql-mcp tui` for a guided add/test/save flow, or hand-edit config.toml \
-                 (see docs/config.example.toml)."
-            );
+        ProfileAction::Add {
+            name,
+            url,
+            host,
+            port,
+            dbname,
+            user,
+            password,
+            password_command,
+            password_file,
+            credential_provider,
+            access_mode,
+            set_default,
+            no_test,
+        } => {
+            let profile = nexql_conn::ProfileConfig {
+                url: url.clone(),
+                host: host.clone(),
+                port: *port,
+                dbname: dbname.clone(),
+                user: user.clone(),
+                password: password.clone(),
+                password_command: password_command.clone(),
+                password_file: password_file.clone(),
+                credential_provider: credential_provider.clone(),
+                access_mode: access_mode.clone(),
+                ..Default::default()
+            };
+            if !*no_test {
+                let params = nexql_conn::resolve_profile(&profile)?;
+                let report = nexql_conn::test_connection(&params).await?;
+                println!(
+                    "✓ Connection verified: {} (latency: {:.0}ms)",
+                    report.server_version,
+                    report.latency.as_secs_f64() * 1000.0
+                );
+            }
+            let (config_path, mut config) = load_profile_config(cli)?;
+            if *set_default {
+                config.default_profile = Some(name.clone());
+            }
+            config.upsert_profile(name, profile);
+            let backup = config.save(&config_path)?;
+            println!("✓ Profile '{name}' saved to {}", config_path.display());
+            if let Some(b) = backup {
+                println!("  (previous config backed up to {})", b.display());
+            }
             Ok(())
         }
         ProfileAction::SetPassword { name } => {
@@ -974,6 +1156,50 @@ async fn run_profile_action(
                 report.server_version,
                 report.is_superuser
             );
+            Ok(())
+        }
+        ProfileAction::Export { format, output } => {
+            let (_path, config) = load_profile_config(cli)?;
+            let toml_str = if format == "full" {
+                config.export_full_sanitized().to_toml_string()?
+            } else {
+                let proj = config.export_shareable();
+                toml::to_string_pretty(&proj)
+                    .map_err(|e| nexql_conn::ConnError::Config(e.to_string()))?
+            };
+            if let Some(out_path) = output {
+                std::fs::write(out_path, &toml_str)?;
+                println!(
+                    "✓ Exported secret-sanitized config to {}",
+                    out_path.display()
+                );
+            } else {
+                println!("{toml_str}");
+            }
+            Ok(())
+        }
+        ProfileAction::Import { path } => {
+            let (dest_path, mut config) = load_profile_config(cli)?;
+            let raw = std::fs::read_to_string(path)?;
+            let imported: nexql_conn::ConfigFile = toml::from_str(&raw).map_err(|e| {
+                nexql_conn::ConnError::Config(format!(
+                    "failed to parse TOML from {}: {e}",
+                    path.display()
+                ))
+            })?;
+            let mut count = 0;
+            for (name, prof) in imported.profiles {
+                config.upsert_profile(name, prof);
+                count += 1;
+            }
+            if imported.default_profile.is_some() {
+                config.default_profile = imported.default_profile;
+            }
+            let backup = config.save(&dest_path)?;
+            println!("✓ Imported {count} profile(s) into {}", dest_path.display());
+            if let Some(b) = backup {
+                println!("  (previous config backed up to {})", b.display());
+            }
             Ok(())
         }
     }
@@ -1072,11 +1298,15 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error::Error>> {
-    let mode: AccessMode = cli.access.access_mode.parse()?;
+    let cli_mode: AccessMode = if cli.access.managed_extension {
+        AccessMode::Read
+    } else {
+        cli.access.access_mode.parse()?
+    };
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
-    let mut caps = PolicyCaps::default();
+    let mut default_caps = PolicyCaps::default();
     if let Some(n) = cli.access.max_rows {
-        caps = caps.with_max_rows(n);
+        default_caps = default_caps.with_max_rows(n);
     }
 
     let active_id = resolved_list.first().and_then(|r| r.profile_name.clone());
@@ -1084,6 +1314,11 @@ async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error
         .iter()
         .map(|r| {
             let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
+            let mut policy =
+                policy_from_profile(r.profile.as_ref(), cli_mode, default_caps.clone());
+            if cli.access.managed_extension {
+                policy.access_mode = AccessMode::Read;
+            }
             nexql_tools::ConnectionInfo {
                 id: id.clone(),
                 name: id,
@@ -1091,11 +1326,12 @@ async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error
                 port: r.params.port,
                 database: r.params.dbname.clone(),
                 params: r.params.clone(),
+                policy,
             }
         })
         .collect();
 
-    let session = ToolSession::from_connections(connections, mode, caps, active_id).await?;
+    let session = ToolSession::from_connections(connections, active_id).await?;
     Ok(session)
 }
 

@@ -11,7 +11,10 @@ pub mod resolve;
 pub mod secret;
 pub mod tls;
 
-pub use config::{ConfigFile, ProfileConfig, write_with_backup};
+pub use config::{
+    ConfigFile, ProfileConfig, ProjectConfigFile, find_project_config, load_project_config,
+    write_with_backup,
+};
 pub use error::ConnError;
 pub use pool::{
     ConnectionReport, PoolOptions, apply_session_guards, checkout_guarded, connect_once,

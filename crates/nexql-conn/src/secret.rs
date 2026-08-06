@@ -57,6 +57,24 @@ pub fn interpolate_env(input: &str, getenv: &dyn Fn(&str) -> Option<String>) -> 
     out
 }
 
+/// Resolve password from OS keyring (`nexql-mcp` service).
+pub fn resolve_keyring_password(profile_name: &str) -> Result<String, ConnError> {
+    let entry = keyring::Entry::new("nexql-mcp", profile_name)
+        .map_err(|e| ConnError::PasswordCommand(format!("keyring init error: {e}")))?;
+    entry
+        .get_password()
+        .map_err(|e| ConnError::PasswordCommand(format!("keyring lookup failed: {e}")))
+}
+
+/// Store password into OS keyring (`nexql-mcp` service).
+pub fn store_keyring_password(profile_name: &str, password: &str) -> Result<(), ConnError> {
+    let entry = keyring::Entry::new("nexql-mcp", profile_name)
+        .map_err(|e| ConnError::PasswordCommand(format!("keyring init error: {e}")))?;
+    entry
+        .set_password(password)
+        .map_err(|e| ConnError::PasswordCommand(format!("keyring store failed: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,4 @@
-# Tool reference
-
-Active catalog (41 tools — Phase 2–4b read-only + Phase 9 write/admin):
+Active catalog (45 tools across Schema, Query, Connection, DBA/Perf, Write, and Diagnostics):
 
 - **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`, `schema_diff`, `generate_migration`
 - **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`, `export_query`, `deep_plan_analysis`

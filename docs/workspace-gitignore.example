@@ -1,0 +1,5 @@
+# .nexql/.gitignore
+# Cache and build artifacts — do NOT commit
+cache/
+*.lock
+*.tmp

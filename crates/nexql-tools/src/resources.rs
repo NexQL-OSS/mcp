@@ -387,7 +387,7 @@ pub fn decode_cursor(cursor: Option<&str>) -> Result<(usize, usize), ResourceErr
 }
 
 fn encode_cursor_inner(state: &CursorState) -> String {
-    let json = serde_json::to_string(state).expect("cursor serialize");
+    let json = serde_json::to_string(state).unwrap_or_else(|_| "{}".into());
     B64.encode(json.as_bytes())
 }
 

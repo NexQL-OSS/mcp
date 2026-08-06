@@ -43,18 +43,39 @@ impl StdioServer {
         R: tokio::io::AsyncRead + Unpin,
         W: tokio::io::AsyncWrite + Unpin,
     {
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(32);
+        self.handler.set_outbound_tx(outbound_tx);
+
         let mut lines = BufReader::new(reader).lines();
-        while let Some(line) = lines.next_line().await? {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some(resp) = self.handler.handle_json(line).await {
-                let mut out =
-                    serde_json::to_string(&resp).map_err(|e| ProtoError::Other(e.to_string()))?;
-                out.push('\n');
-                writer.write_all(out.as_bytes()).await?;
-                writer.flush().await?;
+        loop {
+            tokio::select! {
+                line_res = lines.next_line() => {
+                    match line_res? {
+                        Some(line) => {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            if let Some(resp) = self.handler.handle_json(line).await {
+                                let mut out = serde_json::to_string(&resp)
+                                    .map_err(|e| ProtoError::Other(e.to_string()))?;
+                                out.push('\n');
+                                writer.write_all(out.as_bytes()).await?;
+                                writer.flush().await?;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                outbound_msg = outbound_rx.recv() => {
+                    if let Some(mut msg) = outbound_msg {
+                        if !msg.ends_with('\n') {
+                            msg.push('\n');
+                        }
+                        writer.write_all(msg.as_bytes()).await?;
+                        writer.flush().await?;
+                    }
+                }
             }
         }
         Ok(())

@@ -10,8 +10,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  version-check:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify manifest versions match
+        run: ./scripts/bump-version.sh --check
+
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +31,8 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Install clang (pg_query bindgen)
+      - name: Install clang (Linux pg_query bindgen)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
 
       - name: Cache cargo
@@ -35,11 +47,22 @@ jobs:
       - name: cargo check
         run: cargo check --workspace
 
+      - name: cargo check (embeddings)
+        run: cargo check --workspace --features embeddings
+
       - name: cargo test
         run: cargo test --workspace
-        env:
-          # Phase 0 spike embed tests download MiniLM once; cache across jobs.
-          HF_HOME: ${{ github.workspace }}/.hf-cache
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MSRV Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85
+      - name: Install clang (pg_query bindgen)
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - name: MSRV check
+        run: cargo check --workspace
 
   deny:
     runs-on: ubuntu-latest
@@ -53,39 +76,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-
       - name: cargo audit
         run: cargo audit
+
+  integration-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: nexql
+          POSTGRES_PASSWORD: nexqlpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev postgresql-client
+      - name: Build release binary
+        run: cargo build -p nexql-mcp --release
+      - name: Run local MCP smoke harness
+        env:
+          DATABASE_URL: postgres://nexql:nexqlpassword@127.0.0.1:5432/postgres
+        run: ./scripts/local_mcp_smoke.sh
 
   perf:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
       - name: Install clang (pg_query bindgen)
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
-
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-
       - name: Release build
         run: cargo build -p nexql-mcp --release
-
       - name: Perf smoke (cold start + binary size)
-        # GITHUB_ACTIONS selects the 100ms CI cold-start gate; local target is 20ms.
-        # Idle RSS and search_schema microbench are local-only for now.
         run: ./scripts/perf_smoke.sh

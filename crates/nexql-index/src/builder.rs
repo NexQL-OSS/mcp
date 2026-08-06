@@ -33,8 +33,8 @@ use crate::model::{
 };
 use crate::object_hash::{compute_definition_hash, compute_object_hash};
 use crate::store::{
-    EMBEDDINGS_BIN, EMBEDDINGS_META, IndexStore, JOIN_GRAPH_FILE, TOKENS_FILE, VALUES_FILE,
-    serialize_embeddings,
+    EMBEDDINGS_BIN, EMBEDDINGS_META, IndexStore, JOIN_GRAPH_FILE, LOCK_FILE, TOKENS_FILE,
+    VALUES_FILE, serialize_embeddings,
 };
 
 static EMBEDDINGS_FEATURE_WARNED: AtomicBool = AtomicBool::new(false);
@@ -304,18 +304,16 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
     store: &IndexStore,
     db: &D,
     req: &BuildRequest,
-    mut progress: Option<&mut dyn FnMut(BuildProgress)>,
-    cancel: Option<&dyn Fn() -> bool>,
+    mut progress: Option<&mut (dyn FnMut(BuildProgress) + Send)>,
+    cancel: Option<&(dyn Fn() -> bool + Sync)>,
     embedder: Option<&dyn Embedder>,
 ) -> Result<IndexManifest, IndexError> {
     let base_dir = store.base_dir(&req.connection_id, &req.database);
     let started = Instant::now();
 
-    if !store.acquire_lock(&base_dir)? {
-        return Err(IndexError::Locked(base_dir.display().to_string()));
-    }
+    let lock_file = store.acquire_lock(&base_dir)?;
     let _guard = LockGuard {
-        store,
+        _file: lock_file,
         base: base_dir.clone(),
     };
 
@@ -340,6 +338,8 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
     );
     check_cancel(cancel)?;
 
+    // Auto-discover non-system schemas; fall back to `public` if none found.
+    let auto_discovered = req.scope.included_schemas.is_empty();
     let schemas = if req.scope.included_schemas.is_empty() {
         let discovered = db.non_system_schemas().await?;
         if discovered.is_empty() {
@@ -353,11 +353,32 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
 
     let relations = db.relations(&schemas).await?;
     queries_run += 1;
-    if relations.is_empty() {
-        return Err(IndexError::Build(
-            "No objects found in specified schemas".into(),
-        ));
-    }
+
+    // When schemas were auto-discovered but none contain user relations (e.g.
+    // only extension schemas like `cron` are present), fall back to `public`
+    // with a warning rather than aborting — this handles freshly provisioned
+    // databases where migrations haven't run yet.
+    let (schemas, relations) =
+        if relations.is_empty() && auto_discovered && schemas != vec!["public".to_owned()] {
+            warnings.push(format!(
+                "Discovered schemas {:?} contain no user objects — retrying with 'public'",
+                schemas
+            ));
+            let public_relations = db.relations(&["public".to_owned()]).await?;
+            queries_run += 1;
+            if public_relations.is_empty() {
+                return Err(IndexError::Build(
+                    "No objects found in any schema (tried discovered schemas and 'public')".into(),
+                ));
+            }
+            (vec!["public".to_owned()], public_relations)
+        } else if relations.is_empty() {
+            return Err(IndexError::Build(
+                "No objects found in specified schemas".into(),
+            ));
+        } else {
+            (schemas, relations)
+        };
 
     let excluded: HashSet<&str> = req
         .scope
@@ -494,24 +515,24 @@ pub async fn build_index<D: CatalogDb + ?Sized>(
 // Internals
 // ---------------------------------------------------------------------------
 
-struct LockGuard<'a> {
-    store: &'a IndexStore,
+struct LockGuard {
+    _file: std::fs::File,
     base: PathBuf,
 }
 
-impl Drop for LockGuard<'_> {
+impl Drop for LockGuard {
     fn drop(&mut self) {
-        let _ = self.store.release_lock(&self.base);
+        let _ = std::fs::remove_file(self.base.join(LOCK_FILE));
     }
 }
 
-fn report(progress: &mut Option<&mut dyn FnMut(BuildProgress)>, event: BuildProgress) {
+fn report(progress: &mut Option<&mut (dyn FnMut(BuildProgress) + Send)>, event: BuildProgress) {
     if let Some(cb) = progress.as_mut() {
         cb(event);
     }
 }
 
-fn check_cancel(cancel: Option<&dyn Fn() -> bool>) -> Result<(), IndexError> {
+fn check_cancel(cancel: Option<&(dyn Fn() -> bool + Sync)>) -> Result<(), IndexError> {
     if cancel.is_some_and(|f| f()) {
         return Err(IndexError::Cancelled);
     }
@@ -579,18 +600,69 @@ fn write_embeddings_with(
         return Ok((None, None));
     }
 
-    let texts: Vec<&str> = candidates.iter().map(|(_, d)| d.as_str()).collect();
-    let vectors = match embedder.embed_batch(&texts) {
-        Ok(v) => v,
-        Err(e) => {
-            warnings.push(format!("generating embeddings failed: {e}"));
-            return Ok((None, None));
-        }
-    };
-
     let dim = embedder.dim();
     let model = embedder.model_id().to_owned();
-    let bin = serialize_embeddings(&vectors, dim);
+
+    let existing_map: HashMap<String, (String, Vec<f32>)> = store
+        .read_manifest(base_dir)
+        .ok()
+        .flatten()
+        .and_then(|m| store.read_embeddings(base_dir, &m).ok().flatten())
+        .map(|(meta, bin)| {
+            let mut map = HashMap::new();
+            if bin.len() % (dim * 4) == 0 {
+                let count = bin.len() / (dim * 4);
+                for (idx, entry) in meta.into_iter().enumerate() {
+                    if idx < count && entry.dim as usize == dim && entry.model == model {
+                        let start = idx * dim * 4;
+                        let end = start + dim * 4;
+                        let vec: Vec<f32> = bin[start..end]
+                            .chunks_exact(4)
+                            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+                            .collect();
+                        map.insert(entry.ref_, (entry.object_hash, vec));
+                    }
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+
+    let mut vectors = Vec::with_capacity(candidates.len());
+    let mut to_embed_indices = Vec::new();
+    let mut to_embed_texts = Vec::new();
+
+    for (idx, (ref_, _doc)) in candidates.iter().enumerate() {
+        let current_hash = entries
+            .get(ref_)
+            .map(|e| e.object_hash.as_str())
+            .unwrap_or_default();
+        if let Some((old_hash, old_vec)) = existing_map.get(ref_) {
+            if old_hash == current_hash {
+                vectors.push(Some(old_vec.clone()));
+                continue;
+            }
+        }
+        vectors.push(None);
+        to_embed_indices.push(idx);
+        to_embed_texts.push(candidates[idx].1.as_str());
+    }
+
+    if !to_embed_texts.is_empty() {
+        let new_vectors = match embedder.embed_batch(&to_embed_texts) {
+            Ok(v) => v,
+            Err(e) => {
+                warnings.push(format!("generating embeddings failed: {e}"));
+                return Ok((None, None));
+            }
+        };
+        for (idx_in_batch, &cand_idx) in to_embed_indices.iter().enumerate() {
+            vectors[cand_idx] = Some(new_vectors[idx_in_batch].clone());
+        }
+    }
+
+    let final_vectors: Vec<Vec<f32>> = vectors.into_iter().map(|v| v.unwrap()).collect();
+    let bin = serialize_embeddings(&final_vectors, dim);
     let meta: Vec<EmbeddingMetaEntry> = candidates
         .iter()
         .map(|(ref_, _)| EmbeddingMetaEntry {
@@ -1609,7 +1681,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = IndexStore::new(tmp.path());
         let base = store.base_dir("c", "d");
-        assert!(store.acquire_lock(&base).unwrap());
+        let _lock = store.acquire_lock(&base).unwrap();
 
         let db = users_orgs_fixture();
         let req = BuildRequest {
@@ -1628,8 +1700,7 @@ mod tests {
         let err = build_index(&store, &db, &req, None, None, None)
             .await
             .unwrap_err();
-        assert!(matches!(err, IndexError::Locked(_)));
-        store.release_lock(&base).unwrap();
+        assert!(matches!(err, IndexError::Building(_)));
     }
 
     #[test]

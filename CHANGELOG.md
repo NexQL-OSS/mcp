@@ -1,0 +1,25 @@
+# Changelog
+
+All notable changes to `nexql-mcp` will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] - 2026-08-06
+
+### Fixed
+- **TUI stdio stream hijacking**: Non-TTY stdio invocations no longer launch terminal UI when connection resolution fails, returning structured MCP JSON-RPC errors instead.
+- **Index key harmonization**: Fixed mismatch between builder (`index_ids`) and runtime `ToolSession` lookup paths (`dbindex/{host}_{db}` vs `dbindex/default/{db}`).
+- **Profile policy wiring**: Configured profile policy fields (`schemas`, `deny_schemas`, `deny_tables`, `pii_columns`, `max_rows`, `access_mode`) are now properly wired into `ToolSession` policy filters.
+- **Panic removal**: Replaced `.expect()` serialization panics in MCP resource/prompt handlers and cursor encoding with safe error responses.
+- **Active connection indexing**: Server boot now builds schema index only for active connection rather than eagerly scanning all configured profiles.
+- **Silent profile drops**: Unresolvable profile configurations now emit diagnostic warnings on stderr.
+
+### Added
+- **Native MCP remediation tools**: Added `rebuild_index`, `refresh_index`, and `run_doctor` tools.
+- **Version bump automation**: Added `scripts/bump-version.sh` for atomic version synchronization across 14 repository manifests.
+- **CI matrix expansion**: Multi-OS verification (Linux, macOS, Windows), MSRV checks, and Postgres integration test container.
+- **Release profile optimization**: Added thin LTO, symbol stripping, and single codegen unit to release builds.
+
+### Removed
+- **`nexql-spike` crate**: Removed throwaway experiment crate and its heavy dependency overhead.

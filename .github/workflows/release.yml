@@ -7,12 +7,24 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  verify:
+    name: verify-release-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches manifest versions
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          ./scripts/bump-version.sh --check "$TAG_VERSION"
+
   build:
+    needs: verify
     name: build-${{ matrix.vendor }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -30,12 +42,6 @@ jobs:
             bin: nexql-mcp
             npm_pkg: mcp-linux-arm64
           - vendor: darwin-x64
-            # macos-13 (Intel) runners were stuck in `queued` for 1h+ / hung
-            # 7h11m in an earlier release run — GH's Intel pool is starved.
-            # Cross-compile x86_64-apple-darwin from an Apple Silicon runner
-            # instead (Xcode's SDK on macos-14 ships both arches; `triple`
-            # below is passed explicitly to rustup/cargo, so the host arch
-            # doesn't need to match the target).
             runner: macos-14
             triple: x86_64-apple-darwin
             bin: nexql-mcp
@@ -66,8 +72,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release -p nexql-mcp --target ${{ matrix.triple }}
+      - name: Build release binary (--locked)
+        run: cargo build --release --locked -p nexql-mcp --target ${{ matrix.triple }}
 
       - name: Package dist + vendor archives
         shell: bash
@@ -83,12 +89,14 @@ jobs:
           STAGE="nexql-mcp-${TAG}-${TRIPLE}"
           mkdir -p "$STAGE"
           cp "$SRC" "$STAGE/"
-          cp README.md LICENSE* "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
+          cp README.md LICENSE* NOTICE "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
           tar -czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
 
           mkdir -p "dist/vendor/${VENDOR}"
           cp "$SRC" "dist/vendor/${VENDOR}/${BIN}"
           tar -czf "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" -C "dist/vendor" "${VENDOR}"
+          sha256sum "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" > "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz.sha256"
 
       - name: Stage npm platform package
         shell: bash
@@ -104,8 +112,8 @@ jobs:
         with:
           name: dist-${{ matrix.vendor }}
           path: |
-            nexql-mcp-*-${{ matrix.triple }}.tar.gz
-            nexql-mcp-*-vendor-${{ matrix.vendor }}.tar.gz
+            nexql-mcp-*-${{ matrix.triple }}.tar.gz*
+            nexql-mcp-*-vendor-${{ matrix.vendor }}.tar.gz*
 
       - name: Upload npm platform package
         uses: actions/upload-artifact@v4
@@ -113,27 +121,45 @@ jobs:
           name: npm-${{ matrix.npm_pkg }}
           path: npm/packages/${{ matrix.npm_pkg }}
 
-  release:
+  publish-cargo:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: dist-*
-          path: dist-artifacts
-          merge-multiple: true
+      - uses: actions/checkout@v4
 
-      - name: Upload GitHub Release assets
-        uses: softprops/action-gh-release@v2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install clang (pg_query bindgen)
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          files: dist-artifacts/**
-          generate_release_notes: true
+          command: check
+
+      - name: Publish crates in dependency order
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
+          for crate in "${crates[@]}"; do
+            status="$(curl -s -o /dev/null -w '%{http_code}' -A "nexql-mcp-release-ci (github.com/NexQL-OSS/mcp)" "https://crates.io/api/v1/crates/${crate}/${version}")"
+            if [ "$status" = "200" ]; then
+              echo "skip: ${crate} ${version} already published"
+              continue
+            fi
+            cargo publish -p "$crate" --locked
+            sleep 20
+          done
 
   publish-npm:
-    needs: build
+    needs: publish-cargo
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -155,48 +181,33 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          # actions/upload-artifact + download-artifact does not reliably
-          # preserve the executable bit (zip-based transport); restore it
-          # before packing, or npm ships a binary spawnSync can't exec.
           for pkg in mcp-darwin-arm64 mcp-darwin-x64 mcp-linux-arm64 mcp-linux-x64 mcp-win32-x64; do
             cp -a "npm-staged/npm-${pkg}/." "npm/packages/${pkg}/"
             chmod +x npm/packages/${pkg}/bin/* 2>/dev/null || true
-            (cd "npm/packages/${pkg}" && npm publish --access public)
+            (cd "npm/packages/${pkg}" && npm publish --access public --provenance)
           done
-          (cd npm && npm publish --access public)
+          (cd npm && npm publish --access public --provenance)
 
-  publish-cargo:
-    needs: build
+  release:
+    needs: publish-npm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist-artifacts
+          merge-multiple: true
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install clang (pg_query bindgen)
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Publish crates in dependency order
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Aggregate SHA256SUMS
         run: |
-          set -euo pipefail
-          # policy/proto/conn have no internal deps; index needs conn;
-          # tools needs conn+index+policy; mcp (bin) needs all of them.
-          # crates.io index propagation lags a publish by a few seconds,
-          # so pause between each so the next crate's path-dep resolves.
-          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
-          for crate in "${crates[@]}"; do
-            status="$(curl -s -o /dev/null -w '%{http_code}' -A "nexql-mcp-release-ci (github.com/NexQL-OSS/mcp)" "https://crates.io/api/v1/crates/${crate}/${version}")"
-            if [ "$status" = "200" ]; then
-              echo "skip: ${crate} ${version} already published"
-              continue
-            fi
-            cargo publish -p "$crate" --locked
-            sleep 20
-          done
+          cd dist-artifacts
+          cat *.sha256 > SHA256SUMS
+
+      - name: Upload GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-artifacts/**
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,15 +29,19 @@ pub fn migrate_manifest(raw_json: &str) -> Result<IndexManifest, IndexError> {
         })? as u32;
 
     if version > CURRENT_FORMAT_VERSION {
-        return Err(IndexError::FormatTooNew {
-            expected: CURRENT_FORMAT_VERSION,
-            actual: version,
+        return Err(IndexError::NeedsRebuild {
+            reason: format!(
+                "manifest format version {version} is newer than current {CURRENT_FORMAT_VERSION}"
+            ),
         });
     }
 
-    // Migration registry is empty at formatVersion = 1 (matches TS `MIGRATIONS`).
     if version < CURRENT_FORMAT_VERSION {
-        return Err(IndexError::NoMigrationPath(version));
+        return Err(IndexError::NeedsRebuild {
+            reason: format!(
+                "no migration path from format version {version} to {CURRENT_FORMAT_VERSION}"
+            ),
+        });
     }
 
     serde_json::from_value(data).map_err(IndexError::from)
@@ -85,13 +89,7 @@ mod tests {
         let mut v: serde_json::Value = serde_json::from_str(&v1_manifest_json()).unwrap();
         v["formatVersion"] = serde_json::json!(99);
         let err = migrate_manifest(&v.to_string()).unwrap_err();
-        match err {
-            IndexError::FormatTooNew {
-                expected: 1,
-                actual: 99,
-            } => {}
-            other => panic!("unexpected error: {other}"),
-        }
+        assert!(matches!(err, IndexError::NeedsRebuild { .. }));
     }
 
     #[test]
@@ -105,6 +103,6 @@ mod tests {
         let mut v: serde_json::Value = serde_json::from_str(&v1_manifest_json()).unwrap();
         v["formatVersion"] = serde_json::json!(0);
         let err = migrate_manifest(&v.to_string()).unwrap_err();
-        assert!(matches!(err, IndexError::NoMigrationPath(0)));
+        assert!(matches!(err, IndexError::NeedsRebuild { .. }));
     }
 }
