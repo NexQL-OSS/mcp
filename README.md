@@ -78,15 +78,15 @@ Windows: grab `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` from the [Releases
 Prebuilt, published on every release to [GHCR](https://github.com/NexQL-OSS/mcp/pkgs/container/mcp):
 
 ```bash
-docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.0 postgres://dev@host.docker.internal:5432/appdb
+docker run --rm -i ghcr.io/nexql-oss/mcp:0.1.6 postgres://dev@host.docker.internal:5432/appdb
 # or: ghcr.io/nexql-oss/mcp:latest
 ```
 
 Or build locally from the distroless `Dockerfile`:
 
 ```bash
-docker build -t nexql-mcp:0.2.0 .
-docker run --rm -i nexql-mcp:0.2.0 postgres://dev@host.docker.internal:5432/appdb
+docker build -t nexql-mcp:0.1.6 .
+docker run --rm -i nexql-mcp:0.1.6 postgres://dev@host.docker.internal:5432/appdb
 ```
 
 ### Claude Desktop (MCPB one-click bundle)

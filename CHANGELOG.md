@@ -45,3 +45,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `crates/nexql-index/tests/embeddings_semantic_gate.rs` (`--features embeddings`): proves the real MiniLM embedder — not the `FakeEmbedder` used by the existing RRF-fusion unit tests — ranks a synonym query ("client") to `public.customers` when lexical search (zero postings for that term) finds nothing. This was the documented but previously untested Phase 5 exit gate.
 - New `cargo test (embeddings)` CI step (`cargo test --workspace --features embeddings`). Skips gracefully rather than failing CI when the model can't be downloaded, matching the existing `embed.rs` test's behavior.
 - Fixed 3 pre-existing warnings in `builder.rs` that only surfaced under `--features embeddings` (unused `AtomicBool`/`Ordering`/`LOCAL_MODEL_ID` imports, dead `EMBEDDINGS_FEATURE_WARNED` static) by gating them to the non-`embeddings` build where they're actually used.
+
+## [0.1.6] - 2026-08-06
+
+### Added
+- **`dba_guard`**: DDL safety analysis tool.
+- `Makefile` for workspace management.
+
+## [0.1.5] - 2026-08-05
+
+### Fixed
+- **TLS**: accept unverified certs for `sslmode=require` (was rejecting valid connections).
+
+## [0.1.4] - 2026-08-05
+
+### Fixed
+- **`nexql-conn`**: improved Postgres error detail formatting.
+
+### Docs
+- End-user install/connection/extension docs now that npm + cargo distribution are live.
+
+## [0.1.3] - 2026-08-04
+
+### Fixed
+- **npm binary**: restored exec bit lost in artifact upload/download round-trip (binary was unrunnable after `npm install`).
+
+## [0.1.2] - 2026-08-04
+
+### Added
+- Multi-profile connection resolve, full-schema index discovery.
+
+### Fixed
+- **cargo publish**: made idempotent — skips already-published crates instead of failing the pipeline.
+- **crates.io publish-check**: send `User-Agent` header; its absence was read as a 403 (misinterpreted as "not yet published").
+
+## [0.1.1] - 2026-07-30
+
+### Added
+- **`nexql-mcp tui`**: connection wizard + multi-client wiring.
+
+### Fixed
+- **Release CI**: cross-compile darwin-x64 from `macos-14` (Intel runner pool was starved).
+
+## [0.1.0] - 2026-07-30
+
+Initial release.
+
+### Added
+- Rust workspace scaffold for the standalone MCP server.
+- Phases 0–2: MCP stdio server + ~8 catalog tools.
+- Phase 3: full query surface, `nexql-index` CLI, golden gate test.
