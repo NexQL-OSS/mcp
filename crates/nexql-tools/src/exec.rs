@@ -2903,7 +2903,10 @@ mod tests {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::new(session);
         let out = router
-            .call("check_ddl_safety", json!({ "ddl": "CREATE INDEX idx_col ON users(col);" }))
+            .call(
+                "check_ddl_safety",
+                json!({ "ddl": "CREATE INDEX idx_col ON users(col);" }),
+            )
             .await;
         let structured = out.structured.expect("structured outcome");
         assert_eq!(
