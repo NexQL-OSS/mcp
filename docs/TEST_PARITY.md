@@ -13,3 +13,5 @@ coverage lives in this repo.
 | Resources & Prompts | `nexql-tools` resources/prompts | Covered |
 | Monitoring Tools | `nexql-tools` exec | Covered |
 | Pre-cutover index layout | `nexql-index` `pre_cutover_compat` | Covered |
+| Write/admin SQL corpus (Phase 9) | `nexql-policy/tests/fixtures/sql_write_corpus.toml` (42 cases) | Covered |
+| Golden index format parity | `nexql-index` `golden_parity` — format-v1 vs. committed `expected/` fixtures, **not** TS `IndexBuilder` byte-compare | Covered (scope: see `tests/golden/README.md`) |

@@ -63,7 +63,10 @@ Prototype `rmcp` vs hand-rolled. Decide on elicitation/completions/progress cove
 
 ## Phase 3 — nexql-index (~5 wk) — SCHEDULE RISK
 
-**Byte-compatible** with TS on-disk format (`formatVersion = 1`).
+**Format-v1 compatible** on-disk (`formatVersion = 1`). Note: the gate below is enforced against
+Rust's own committed `expected/` fixtures, not real TS `IndexBuilder` output — see
+[docs/tools golden README](../../../crates/nexql-index/tests/golden/README.md) for the honest
+scope. Real TS/extension-layout compat is covered separately by `pre_cutover_compat.rs`.
 
 ### Modules
 
@@ -85,9 +88,11 @@ Prototype `rmcp` vs hand-rolled. Decide on elicitation/completions/progress cove
 ### Golden-file gate (mandatory)
 
 1. `tests/fixtures/seed_schema.sql` — fixed seed
-2. TS `IndexBuilder` → `tests/golden/ts/`
-3. Rust builder → byte-compare
-4. CI fails on any diff
+2. Rust builder output, normalized → `tests/golden/expected/` (committed)
+3. `tests/golden/ts/` — format-v1 twin of `expected/`, kept in lockstep via
+   `scripts/sync_pre_cutover_fixture.sh`; stand-in until a host-free TS `IndexBuilder` harness exists
+4. Rust builder → byte-compare against `expected/`
+5. CI fails on any diff (when Postgres is available for the integration test)
 
 **Exit:** Golden parity + `search_schema`, `describe_object`, `get_join_path`, `sample_values` E2E.
 
