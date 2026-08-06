@@ -47,40 +47,36 @@ When onboarding new LLM tools or AI clients (e.g. `antigravity`, `deepseek`, `ki
 
 ## 3. Version Bump & Release Tag Workflow
 
-Follow these exact steps when preparing a new tag release (e.g. `v0.1.6`):
+Releases are loosely tracked — no enforced cadence. `$ARGUMENTS` may carry a target version (e.g. `0.2.1`); if not, ask the user for the target version rather than guessing it from the latest tag or CHANGELOG heading (those have drifted from `Cargo.toml` before).
 
-### Step 1: Pre-Release Quality Gates
-Ensure all workspace lints and tests pass cleanly:
+### Step 1: Confirm working tree
+`git status` clean, and check the current branch — this repo uses feature branches (`feat/…` → PR to `main`), not commits straight to `main`.
+
+### Step 2: (Optional) Pre-release quality gates
+Ask if the user wants these run before bumping:
 ```bash
 LIBCLANG_PATH=/usr/lib cargo clippy --workspace --all-targets -- -D warnings
 LIBCLANG_PATH=/usr/lib cargo test --workspace
 ```
 
-### Step 2: Bump Version Across All Manifests
-Update version string in all 10 project manifests:
-- `Cargo.toml`: `[workspace.package] version = "X.Y.Z"`
-- `mcpb/manifest.json`: `"version": "X.Y.Z"`
-- `npm/package.json`: `"version": "X.Y.Z"` and all `optionalDependencies` version strings
-- `npm/packages/mcp-win32-x64/package.json`: `"version": "X.Y.Z"`
-- `npm/packages/mcp-darwin-arm64/package.json`: `"version": "X.Y.Z"`
-- `npm/packages/mcp-darwin-x64/package.json`: `"version": "X.Y.Z"`
-- `npm/packages/mcp-linux-arm64/package.json`: `"version": "X.Y.Z"`
-- `npm/packages/mcp-linux-x64/package.json`: `"version": "X.Y.Z"`
-- `README.md`: Docker tag examples `nexql-mcp:X.Y.Z`
+### Step 3: Bump version
+Use the existing atomic bump script rather than hand-editing manifests — it covers `Cargo.toml` (workspace version + internal path-dep pins), `npm/package.json`, all `npm/packages/mcp-*/package.json` platform packages, and `mcpb/manifest.json`:
+```bash
+./scripts/bump-version.sh X.Y.Z
+./scripts/bump-version.sh --check X.Y.Z   # verify no manifest was missed
+```
+The script does **not** touch `README.md`'s Docker tag examples (`ghcr.io/nexql-oss/mcp:X.Y.Z`, `nexql-mcp:X.Y.Z`) — update those by hand.
 
-### Step 3: Update `Cargo.lock`
-Run `cargo check` to synchronize `Cargo.lock`:
+### Step 4: Sync `Cargo.lock`
 ```bash
 LIBCLANG_PATH=/usr/lib cargo check --workspace
 ```
 
-### Step 4: Git Commit & Tag Creation
-```bash
-git add -A
-git commit -m "chore(release): bump version to vX.Y.Z"
-git tag -a vX.Y.Z -m "vX.Y.Z"
-git push origin main --tags
-```
+### Step 5: (Optional) CHANGELOG entry
+If the user wants one, prepend a new `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` following the existing Keep a Changelog format, summarizing the change.
+
+### Step 6: Report
+Show the diff (`git diff --stat`) and the resulting version. **Do not commit, tag, or push** unless the user explicitly asks — bump/build and release are separate approvals.
 
 ---
 
