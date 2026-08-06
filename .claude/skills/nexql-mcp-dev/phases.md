@@ -63,7 +63,10 @@ Prototype `rmcp` vs hand-rolled. Decide on elicitation/completions/progress cove
 
 ## Phase 3 — nexql-index (~5 wk) — SCHEDULE RISK
 
-**Byte-compatible** with TS on-disk format (`formatVersion = 1`).
+**Format-v1 compatible** on-disk (`formatVersion = 1`). Note: the gate below is enforced against
+Rust's own committed `expected/` fixtures, not real TS `IndexBuilder` output — see
+[docs/tools golden README](../../../crates/nexql-index/tests/golden/README.md) for the honest
+scope. Real TS/extension-layout compat is covered separately by `pre_cutover_compat.rs`.
 
 ### Modules
 
@@ -85,9 +88,11 @@ Prototype `rmcp` vs hand-rolled. Decide on elicitation/completions/progress cove
 ### Golden-file gate (mandatory)
 
 1. `tests/fixtures/seed_schema.sql` — fixed seed
-2. TS `IndexBuilder` → `tests/golden/ts/`
-3. Rust builder → byte-compare
-4. CI fails on any diff
+2. Rust builder output, normalized → `tests/golden/expected/` (committed)
+3. `tests/golden/ts/` — format-v1 twin of `expected/`, kept in lockstep via
+   `scripts/sync_pre_cutover_fixture.sh`; stand-in until a host-free TS `IndexBuilder` harness exists
+4. Rust builder → byte-compare against `expected/`
+5. CI fails on any diff (when Postgres is available for the integration test)
 
 **Exit:** Golden parity + `search_schema`, `describe_object`, `get_join_path`, `sample_values` E2E.
 
@@ -111,9 +116,17 @@ Resources (`nexql://` URIs, cursor pagination), prompts (4 + 3 new), completions
 
 ---
 
-## Phase 5 — embeddings (~2 wk)
+## Phase 5 — embeddings (~2 wk) — LANDED
 
-`candle` MiniLM local; `embeddings.bin` cross-read with TS; RRF fusion (port `IndexQueryService.test.ts`); context packing; `--embeddings off|local`.
+`candle` MiniLM local; RRF fusion (`fuse_rrf`, ported from `IndexQueryService.test.ts`); `--embeddings off|local`.
+
+**Exit gate:** `crates/nexql-index/tests/embeddings_semantic_gate.rs`
+(`--features embeddings`, run in CI) proves the real MiniLM embedder beats lexical search on a synonym
+query ("client" → `public.customers`, zero lexical postings) — not just the `FakeEmbedder` RRF-fusion
+unit tests in `query.rs`. Skips (doesn't fail) without network/model access.
+
+**Deferred:** `embeddings.bin` cross-read against a real TS `IndexBuilder` output (no host-free TS harness
+exists yet — same caveat as the Phase 3 golden gate); context packing.
 
 **Exit:** Semantic search beats lexical on synonym fixture.
 
@@ -150,9 +163,15 @@ Extension registers `McpStdioServerDefinition` and resolves `nexql-mcp` (bundled
 
 ## Phase 8 — HTTP + OAuth (~2.5 wk) — PARTIAL
 
-**Landed:** Streamable HTTP (`POST /` + `/mcp`) via axum; shared `McpHandler` with stdio; bearer via `--http-token` / `NEXQL_MCP_HTTP_TOKEN`; refuse non-loopback without token; 1MB body cap.
+**Landed:** Streamable HTTP (`POST`/`DELETE /` + `/mcp`) via axum; shared `McpHandler` with stdio; bearer
+via `--http-token` / `NEXQL_MCP_HTTP_TOKEN`; refuse non-loopback without token; 1MB body cap;
+`Mcp-Session-Id` issued on `initialize`, required on every subsequent request, released via `DELETE`;
+fixed-window rate limit per bearer token (or per client IP with no token), `--http-rate-limit` /
+`NEXQL_MCP_HTTP_RATE_LIMIT` (default 600/min, `0` disables).
 
-**Deferred (pro / later):** OAuth authorization-server gateway, `Mcp-Session-Id` sessions, rate limiting.
+**Deferred (pro / later):** OAuth authorization-server gateway; session-store LRU eviction cap (store is
+currently unbounded — fine for a single-tenant local/loopback deployment, not yet hardened for
+long-running multi-client HTTP exposure).
 
 ---
 

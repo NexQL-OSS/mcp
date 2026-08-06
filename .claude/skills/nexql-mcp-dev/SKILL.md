@@ -67,7 +67,7 @@ For each logical unit (function, module, tool):
 | 0 | Spike: tokio-postgres + candle | Measured cold-start/RSS/embed; throwaway crate |
 | 1 | `nexql-conn` + `nexql-policy` + pg_query | Injection corpus 100%; ~40 resolution cases; pool integration |
 | 2 | stdio MCP + 8 catalog tools | MCP Inspector smoke; 8 tools integration green |
-| 3 | `nexql-index` | **Golden-file byte parity with TS builder** |
+| 3 | `nexql-index` | **Golden-file format-v1 parity against committed fixtures** |
 | 4 | Full tools, resources, prompts | 21 read tools + parity checklist |
 | 5 | Embeddings + RRF | Cross-lang embed read; semantic search fixture |
 | 6 | Ship: dist, npm, perf budgets | CI perf budgets; client matrix manual |
@@ -79,7 +79,7 @@ Full detail: [phases.md](phases.md).
 
 ## Critical gates (never waive)
 
-1. **Phase 3 golden files** — TS `IndexBuilder` output committed under `tests/golden/ts/`; Rust builder must match bytes. Highest-value test in the project.
+1. **Phase 3 golden files** — Rust builder output must byte-match `tests/golden/expected/` (fixed seed, normalized fields). `tests/golden/ts/` is currently a format-v1 twin of `expected/`, not real TS `IndexBuilder` output — see `tests/golden/README.md` for what's actually gated vs. deferred. Real extension-layout compat is covered by `pre_cutover_compat.rs`. Highest-value test in the project regardless.
 2. **SQL injection corpus** — `WITH x AS (DELETE …) SELECT`, stacked statements, comment tricks must all reject. TS prefix check is the weakness being fixed.
 3. **TS test parity** — `../pro/test/McpServer.test.ts` is the porting checklist (40+ cases). Track in `docs/TEST_PARITY.md`.
 

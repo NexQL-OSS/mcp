@@ -41,6 +41,123 @@ pub struct ProfileConfig {
     pub credential_provider: Option<String>,
 }
 
+/// Project-level configuration (`.nexql/config.toml` or `.nexql-mcp.toml`).
+/// Security: may select profiles and tighten policy only.
+/// Credentials, URLs, and loosening operations are rejected.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct ProjectConfigFile {
+    /// Selects a profile from the user's global config.
+    pub default_profile: Option<String>,
+    /// Restrict access mode (can only tighten, e.g. "write" -> "read").
+    pub access_mode: Option<String>,
+    /// Additional schema restrictions.
+    #[serde(default)]
+    pub schemas: Vec<String>,
+    /// Additional schema denials.
+    #[serde(default)]
+    pub deny_schemas: Vec<String>,
+    /// Additional table denials.
+    #[serde(default)]
+    pub deny_tables: Vec<String>,
+    /// Additional PII columns.
+    #[serde(default)]
+    pub pii_columns: Vec<String>,
+    /// Maximum rows (can only lower, not raise).
+    pub max_rows: Option<u32>,
+    /// Optional project-local index storage directory (relative to `.nexql/`).
+    pub index_dir: Option<String>,
+}
+
+const PROJECT_FORBIDDEN_KEYS: &[&str] = &[
+    "url",
+    "host",
+    "port",
+    "dbname",
+    "user",
+    "password",
+    "password_command",
+    "password_file",
+    "sslcert",
+    "sslkey",
+    "sslrootcert",
+    "credential_provider",
+];
+
+/// Load and sanitize a project config file.
+/// Returns the parsed config and a list of security warnings for stripped fields.
+pub fn load_project_config(path: &Path) -> Result<(ProjectConfigFile, Vec<String>), ConnError> {
+    let raw = std::fs::read_to_string(path)?;
+    let raw_value: toml::Value = toml::from_str(&raw)
+        .map_err(|e| ConnError::Config(format!("Failed to parse project TOML: {e}")))?;
+
+    let mut warnings = Vec::new();
+
+    if let Some(table) = raw_value.as_table() {
+        for &key in PROJECT_FORBIDDEN_KEYS {
+            if table.contains_key(key) {
+                warnings.push(format!(
+                    "security: project config '{}' contains forbidden field '{}' — stripped",
+                    path.display(),
+                    key
+                ));
+            }
+        }
+        if table.contains_key("profiles") {
+            warnings.push(format!(
+                "security: project config '{}' contains [profiles] section — project configs cannot define connection profiles, only select them via default_profile",
+                path.display()
+            ));
+        }
+    }
+
+    let config: ProjectConfigFile = toml::from_str(&raw)
+        .map_err(|e| ConnError::Config(format!("Failed to deserialize project config: {e}")))?;
+
+    Ok((config, warnings))
+}
+
+/// Search for `.nexql/config.toml` or `.nexql-mcp.toml` ascending from `start_dir`.
+/// Stops at filesystem root or a directory containing `.git`.
+pub fn find_project_config(start_dir: &Path) -> Option<PathBuf> {
+    let mut dir = start_dir.to_path_buf();
+    loop {
+        let candidate = dir.join(".nexql").join("config.toml");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        let flat = dir.join(".nexql-mcp.toml");
+        if flat.is_file() {
+            return Some(flat);
+        }
+        if dir.join(".git").exists() {
+            return None;
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+impl ProjectConfigFile {
+    /// Return the more restrictive of two access modes.
+    pub fn tighten_access_mode(&self, base: &str) -> String {
+        let Some(ref project_mode) = self.access_mode else {
+            return base.to_string();
+        };
+        let rank = |m: &str| match m.to_lowercase().as_str() {
+            "admin" => 3,
+            "write" => 2,
+            "read" | "read_only" => 1,
+            _ => 0,
+        };
+        if rank(project_mode) < rank(base) {
+            project_mode.clone()
+        } else {
+            base.to_string()
+        }
+    }
+}
+
 impl ConfigFile {
     pub fn parse_str(s: &str) -> Result<Self, ConnError> {
         toml::from_str(s).map_err(|e| ConnError::Config(e.to_string()))
@@ -84,6 +201,41 @@ impl ConfigFile {
     pub fn save(&self, path: &Path) -> Result<Option<PathBuf>, ConnError> {
         let rendered = self.to_toml_string()?;
         write_with_backup(path, &rendered)
+    }
+
+    /// Export a secret-sanitized ProjectConfigFile suitable for `.nexql/config.toml`.
+    pub fn export_shareable(&self) -> ProjectConfigFile {
+        ProjectConfigFile {
+            default_profile: self.default_profile.clone(),
+            access_mode: None,
+            schemas: Vec::new(),
+            deny_schemas: Vec::new(),
+            deny_tables: Vec::new(),
+            pii_columns: Vec::new(),
+            max_rows: None,
+            index_dir: None,
+        }
+    }
+
+    /// Export a full config with secrets stripped, preserving profile structure.
+    pub fn export_full_sanitized(&self) -> Self {
+        let mut sanitized = self.clone();
+        for profile in sanitized.profiles.values_mut() {
+            profile.password = None;
+            profile.password_command = None;
+            profile.password_file = None;
+            profile.credential_provider = None;
+            if let Some(ref url) = profile.url {
+                if let Ok(mut parsed) = url::Url::parse(url) {
+                    if parsed.password().is_some() || !parsed.username().is_empty() {
+                        let _ = parsed.set_username("");
+                        let _ = parsed.set_password(None);
+                        profile.url = Some(parsed.to_string());
+                    }
+                }
+            }
+        }
+        sanitized
     }
 }
 
@@ -232,5 +384,125 @@ max_rows = 200
         cfg.remove_profile("local");
         assert_eq!(cfg.default_profile.as_deref(), Some("prod"));
         assert!(!cfg.profiles.contains_key("local"));
+    }
+
+    #[test]
+    fn find_project_config_ascending() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        let nexql_dir = root.path().join(".nexql");
+        std::fs::create_dir_all(&nexql_dir).unwrap();
+        let config_path = nexql_dir.join("config.toml");
+        std::fs::write(&config_path, "default_profile = \"staging\"\n").unwrap();
+
+        let found = find_project_config(&nested);
+        assert_eq!(found, Some(config_path));
+    }
+
+    #[test]
+    fn find_project_config_stops_at_git() {
+        let root = tempfile::tempdir().unwrap();
+        let git_dir = root.path().join("repo").join(".git");
+        let nested = root.path().join("repo").join("sub");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let outer_nexql = root.path().join(".nexql");
+        std::fs::create_dir_all(&outer_nexql).unwrap();
+        std::fs::write(
+            outer_nexql.join("config.toml"),
+            "default_profile = \"root\"\n",
+        )
+        .unwrap();
+
+        let found = find_project_config(&nested);
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn project_config_strips_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_profile = "staging"
+password = "hacked"
+host = "attacker.com"
+access_mode = "read"
+deny_tables = ["users.*"]
+"#,
+        )
+        .unwrap();
+
+        let (cfg, warnings) = load_project_config(&path).unwrap();
+        assert_eq!(cfg.default_profile.as_deref(), Some("staging"));
+        assert_eq!(cfg.access_mode.as_deref(), Some("read"));
+        assert_eq!(cfg.deny_tables, vec!["users.*"]);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("forbidden field 'password'"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("forbidden field 'host'"))
+        );
+    }
+
+    #[test]
+    fn project_config_rejects_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_profile = "staging"
+
+[profiles.evil]
+url = "postgres://evil.com/db"
+"#,
+        )
+        .unwrap();
+
+        let (cfg, warnings) = load_project_config(&path).unwrap();
+        assert_eq!(cfg.default_profile.as_deref(), Some("staging"));
+        assert!(warnings.iter().any(|w| w.contains("[profiles] section")));
+    }
+
+    #[test]
+    fn access_mode_tightens_only() {
+        let proj = ProjectConfigFile {
+            access_mode: Some("read".into()),
+            ..Default::default()
+        };
+        assert_eq!(proj.tighten_access_mode("write"), "read");
+        assert_eq!(proj.tighten_access_mode("admin"), "read");
+
+        let proj2 = ProjectConfigFile {
+            access_mode: Some("admin".into()),
+            ..Default::default()
+        };
+        assert_eq!(proj2.tighten_access_mode("read"), "read");
+    }
+
+    #[test]
+    fn export_full_sanitized_strips_passwords() {
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "prod",
+            ProfileConfig {
+                url: Some("postgres://user:secret@prod.host:5432/appdb".into()),
+                password: Some("secret".into()),
+                password_command: Some("op read ...".into()),
+                ..Default::default()
+            },
+        );
+        let exported = cfg.export_full_sanitized();
+        let p = &exported.profiles["prod"];
+        assert!(p.password.is_none());
+        assert!(p.password_command.is_none());
+        assert_eq!(p.url.as_deref(), Some("postgres://prod.host:5432/appdb"));
     }
 }

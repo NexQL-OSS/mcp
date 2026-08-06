@@ -12,8 +12,8 @@ pub mod stdio;
 pub mod types;
 
 pub use backend::{
-    CompletionBackend, PromptBackend, ResourceBackend, RpcFailure, ToolBackend, ToolCallResult,
-    ToolDescriptor,
+    ClientCapabilities, ClientRequester, CompletionBackend, PromptBackend, ResourceBackend,
+    RpcFailure, ToolBackend, ToolCallResult, ToolDescriptor,
 };
 pub use error::ProtoError;
 pub use handler::McpHandler;

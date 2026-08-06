@@ -7,6 +7,7 @@
 //! - optional `embeddings.bin` (Float32 LE row-major) + `embeddings-meta.json`
 //! - `.lock` (stale after 10 minutes)
 
+use fs2::FileExt;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -139,29 +140,27 @@ impl IndexStore {
         Ok(results)
     }
 
-    /// Acquire a build lock. Returns `false` if a fresh lock exists.
-    /// Stale locks (> [`STALE_LOCK`]) are overwritten.
-    pub fn acquire_lock(&self, base_dir: &Path) -> Result<bool, IndexError> {
+    /// Acquire an OS-level advisory lock on `.lock`. Returns `Ok(File)` on success,
+    /// or `Err(IndexError::Building)` if another process holds the lock.
+    pub fn acquire_lock(&self, base_dir: &Path) -> Result<fs::File, IndexError> {
         fs::create_dir_all(base_dir)?;
         let lock_path = base_dir.join(LOCK_FILE);
-        match fs::metadata(&lock_path) {
-            Ok(meta) => {
-                let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-                let age = SystemTime::now()
-                    .duration_since(mtime)
-                    .unwrap_or(Duration::ZERO);
-                if age > STALE_LOCK {
-                    self.write_lock_file(&lock_path)?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)?;
+        match file.try_lock_exclusive() {
+            Ok(()) => {
+                let mut f = &file;
+                let ts = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                let _ = writeln!(f, "{{\"pid\":{},\"timestamp\":{ts}}}", std::process::id());
+                Ok(file)
             }
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                self.write_lock_file(&lock_path)?;
-                Ok(true)
-            }
-            Err(e) => Err(e.into()),
+            Err(_) => Err(IndexError::Building(base_dir.display().to_string())),
         }
     }
 
@@ -178,7 +177,33 @@ impl IndexStore {
         let path = base_dir.join(MANIFEST_FILE);
         let raw = match fs::read_to_string(&path) {
             Ok(s) => s,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                // Fallback for legacy paths (e.g. dbindex/localhost/db or dbindex/localhost_db/db)
+                if let (Some(db_name), Some(parent)) = (base_dir.file_name(), base_dir.parent()) {
+                    if parent.file_name().and_then(|n| n.to_str()) == Some("default") {
+                        if let Some(index_root) = parent.parent() {
+                            let legacy_candidates = [
+                                index_root
+                                    .join("localhost")
+                                    .join(db_name)
+                                    .join(MANIFEST_FILE),
+                                index_root
+                                    .join(format!("localhost_{}", db_name.to_string_lossy()))
+                                    .join(db_name)
+                                    .join(MANIFEST_FILE),
+                            ];
+                            for cand in legacy_candidates {
+                                if cand.exists() {
+                                    if let Ok(s) = fs::read_to_string(&cand) {
+                                        return Ok(Some(migrate_manifest(&s)?));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return Ok(None);
+            }
             Err(e) => return Err(e.into()),
         };
         Ok(Some(migrate_manifest(&raw)?))
@@ -402,6 +427,7 @@ impl IndexStore {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn write_lock_file(&self, lock_path: &Path) -> Result<(), IndexError> {
         let pid = std::process::id();
         let timestamp_ms = SystemTime::now()
@@ -679,23 +705,14 @@ mod tests {
         let store = IndexStore::new(tmp.path());
         let base = store.base_dir("c", "d");
 
-        assert!(store.acquire_lock(&base).unwrap());
-        assert!(!store.acquire_lock(&base).unwrap());
+        let lock1 = store.acquire_lock(&base).unwrap();
+        assert!(matches!(
+            store.acquire_lock(&base),
+            Err(IndexError::Building(_))
+        ));
 
-        store.release_lock(&base).unwrap();
-        assert!(store.acquire_lock(&base).unwrap());
-
-        // Force stale mtime
-        let lock = base.join(LOCK_FILE);
-        let old = SystemTime::now() - STALE_LOCK - Duration::from_secs(1);
-        filetime_set_mtime(&lock, old);
-        assert!(store.acquire_lock(&base).unwrap());
-    }
-
-    /// Set mtime without pulling in the `filetime` crate.
-    fn filetime_set_mtime(path: &Path, mtime: SystemTime) {
-        let f = fs::File::options().write(true).open(path).unwrap();
-        f.set_modified(mtime).unwrap();
+        drop(lock1);
+        let _lock2 = store.acquire_lock(&base).unwrap();
     }
 
     #[test]

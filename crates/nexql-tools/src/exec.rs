@@ -5,8 +5,8 @@ use std::sync::Arc;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_index::{
-    CatalogDb, Embedder, IndexQueryService, IndexStore, PgCatalogDb, QueryPolicyFilter,
-    SearchOptions,
+    BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
+    IndexStore, PgCatalogDb, QueryPolicyFilter, SearchOptions, build_index,
 };
 use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
 use rust_decimal::Decimal;
@@ -30,7 +30,7 @@ use crate::write::{
 const SEARCH_SCHEMA_LIMIT: usize = 10;
 
 const NO_INDEX_HINT: &str =
-    "No schema index configured — set NEXQL_MCP_INDEX_DIR or run `nexql-mcp index build`.";
+    "No schema index configured — call the 'rebuild_index' tool to build an index.";
 
 #[derive(Debug, Clone)]
 pub struct ToolOutcome {
@@ -81,6 +81,7 @@ pub struct ToolRouter {
     use_semantic: bool,
     embedder: Option<Arc<dyn Embedder>>,
     specs: Vec<ToolSpec>,
+    managed_extension: bool,
 }
 
 impl ToolRouter {
@@ -91,6 +92,7 @@ impl ToolRouter {
             use_semantic: false,
             embedder: None,
             specs: active_tools(),
+            managed_extension: false,
         }
     }
 
@@ -102,6 +104,7 @@ impl ToolRouter {
             use_semantic: false,
             embedder: None,
             specs: active_tools(),
+            managed_extension: false,
         }
     }
 
@@ -122,6 +125,22 @@ impl ToolRouter {
         self
     }
 
+    /// Exclude setup/profile mutation tools for managed extension hosts.
+    pub fn with_managed_extension(mut self, enabled: bool) -> Self {
+        self.managed_extension = enabled;
+        if enabled {
+            const BLOCKED: &[ToolName] = &[
+                ToolName::SetupConnection,
+                ToolName::SaveProfile,
+                ToolName::TestProfile,
+                ToolName::ExportProfile,
+                ToolName::ImportProfile,
+            ];
+            self.specs.retain(|s| !BLOCKED.contains(&s.name));
+        }
+        self
+    }
+
     pub fn specs(&self) -> &[ToolSpec] {
         &self.specs
     }
@@ -134,14 +153,60 @@ impl ToolRouter {
     }
 
     fn query_filter(&self) -> QueryPolicyFilter {
-        policy_to_query_filter(&self.session.filter)
+        policy_to_query_filter(&self.session.filter())
     }
 
     pub async fn call(&self, name: &str, args: Value) -> ToolOutcome {
-        match self.call_inner(name, args).await {
+        let outcome = match self.call_inner(name, args).await {
             Ok(out) => out,
             Err(e) => ToolOutcome::err(e.to_string()),
+        };
+        self.tag_outcome_with_context(outcome).await
+    }
+
+    async fn tag_outcome_with_context(&self, mut outcome: ToolOutcome) -> ToolOutcome {
+        let (connection_id, database) = self.session.active_context().await;
+        let access_mode = match self.session.access_mode() {
+            nexql_policy::AccessMode::Read => "read",
+            nexql_policy::AccessMode::Write => "write",
+            nexql_policy::AccessMode::Admin => "admin",
+        };
+        let mut freshness: Option<serde_json::Value> = None;
+        if let Some(store) = self.session.index_store.as_ref() {
+            let base = store.base_dir(&connection_id, &database);
+            if let Ok(Some(manifest)) = store.read_manifest(&base) {
+                freshness = Some(json!({
+                    "indexedAt": manifest.indexed_at,
+                    "schemaFingerprint": manifest.schema_fingerprint,
+                    "stale": false,
+                }));
+            } else {
+                freshness = Some(json!({ "stale": true, "reason": "no_index" }));
+            }
         }
+        if let Some(ref mut structured) = outcome.structured {
+            if let Some(obj) = structured.as_object_mut() {
+                if !obj.contains_key("connectionId") {
+                    obj.insert("connectionId".into(), json!(connection_id));
+                }
+                if !obj.contains_key("database") {
+                    obj.insert("database".into(), json!(database));
+                }
+                if !obj.contains_key("accessMode") {
+                    obj.insert("accessMode".into(), json!(access_mode));
+                }
+                if let Some(ref f) = freshness {
+                    obj.insert("freshness".into(), f.clone());
+                }
+            }
+        }
+        let header = format!(
+            "[context connectionId={connection_id} database={database} accessMode={access_mode}]\n"
+        );
+        if !outcome.text.starts_with("[context ") {
+            outcome.text = format!("{header}{}", outcome.text);
+        }
+        outcome
     }
 
     async fn call_inner(&self, name: &str, args: Value) -> Result<ToolOutcome, ToolError> {
@@ -192,11 +257,19 @@ impl ToolRouter {
             ToolName::DiscoverTools => self.discover_tools(&args).await,
             ToolName::AutoTuneQuery => self.auto_tune_query(&args).await,
             ToolName::CheckDdlSafety => self.check_ddl_safety_tool(&args).await,
+            ToolName::RebuildIndex => self.rebuild_index_tool(&args).await,
+            ToolName::RefreshIndex => self.refresh_index_tool(&args).await,
+            ToolName::RunDoctor => self.run_doctor_tool().await,
+            ToolName::SetupConnection => self.setup_connection_tool(&args).await,
+            ToolName::SaveProfile => self.save_profile_tool(&args).await,
+            ToolName::TestProfile => self.test_profile_tool(&args).await,
+            ToolName::ExportProfile => self.export_profile_tool(&args).await,
+            ToolName::ImportProfile => self.import_profile_tool(&args).await,
         }
     }
 
     fn require_write(&self) -> Result<(), ToolError> {
-        if !self.session.access_mode.allows_writes() {
+        if !self.session.access_mode().allows_writes() {
             return Err(ToolError::Execution(
                 "write tools require --access-mode write or admin (current session: read)".into(),
             ));
@@ -205,7 +278,7 @@ impl ToolRouter {
     }
 
     fn require_admin(&self) -> Result<(), ToolError> {
-        if !self.session.access_mode.allows_admin() {
+        if !self.session.access_mode().allows_admin() {
             return Err(ToolError::Execution(
                 "admin tools require --access-mode admin".into(),
             ));
@@ -431,15 +504,18 @@ impl ToolRouter {
             let candidates_json: Vec<Value> = tied
                 .iter()
                 .filter_map(|(c, score, evidence)| {
-                    connections.iter().find(|x| x.id == c.connection_id).map(|conn| {
-                        json!({
-                            "connectionId": c.connection_id,
-                            "connectionName": conn.name,
-                            "database": c.database,
-                            "score": score,
-                            "evidence": evidence,
+                    connections
+                        .iter()
+                        .find(|x| x.id == c.connection_id)
+                        .map(|conn| {
+                            json!({
+                                "connectionId": c.connection_id,
+                                "connectionName": conn.name,
+                                "database": c.database,
+                                "score": score,
+                                "evidence": evidence,
+                            })
                         })
-                    })
                 })
                 .collect();
             return Ok(ToolOutcome::ok_json(json!({
@@ -451,7 +527,10 @@ impl ToolRouter {
 
         let (winner_candidate, winner_score, winner_evidence) = winner;
         self.session
-            .switch(&winner_candidate.connection_id, Some(winner_candidate.database.clone()))
+            .switch(
+                &winner_candidate.connection_id,
+                Some(winner_candidate.database.clone()),
+            )
             .await?;
         let conn = connections
             .iter()
@@ -478,6 +557,7 @@ impl ToolRouter {
             .and_then(|v| v.as_str())
             .map(str::to_lowercase);
 
+        // Always search the full catalog — meta profile may expose only a subset via tools/list.
         let all_specs = active_tools();
         let filtered: Vec<Value> = all_specs
             .into_iter()
@@ -519,6 +599,48 @@ impl ToolRouter {
         })))
     }
 
+    fn build_tuning_summary(plan_structured: &Option<Value>, suggestions: &Value) -> String {
+        let mut parts = Vec::new();
+        if let Some(structured) = plan_structured {
+            if let Some(metrics) = structured.get("metrics") {
+                if let Some(exec_time) = metrics.get("executionTime").and_then(|v| v.as_f64()) {
+                    parts.push(format!("Query executed in {:.2}ms.", exec_time));
+                }
+                if let Some(seq_scans) = metrics.get("sequentialScans").and_then(|v| v.as_u64()) {
+                    if seq_scans > 0 {
+                        parts.push(format!("Found {seq_scans} sequential scan(s)."));
+                    }
+                }
+            }
+        }
+
+        let candidate_count = suggestions
+            .get("high_seq_scan_tables")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
+            + suggestions
+                .get("unindexed_fk_columns")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+
+        if candidate_count > 0 {
+            parts.push(format!(
+                "{candidate_count} index recommendation(s) identified."
+            ));
+        } else {
+            parts.push("No explicit index candidate recommendations generated.".into());
+        }
+
+        if parts.is_empty() {
+            "Auto-tune evaluation complete. Inspect execution plan and index recommendations."
+                .into()
+        } else {
+            parts.join(" ")
+        }
+    }
+
     async fn auto_tune_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         let sql = args
             .get("sql")
@@ -529,19 +651,26 @@ impl ToolRouter {
             .deep_plan_analysis(&json!({ "sql": sql, "analyze": true }))
             .await?;
 
-        let suggestions_data = match self.suggest_indexes(&json!({})).await {
-            Ok(outcome) => outcome.structured.unwrap_or(json!([])),
-            Err(_) => json!([]),
+        let suggestions_res = self.suggest_indexes(&json!({ "sql": sql })).await;
+        let (suggestions_data, suggestions_error) = match suggestions_res {
+            Ok(outcome) => (outcome.structured.unwrap_or(json!([])), None),
+            Err(e) => (json!([]), Some(e.to_string())),
         };
 
-        let summary = json!({
+        let summary_text = Self::build_tuning_summary(&deep_plan.structured, &suggestions_data);
+
+        let mut payload = json!({
             "target_query": sql,
             "deep_plan_analysis": deep_plan.structured,
             "index_suggestions": suggestions_data,
-            "tuning_summary": "Auto-tune evaluation complete. Inspect plan findings and index recommendations.",
+            "tuning_summary": summary_text,
         });
 
-        Ok(ToolOutcome::ok_json(summary))
+        if let Some(err) = suggestions_error {
+            payload["suggestions_error"] = json!(err);
+        }
+
+        Ok(ToolOutcome::ok_json(payload))
     }
 
     async fn check_ddl_safety_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -554,6 +683,438 @@ impl ToolRouter {
         Ok(ToolOutcome::ok_json(report))
     }
 
+    async fn rebuild_index_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let store = self
+            .index_store()
+            .ok_or_else(|| ToolError::Execution("Index store unavailable".into()))?;
+        let (connection_id, database) = self.session.active_context().await;
+        let depth_str = args
+            .get("depth")
+            .and_then(|v| v.as_str())
+            .unwrap_or("structure");
+        let depth: BuildDepth = match depth_str.to_lowercase().as_str() {
+            "profiles" | "full" => BuildDepth::Profiles,
+            _ => BuildDepth::Structure,
+        };
+
+        let req = BuildRequest {
+            connection_id: connection_id.clone(),
+            database: database.clone(),
+            scope: IndexScope {
+                included_schemas: vec![],
+                excluded_objects: vec![],
+                pii_excluded_columns: vec![],
+            },
+            depth,
+            build_mode: BuildMode::Guided,
+            environment: "development".into(),
+            embeddings: self.use_semantic,
+        };
+
+        let client = self.session.checkout().await?;
+        let db = PgCatalogDb::new(&client);
+        let manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
+            .await
+            .map_err(|e| ToolError::Execution(format!("Index build failed: {e}")))?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "status": "completed",
+            "connection_id": connection_id,
+            "database": database,
+            "schema_fingerprint": manifest.schema_fingerprint,
+            "counts": manifest.counts,
+            "build_ms": manifest.stats.build_ms,
+        })))
+    }
+
+    async fn refresh_index_tool(&self, _args: &Value) -> Result<ToolOutcome, ToolError> {
+        let store = self
+            .index_store()
+            .ok_or_else(|| ToolError::Execution("Index store unavailable".into()))?;
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        let manifest = store.read_manifest(&base)?.ok_or_else(|| {
+            ToolError::Execution(
+                "No existing index manifest to refresh — call 'rebuild_index'.".into(),
+            )
+        })?;
+
+        let req = BuildRequest {
+            connection_id: connection_id.clone(),
+            database: database.clone(),
+            scope: manifest.scope,
+            depth: manifest.build_depth,
+            build_mode: manifest.build_mode,
+            environment: manifest.environment,
+            embeddings: self.use_semantic,
+        };
+
+        let client = self.session.checkout().await?;
+        let db = PgCatalogDb::new(&client);
+        let new_manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
+            .await
+            .map_err(|e| ToolError::Execution(format!("Index refresh failed: {e}")))?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "status": "refreshed",
+            "connection_id": connection_id,
+            "database": database,
+            "schema_fingerprint": new_manifest.schema_fingerprint,
+            "counts": new_manifest.counts,
+            "build_ms": new_manifest.stats.build_ms,
+        })))
+    }
+
+    async fn run_doctor_tool(&self) -> Result<ToolOutcome, ToolError> {
+        let (connection_id, database) = self.session.active_context().await;
+        let client = self.session.checkout().await?;
+
+        let version: String = client
+            .query_one("SELECT version()", &[])
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?
+            .get(0);
+
+        let is_super: String = client
+            .query_one("SELECT current_setting('is_superuser')", &[])
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?
+            .get(0);
+        let is_superuser = is_super.eq_ignore_ascii_case("on");
+
+        let ro: String = client
+            .query_one("SHOW default_transaction_read_only", &[])
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?
+            .get(0);
+
+        let timeout: String = client
+            .query_one("SHOW statement_timeout", &[])
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?
+            .get(0);
+
+        let pgs_present: bool = match client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
+                &[],
+            )
+            .await
+        {
+            Ok(row) => row.get(0),
+            Err(_) => false,
+        };
+
+        let index_status = if let Some(store) = self.index_store() {
+            let base = store.base_dir(&connection_id, &database);
+            match store.read_manifest(&base) {
+                Ok(Some(m)) => json!({
+                    "present": true,
+                    "indexed_at": m.indexed_at,
+                    "fingerprint": m.schema_fingerprint,
+                    "tables": m.counts.tables,
+                }),
+                _ => json!({ "present": false }),
+            }
+        } else {
+            json!({ "present": false, "reason": "no_index_store" })
+        };
+
+        let recent_errors = read_recent_log_errors();
+
+        Ok(ToolOutcome::ok_json(json!({
+            "status": "ok",
+            "connection_id": connection_id,
+            "database": database,
+            "version": version.split(',').next().unwrap_or(&version),
+            "access_mode": format!("{:?}", self.session.access_mode()),
+            "superuser": is_superuser,
+            "read_only": ro,
+            "statement_timeout": timeout,
+            "pg_stat_statements": pgs_present,
+            "index": index_status,
+            "recent_errors": recent_errors,
+        })))
+    }
+
+    async fn setup_connection_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let profile_name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+
+        let candidates = crate::detect::ConnectionDetector::detect_all(None);
+
+        let url = args.get("url").and_then(|v| v.as_str());
+        let host = args.get("host").and_then(|v| v.as_str());
+        let port = args.get("port").and_then(|v| v.as_u64()).map(|n| n as u16);
+        let dbname = args.get("dbname").and_then(|v| v.as_str());
+        let user = args.get("user").and_then(|v| v.as_str());
+        let password = args.get("password").and_then(|v| v.as_str());
+        let sslmode = args.get("sslmode").and_then(|v| v.as_str());
+
+        let best_cand = candidates
+            .iter()
+            .find(|c| c.is_complete)
+            .or_else(|| candidates.first());
+
+        let res_host = host.or_else(|| best_cand.and_then(|c| c.host.as_deref()));
+        let res_port = port.or_else(|| best_cand.and_then(|c| c.port));
+        let res_dbname = dbname.or_else(|| best_cand.and_then(|c| c.dbname.as_deref()));
+        let res_user = user.or_else(|| best_cand.and_then(|c| c.user.as_deref()));
+        let res_password = password.or_else(|| best_cand.and_then(|c| c.password.as_deref()));
+        let res_url = url.or_else(|| best_cand.and_then(|c| c.url.as_deref()));
+        let res_sslmode = sslmode.or_else(|| best_cand.and_then(|c| c.sslmode.as_deref()));
+
+        if res_url.is_none() && (res_host.is_none() || res_dbname.is_none() || res_user.is_none()) {
+            let missing: Vec<&str> = vec![
+                if res_host.is_none() {
+                    Some("host")
+                } else {
+                    None
+                },
+                if res_dbname.is_none() {
+                    Some("dbname")
+                } else {
+                    None
+                },
+                if res_user.is_none() {
+                    Some("user")
+                } else {
+                    None
+                },
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+
+            return Ok(ToolOutcome::ok_json(json!({
+                "status": "needs_input",
+                "message": "Insufficient connection details. Please supply missing fields.",
+                "detectedCandidates": candidates.iter().map(|c| c.redacted_json()).collect::<Vec<_>>(),
+                "missingFields": missing
+            })));
+        }
+
+        let params = nexql_conn::ConnectionParams {
+            url: res_url.map(String::from),
+            host: res_host.map(String::from),
+            port: res_port,
+            dbname: res_dbname.map(String::from),
+            user: res_user.map(String::from),
+            password: res_password.map(String::from),
+            sslmode: res_sslmode.map(String::from),
+            ..Default::default()
+        };
+
+        match nexql_conn::test_connection(&params).await {
+            Ok(report) => {
+                let p_config = nexql_conn::ProfileConfig {
+                    url: params.url.clone(),
+                    host: params.host.clone(),
+                    port: params.port,
+                    dbname: params.dbname.clone(),
+                    user: params.user.clone(),
+                    password: params.password.clone(),
+                    sslmode: params.sslmode.clone(),
+                    ..Default::default()
+                };
+
+                let path = nexql_conn::ConfigFile::default_path().ok_or_else(|| {
+                    ToolError::Execution("Could not resolve config directory".into())
+                })?;
+                let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+                cfg.upsert_profile(profile_name, p_config);
+                let backup = cfg
+                    .save(&path)
+                    .map_err(|e| ToolError::Execution(e.to_string()))?;
+
+                Ok(ToolOutcome::ok_json(json!({
+                    "status": "configured",
+                    "profileName": profile_name,
+                    "serverVersion": report.server_version,
+                    "isSuperuser": report.is_superuser,
+                    "latencyMs": report.latency.as_millis(),
+                    "configPath": path.to_string_lossy().to_string(),
+                    "backup": backup.map(|b| b.to_string_lossy().to_string())
+                })))
+            }
+            Err(e) => Ok(ToolOutcome::ok_json(json!({
+                "status": "failed",
+                "error": e.to_string(),
+                "detectedCandidates": candidates.iter().map(|c| c.redacted_json()).collect::<Vec<_>>()
+            }))),
+        }
+    }
+
+    async fn save_profile_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidArgs("name parameter is required".into()))?;
+
+        let p_config = nexql_conn::ProfileConfig {
+            url: args.get("url").and_then(|v| v.as_str()).map(String::from),
+            host: args.get("host").and_then(|v| v.as_str()).map(String::from),
+            port: args.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
+            dbname: args
+                .get("dbname")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            user: args.get("user").and_then(|v| v.as_str()).map(String::from),
+            password: args
+                .get("password")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            sslmode: args
+                .get("sslmode")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            access_mode: args
+                .get("access_mode")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            max_rows: args
+                .get("max_rows")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32),
+            ..Default::default()
+        };
+
+        let path = nexql_conn::ConfigFile::default_path()
+            .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
+
+        let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+        cfg.upsert_profile(name, p_config);
+        let backup = cfg
+            .save(&path)
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "status": "saved",
+            "profile": name,
+            "configPath": path.to_string_lossy().to_string(),
+            "backup": backup.map(|b| b.to_string_lossy().to_string())
+        })))
+    }
+
+    async fn test_profile_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let name = args.get("name").and_then(|v| v.as_str());
+
+        let params = if let Some(pname) = name {
+            let conn = self
+                .session
+                .connections
+                .iter()
+                .find(|c| c.id == pname)
+                .ok_or_else(|| ToolError::InvalidArgs(format!("Profile '{pname}' not found")))?;
+            conn.params.clone()
+        } else {
+            nexql_conn::ConnectionParams {
+                url: args.get("url").and_then(|v| v.as_str()).map(String::from),
+                host: args.get("host").and_then(|v| v.as_str()).map(String::from),
+                port: args.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
+                dbname: args
+                    .get("dbname")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                user: args.get("user").and_then(|v| v.as_str()).map(String::from),
+                password: args
+                    .get("password")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                sslmode: args
+                    .get("sslmode")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                ..Default::default()
+            }
+        };
+
+        match nexql_conn::test_connection(&params).await {
+            Ok(report) => Ok(ToolOutcome::ok_json(json!({
+                "success": true,
+                "serverVersion": report.server_version,
+                "isSuperuser": report.is_superuser,
+                "latencyMs": report.latency.as_millis()
+            }))),
+            Err(e) => Ok(ToolOutcome::ok_json(json!({
+                "success": false,
+                "error": e.to_string()
+            }))),
+        }
+    }
+
+    async fn export_profile_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let format = args
+            .get("format")
+            .and_then(|v| v.as_str())
+            .unwrap_or("project");
+        let path = nexql_conn::ConfigFile::default_path()
+            .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
+        let cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+
+        if format == "full" {
+            let sanitized = cfg.export_full_sanitized();
+            let toml_str = sanitized
+                .to_toml_string()
+                .map_err(|e| ToolError::Execution(e.to_string()))?;
+            Ok(ToolOutcome::ok_json(json!({
+                "format": "full",
+                "content": toml_str,
+            })))
+        } else {
+            let proj = cfg.export_shareable();
+            let toml_str =
+                toml::to_string_pretty(&proj).map_err(|e| ToolError::Execution(e.to_string()))?;
+            Ok(ToolOutcome::ok_json(json!({
+                "format": "project",
+                "filename": ".nexql/config.toml",
+                "content": toml_str,
+            })))
+        }
+    }
+
+    async fn import_profile_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let content = if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
+            c.to_string()
+        } else if let Some(p) = args.get("path").and_then(|v| v.as_str()) {
+            std::fs::read_to_string(p)
+                .map_err(|e| ToolError::Execution(format!("failed to read file {p}: {e}")))?
+        } else {
+            return Err(ToolError::Execution(
+                "either 'content' or 'path' must be specified".into(),
+            ));
+        };
+
+        let path = nexql_conn::ConfigFile::default_path()
+            .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
+        let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+
+        let imported: nexql_conn::ConfigFile = toml::from_str(&content)
+            .map_err(|e| ToolError::Execution(format!("failed to parse TOML content: {e}")))?;
+
+        let mut count = 0;
+        for (name, prof) in imported.profiles {
+            cfg.upsert_profile(name, prof);
+            count += 1;
+        }
+        if imported.default_profile.is_some() {
+            cfg.default_profile = imported.default_profile;
+        }
+
+        let backup = cfg
+            .save(&path)
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+
+        Ok(ToolOutcome::ok_json(json!({
+            "status": "imported",
+            "imported_profiles": count,
+            "configPath": path.to_string_lossy().to_string(),
+            "backup": backup.map(|b| b.to_string_lossy().to_string())
+        })))
+    }
+
     async fn index_service(&self) -> Result<(&IndexStore, String, String), ToolError> {
         let store = self
             .index_store()
@@ -562,7 +1123,7 @@ impl ToolRouter {
         let base = store.base_dir(&connection_id, &database);
         if store.read_manifest(&base)?.is_none() {
             return Err(ToolError::Execution(format!(
-                "No schema index for database \"{database}\" — run `nexql-mcp index build`."
+                "No schema index for database \"{database}\" — call the 'rebuild_index' tool to build an index."
             )));
         }
         Ok((store, connection_id, database))
@@ -643,11 +1204,40 @@ impl ToolRouter {
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
         let filter = self.query_filter();
-        // Index-only this phase — live DB sampling stays Phase 4+.
         let result = svc.sample_values(ref_, col, Some(&filter), None)?;
-        let mut payload = json!({ "values": result.values });
-        if let Some(message) = result.message {
-            payload["message"] = json!(message);
+
+        let mut values = result.values;
+        let mut message = result.message;
+
+        if values.is_empty() {
+            if let Ok(client) = self.session.checkout().await {
+                let parts: Vec<&str> = ref_.split('.').collect();
+                let (schema, table) = match parts.as_slice() {
+                    [s, t] => (*s, *t),
+                    _ => ("public", ref_),
+                };
+                let safe_schema = schema.replace('"', "\"\"");
+                let safe_table = table.replace('"', "\"\"");
+                let safe_col = col.replace('"', "\"\"");
+                let query = format!(
+                    "SELECT DISTINCT \"{safe_col}\"::text FROM \"{safe_schema}\".\"{safe_table}\" WHERE \"{safe_col}\" IS NOT NULL LIMIT 20"
+                );
+                if let Ok(rows) = client.query(&query, &[]).await {
+                    let sampled: Vec<String> = rows
+                        .iter()
+                        .filter_map(|r| r.get::<_, Option<String>>(0))
+                        .collect();
+                    if !sampled.is_empty() {
+                        values = sampled;
+                        message = None;
+                    }
+                }
+            }
+        }
+
+        let mut payload = json!({ "values": values });
+        if let Some(msg) = message {
+            payload["message"] = json!(msg);
         }
         Ok(ToolOutcome::ok_json(payload))
     }
@@ -691,8 +1281,9 @@ impl ToolRouter {
             if self.session.active_context().await.0 == connection_id {
                 self.session.checkout().await?
             } else {
-                let pool = nexql_conn::create_pool(&conn.params, &self.session.pool_opts).await?;
-                nexql_conn::checkout_guarded(&pool, &self.session.pool_opts).await?
+                let pool_opts = self.session.pool_opts();
+                let pool = nexql_conn::create_pool(&conn.params, &pool_opts).await?;
+                nexql_conn::checkout_guarded(&pool, &pool_opts).await?
             }
         };
         let rows = client
@@ -723,7 +1314,7 @@ impl ToolRouter {
             .iter()
             .filter(|r| {
                 let name: String = r.get(0);
-                self.session.filter.allows_schema(&name)
+                self.session.filter().allows_schema(&name)
             })
             .map(|r| json!({ "schema_name": r.get::<_, String>(0) }))
             .collect();
@@ -743,7 +1334,7 @@ impl ToolRouter {
                 "Invalid or missing schema name format".into(),
             ));
         }
-        if !self.session.filter.allows_schema(schema) {
+        if !self.session.filter().allows_schema(schema) {
             return Ok(ToolOutcome::ok_json(json!([])));
         }
         let kind = args.get("kind").and_then(|v| v.as_str());
@@ -785,7 +1376,7 @@ impl ToolRouter {
             .filter(|r| {
                 let s: String = r.get("schema");
                 let name: String = r.get("name");
-                self.session.filter.allows_table(&s, &name)
+                self.session.filter().allows_table(&s, &name)
             })
             .map(|r| {
                 json!({
@@ -812,7 +1403,7 @@ impl ToolRouter {
             "database": database,
             "host": conn.and_then(|c| c.host.clone()),
             "port": conn.and_then(|c| c.port),
-            "access_mode": match self.session.access_mode {
+            "access_mode": match self.session.access_mode() {
                 nexql_policy::AccessMode::Read => "read",
                 nexql_policy::AccessMode::Write => "write",
                 nexql_policy::AccessMode::Admin => "admin",
@@ -851,7 +1442,7 @@ impl ToolRouter {
         if trimmed.starts_with("explain") {
             return self.run_select_internal(sql, None).await;
         }
-        let max_rows = self.session.caps.max_rows;
+        let max_rows = self.session.caps().max_rows;
         self.run_select_internal(sql, Some(max_rows)).await
     }
 
@@ -1443,7 +2034,7 @@ impl ToolRouter {
             ));
         }
 
-        let max_rows = self.session.caps.max_rows;
+        let max_rows = self.session.caps().max_rows;
         let outcome = self.run_select_internal(sql, Some(max_rows)).await?;
         if outcome.is_error {
             return Ok(outcome);
@@ -1472,7 +2063,8 @@ impl ToolRouter {
             }),
             ExportFormat::Csv => {
                 let content = rows_to_csv(&rows, &columns);
-                let (char_trunc, content) = self.session.caps.truncate_chars(&content);
+                let caps = self.session.caps();
+                let (char_trunc, content) = caps.truncate_chars(&content);
                 json!({
                     "format": format.as_str(),
                     "rowCount": rows.len(),
@@ -1484,7 +2076,8 @@ impl ToolRouter {
             ExportFormat::SqlInsert => {
                 let (schema, table) = table_target.expect("checked above");
                 let content = rows_to_sql_insert(&rows, &columns, &schema, &table);
-                let (char_trunc, content) = self.session.caps.truncate_chars(&content);
+                let caps = self.session.caps();
+                let (char_trunc, content) = caps.truncate_chars(&content);
                 json!({
                     "format": format.as_str(),
                     "rowCount": rows.len(),
@@ -1656,7 +2249,8 @@ impl ToolRouter {
             let payload = ensure_structured_object(values);
             let text = serde_json::to_string_pretty(&payload)
                 .map_err(|e| ToolError::Execution(e.to_string()))?;
-            let (trunc, text) = self.session.caps.truncate_chars(&text);
+            let caps = self.session.caps();
+            let (trunc, text) = caps.truncate_chars(&text);
             let structured = if trunc {
                 json!({ "truncated_chars": true, "data": payload })
             } else {
@@ -1674,10 +2268,11 @@ impl ToolRouter {
             "SELECT * FROM ({cleaned}) AS nexql_limited LIMIT {}",
             max_rows + 1
         );
-        let rows = match client.query(&wrapped, &[]).await {
-            Ok(r) => r,
-            Err(_) => client.query(sql, &[]).await?,
-        };
+        let rows = client.query(&wrapped, &[]).await.map_err(|e| {
+            ToolError::Execution(format!(
+                "Failed to execute row-limited query (refusing unbounded fallback): {e}"
+            ))
+        })?;
         let truncated = rows.len() as u32 > max_rows;
         let keep = if truncated {
             &rows[..max_rows as usize]
@@ -1695,7 +2290,8 @@ impl ToolRouter {
         }
         let text = serde_json::to_string_pretty(&payload)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
-        let (char_trunc, text) = self.session.caps.truncate_chars(&text);
+        let caps = self.session.caps();
+        let (char_trunc, text) = caps.truncate_chars(&text);
         let structured = if char_trunc {
             json!({ "truncated_chars": true, "data": payload })
         } else {
@@ -1738,8 +2334,10 @@ fn fuzzy_score(hint: &str, candidate: &str) -> f64 {
     if c.contains(&h) || h.contains(&c) {
         return 75.0;
     }
-    let h_tokens: std::collections::HashSet<&str> = h.split(' ').filter(|s| !s.is_empty()).collect();
-    let c_tokens: std::collections::HashSet<&str> = c.split(' ').filter(|s| !s.is_empty()).collect();
+    let h_tokens: std::collections::HashSet<&str> =
+        h.split(' ').filter(|s| !s.is_empty()).collect();
+    let c_tokens: std::collections::HashSet<&str> =
+        c.split(' ').filter(|s| !s.is_empty()).collect();
     let overlap = h_tokens.intersection(&c_tokens).count();
     if overlap == 0 {
         return 0.0;
@@ -2022,6 +2620,42 @@ fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -
     })
 }
 
+fn read_recent_log_errors() -> Vec<String> {
+    let path = std::env::var("NEXQL_MCP_LOG")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| {
+                std::path::PathBuf::from(h)
+                    .join(".config")
+                    .join("nexql-mcp")
+                    .join("logs")
+                    .join("nexql-mcp.log")
+            })
+        });
+
+    let Some(log_path) = path else {
+        return Vec::new();
+    };
+
+    let Ok(content) = std::fs::read_to_string(&log_path) else {
+        return Vec::new();
+    };
+
+    content
+        .lines()
+        .rev()
+        .take(50)
+        .filter(|line| {
+            line.contains("ERROR")
+                || line.contains("WARN")
+                || line.contains("failed")
+                || line.contains("Error")
+        })
+        .map(String::from)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2029,7 +2663,8 @@ mod tests {
     use nexql_policy::PolicyFilter;
     use serde_json::json;
 
-    use crate::session::{ConnectionInfo, ToolSession};
+    use crate::session::{ConnectionInfo, ConnectionPolicy, ToolSession};
+    use nexql_policy::{AccessMode, PolicyCaps};
 
     fn test_conn() -> ConnectionInfo {
         ConnectionInfo {
@@ -2039,6 +2674,12 @@ mod tests {
             port: Some(5432),
             database: Some("appdb".into()),
             params: Default::default(),
+            policy: ConnectionPolicy {
+                access_mode: AccessMode::Read,
+                caps: PolicyCaps::default(),
+                filter: PolicyFilter::default(),
+                environment: None,
+            },
         }
     }
 
@@ -2079,7 +2720,7 @@ mod tests {
     fn router_specs_include_phase4_and_phase9() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
-        assert_eq!(router.specs().len(), 45);
+        assert_eq!(router.specs().len(), ToolName::ACTIVE.len());
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));
@@ -2166,7 +2807,7 @@ mod tests {
             .await;
         assert!(out.is_error, "{}", out.text);
         assert!(
-            out.text.contains("nexql-mcp index build"),
+            out.text.contains("rebuild_index"),
             "expected actionable hint, got: {}",
             out.text
         );
@@ -2187,9 +2828,90 @@ mod tests {
             .await;
         assert!(out.is_error, "{}", out.text);
         assert!(
-            out.text.contains("nexql-mcp index build"),
+            out.text.contains("rebuild_index"),
             "expected build hint, got: {}",
             out.text
+        );
+    }
+
+    #[tokio::test]
+    async fn outcome_tagged_with_connection_id_and_database() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let out = router.call("list_connections", json!({})).await;
+        let structured = out.structured.expect("structured outcome");
+        assert_eq!(
+            structured.get("connectionId").and_then(|v| v.as_str()),
+            Some("conn-1")
+        );
+        assert_eq!(
+            structured.get("database").and_then(|v| v.as_str()),
+            Some("appdb")
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_connection_returns_needs_input_when_incomplete() {
+        unsafe {
+            std::env::remove_var("DATABASE_URL");
+            std::env::remove_var("POSTGRES_URL");
+            std::env::remove_var("PGHOST");
+        }
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let out = router.call("setup_connection", json!({})).await;
+        let structured = out.structured.expect("structured outcome");
+        assert!(structured.get("status").is_some());
+    }
+
+    #[tokio::test]
+    async fn save_profile_persists_config() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "host": "127.0.0.1",
+                    "port": 5432,
+                    "dbname": "stage_db",
+                    "user": "stage_user"
+                }),
+            )
+            .await;
+
+        let structured = out.structured.expect("structured outcome");
+        assert_eq!(
+            structured.get("status").and_then(|v| v.as_str()),
+            Some("saved")
+        );
+        assert_eq!(
+            structured.get("profile").and_then(|v| v.as_str()),
+            Some("staging")
+        );
+    }
+
+    #[tokio::test]
+    async fn check_ddl_safety_tool_dispatches_ast_report() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let out = router
+            .call(
+                "check_ddl_safety",
+                json!({ "ddl": "CREATE INDEX idx_col ON users(col);" }),
+            )
+            .await;
+        let structured = out.structured.expect("structured outcome");
+        assert_eq!(
+            structured.get("overall_risk").and_then(|v| v.as_str()),
+            Some("CRITICAL")
         );
     }
 }

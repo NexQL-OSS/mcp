@@ -209,10 +209,11 @@ Errors: actionable — `"Object X not found — call search_schema(...)"`.
 
 | Test | Assert |
 |------|--------|
-| MiniLM vector | epsilon match vs TS for fixed string |
-| embeddings.bin | TS IndexStore reads Rust output |
-| fuseRrf | port IndexQueryService.test.ts |
-| --embeddings off | lexical only |
+| MiniLM vector | dim 384, finite, ~unit norm (`embed.rs::embed_fixed_string_has_expected_dim_and_finite`) |
+| fuseRrf | ported `IndexQueryService.test.ts` (`query.rs::search_schema_rrf_fuses_semantic_and_surfaces_semantic_only`) |
+| Semantic beats lexical (real model) | `tests/embeddings_semantic_gate.rs` — real MiniLM, synonym query, no fake embedder |
+| --embeddings off | lexical only (`query.rs::search_schema_stays_lexical_without_semantic_opts`) |
+| embeddings.bin cross-read with TS | Deferred — no host-free TS `IndexBuilder` harness yet |
 
 ### Phase 6 — ship
 

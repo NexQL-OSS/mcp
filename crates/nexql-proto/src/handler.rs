@@ -1,12 +1,18 @@
 //! Shared MCP JSON-RPC dispatch for stdio and HTTP transports.
 
-use std::sync::Arc;
-
+use async_trait::async_trait;
 use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::MCP_SERVER_INSTRUCTIONS;
 use crate::SUPPORTED_PROTOCOL_VERSIONS;
-use crate::backend::{CompletionBackend, PromptBackend, ResourceBackend, ToolBackend};
+use crate::backend::{
+    ClientCapabilities, ClientRequester, CompletionBackend, PromptBackend, ResourceBackend,
+    ToolBackend,
+};
 use crate::error::ProtoError;
 use crate::types::{JsonRpcRequest, JsonRpcResponse, negotiate_protocol_version};
 
@@ -17,6 +23,10 @@ pub struct McpHandler {
     completions: Option<Arc<dyn CompletionBackend>>,
     server_name: String,
     server_version: String,
+    client_capabilities: Arc<RwLock<ClientCapabilities>>,
+    outbound_tx: Arc<RwLock<Option<mpsc::Sender<String>>>>,
+    pending_responses: Arc<Mutex<HashMap<Value, oneshot::Sender<JsonRpcResponse>>>>,
+    request_id_counter: Arc<AtomicU64>,
 }
 
 impl McpHandler {
@@ -28,6 +38,10 @@ impl McpHandler {
             completions: None,
             server_name: "nexql-mcp".into(),
             server_version: env!("CARGO_PKG_VERSION").into(),
+            client_capabilities: Arc::new(RwLock::new(ClientCapabilities::default())),
+            outbound_tx: Arc::new(RwLock::new(None)),
+            pending_responses: Arc::new(Mutex::new(HashMap::new())),
+            request_id_counter: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -46,8 +60,42 @@ impl McpHandler {
         self
     }
 
+    pub fn with_outbound_tx(self, tx: mpsc::Sender<String>) -> Self {
+        if let Ok(mut guard) = self.outbound_tx.write() {
+            *guard = Some(tx);
+        }
+        self
+    }
+
+    pub fn set_outbound_tx(&self, tx: mpsc::Sender<String>) {
+        if let Ok(mut guard) = self.outbound_tx.write() {
+            *guard = Some(tx);
+        }
+    }
+
     pub async fn handle_json(&self, line: &str) -> Option<JsonRpcResponse> {
-        let req: JsonRpcRequest = match serde_json::from_str(line) {
+        let req_val: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(JsonRpcResponse::err(
+                    Value::Null,
+                    ProtoError::PARSE,
+                    format!("parse error: {e}"),
+                ));
+            }
+        };
+
+        if req_val.get("method").is_none() && req_val.get("id").is_some() {
+            if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(req_val.clone()) {
+                let mut pending = self.pending_responses.lock().unwrap();
+                if let Some(tx) = pending.remove(&resp.id) {
+                    let _ = tx.send(resp);
+                }
+                return None;
+            }
+        }
+
+        let req: JsonRpcRequest = match serde_json::from_value(req_val) {
             Ok(r) => r,
             Err(e) => {
                 return Some(JsonRpcResponse::err(
@@ -108,6 +156,17 @@ impl McpHandler {
             .and_then(|p| p.get("protocolVersion"))
             .and_then(|v| v.as_str());
         let version = negotiate_protocol_version(requested, SUPPORTED_PROTOCOL_VERSIONS);
+
+        if let Some(caps) = params.as_ref().and_then(|p| p.get("capabilities")) {
+            let elicitation = caps.get("elicitation").is_some();
+            let roots = caps.get("roots").is_some();
+            let sampling = caps.get("sampling").is_some();
+            if let Ok(mut client_caps) = self.client_capabilities.write() {
+                client_caps.elicitation = elicitation;
+                client_caps.roots = roots;
+                client_caps.sampling = sampling;
+            }
+        }
 
         let mut capabilities = json!({
             "tools": { "listChanged": false }
@@ -284,6 +343,104 @@ impl McpHandler {
     }
 }
 
+#[async_trait]
+impl ClientRequester for McpHandler {
+    fn client_capabilities(&self) -> ClientCapabilities {
+        self.client_capabilities
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+
+    async fn request_elicitation(
+        &self,
+        prompt: &str,
+        requested_schema: Value,
+    ) -> Result<Value, String> {
+        let tx = {
+            let guard = self.outbound_tx.read().map_err(|e| e.to_string())?;
+            guard
+                .clone()
+                .ok_or_else(|| "No outbound transport configured".to_string())?
+        };
+
+        let req_id = json!(self.request_id_counter.fetch_add(1, Ordering::SeqCst));
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "elicitation/create",
+            "params": {
+                "message": prompt,
+                "requestedSchema": requested_schema
+            }
+        });
+
+        let (rx_tx, rx_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_responses.lock().map_err(|e| e.to_string())?;
+            pending.insert(req_id, rx_tx);
+        }
+
+        tx.send(req.to_string()).await.map_err(|e| e.to_string())?;
+
+        match rx_rx.await {
+            Ok(resp) => {
+                if let Some(err) = resp.error {
+                    Err(err.message)
+                } else if let Some(res) = resp.result {
+                    Ok(res)
+                } else {
+                    Err("Empty elicitation response".into())
+                }
+            }
+            Err(_) => Err("Elicitation request cancelled".into()),
+        }
+    }
+
+    async fn request_roots(&self) -> Result<Vec<Value>, String> {
+        let tx = {
+            let guard = self.outbound_tx.read().map_err(|e| e.to_string())?;
+            guard
+                .clone()
+                .ok_or_else(|| "No outbound transport configured".to_string())?
+        };
+
+        let req_id = json!(self.request_id_counter.fetch_add(1, Ordering::SeqCst));
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "roots/list",
+            "params": {}
+        });
+
+        let (rx_tx, rx_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_responses.lock().map_err(|e| e.to_string())?;
+            pending.insert(req_id, rx_tx);
+        }
+
+        tx.send(req.to_string()).await.map_err(|e| e.to_string())?;
+
+        match rx_rx.await {
+            Ok(resp) => {
+                if let Some(err) = resp.error {
+                    Err(err.message)
+                } else if let Some(res) = resp.result {
+                    let roots = res
+                        .get("roots")
+                        .and_then(|r| r.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    Ok(roots)
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Err(_) => Err("Roots request cancelled".into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,5 +605,56 @@ mod tests {
         let resp = handler.handle_json(req).await.unwrap();
         let prompts = resp.result.unwrap()["prompts"].as_array().unwrap().clone();
         assert_eq!(prompts.len(), 7);
+    }
+
+    #[tokio::test]
+    async fn records_client_capabilities_at_initialize() {
+        let handler = full_handler();
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {
+                    "elicitation": {},
+                    "roots": { "listChanged": true }
+                }
+            }
+        });
+        handler.handle_json(&req.to_string()).await.unwrap();
+        let caps = handler.client_capabilities();
+        assert!(caps.elicitation);
+        assert!(caps.roots);
+        assert!(!caps.sampling);
+    }
+
+    #[tokio::test]
+    async fn outbound_elicitation_request_and_response() {
+        let handler = Arc::new(full_handler());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        handler.set_outbound_tx(tx);
+
+        let handler_clone = handler.clone();
+        tokio::spawn(async move {
+            let req_str = rx.recv().await.unwrap();
+            let req_val: Value = serde_json::from_str(&req_str).unwrap();
+            let req_id = req_val["id"].clone();
+            assert_eq!(req_val["method"], "elicitation/create");
+
+            let resp = json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": { "action": "accept", "content": { "password": "secret_pwd" } }
+            });
+            handler_clone.handle_json(&resp.to_string()).await;
+        });
+
+        let res = handler
+            .request_elicitation("Enter pwd", json!({"type": "object"}))
+            .await
+            .unwrap();
+        assert_eq!(res["action"], "accept");
+        assert_eq!(res["content"]["password"], "secret_pwd");
     }
 }

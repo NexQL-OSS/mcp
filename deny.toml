@@ -12,9 +12,6 @@ ignore = [
     "RUSTSEC-2025-0119",
     # paste (proc-macro) <- gemm <- candle-core <- nexql-index (optional `embeddings` feature only).
     "RUSTSEC-2024-0436",
-    # rustls-pemfile: direct dep of nexql-conn/src/tls.rs. Superseded by rustls-pki-types'
-    # `pem` feature — TODO migrate certs()/private_key() calls, then drop this ignore.
-    "RUSTSEC-2025-0134",
 ]
 
 [licenses]

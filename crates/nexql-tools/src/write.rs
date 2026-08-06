@@ -21,7 +21,7 @@ pub async fn execute_sql(
     sql: &str,
     dry_run: bool,
 ) -> Result<ToolOutcome, ToolError> {
-    let mode = session.access_mode;
+    let mode = session.access_mode();
     match validate_write_sql(mode, sql)? {
         SqlDecision::Allow => {}
         SqlDecision::Reject => {
@@ -69,7 +69,7 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
     })?;
 
     let (schema, table) = parse_ref(table_ref).map_err(ToolError::InvalidArgs)?;
-    if !session.filter.allows_table(&schema, &table) {
+    if !session.filter().allows_table(&schema, &table) {
         return Err(ToolError::Execution(format!(
             "Table \"{schema}.{table}\" is denied by policy filter."
         )));
@@ -262,7 +262,7 @@ pub async fn import_data(
     }
 
     let (schema, table) = parse_ref(table_ref).map_err(ToolError::InvalidArgs)?;
-    if !session.filter.allows_table(&schema, &table) {
+    if !session.filter().allows_table(&schema, &table) {
         return Err(ToolError::Execution(format!(
             "Table \"{schema}.{table}\" is denied by policy filter."
         )));

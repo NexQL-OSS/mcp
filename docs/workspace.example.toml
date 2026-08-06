@@ -1,0 +1,28 @@
+# .nexql/config.toml — project-level database configuration
+# Commit this file to your repository. It contains NO secrets.
+#
+# This file selects a profile from the user's global config
+# (~/.config/nexql-mcp/config.toml) and optionally tightens
+# security policy for this project.
+
+# Select the profile to use for this project.
+# The profile must exist in the user's global config.
+default_profile = "staging"
+
+# Restrict access to read-only for this project.
+access_mode = "read"
+
+# Only expose these schemas to the MCP agent.
+schemas = ["public", "billing"]
+
+# Deny access to these tables (glob patterns supported).
+deny_tables = ["auth.*", "internal.*"]
+
+# Mark columns as PII — values will be masked in tool responses.
+pii_columns = ["public.users.ssn", "public.users.email"]
+
+# Lower the max rows returned per query (cannot exceed profile setting).
+max_rows = 200
+
+# Optional: store index cache locally instead of global ~/.local/share/nexql-mcp/
+# index_dir = "cache"  # resolves to .nexql/cache/

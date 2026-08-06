@@ -5,6 +5,7 @@
 
 pub mod completions;
 pub mod dba_guard;
+pub mod detect;
 pub mod error;
 pub mod exec;
 pub mod export;
@@ -19,6 +20,7 @@ pub mod sql;
 pub mod write;
 
 pub use completions::{CompletionResult, CompletionsProvider};
+pub use detect::{ConnectionDetector, DetectedCandidate};
 pub use error::ToolError;
 pub use exec::{ToolOutcome, ToolRouter};
 pub use prompts::{PromptCatalog, PromptError, PromptGetResult, PromptInfo};
@@ -32,4 +34,6 @@ pub use schema::{
     phase2_catalog_tools, phase3_index_tools, phase4_tools, phase4b_tools, phase9_write_tools,
     tools_for_profile,
 };
-pub use session::{ConnectionInfo, ToolSession, default_index_root};
+pub use session::{
+    ConnectionInfo, ConnectionPolicy, ToolSession, default_index_root, policy_from_profile,
+};

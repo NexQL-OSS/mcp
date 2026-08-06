@@ -122,15 +122,15 @@ async fn router_for(url: &str) -> Arc<ToolRouter> {
         port: params.port,
         database: params.dbname.clone(),
         params,
+        policy: nexql_tools::session::policy_from_profile(
+            None,
+            AccessMode::Read,
+            PolicyCaps::default().with_max_rows(10),
+        ),
     };
-    let session = ToolSession::from_connections(
-        vec![info],
-        AccessMode::Read,
-        PolicyCaps::default().with_max_rows(10),
-        None,
-    )
-    .await
-    .unwrap();
+    let session = ToolSession::from_connections(vec![info], None)
+        .await
+        .unwrap();
     Arc::new(ToolRouter::new(session))
 }
 
@@ -141,7 +141,7 @@ async fn phase2_catalog_tools_smoke() {
         return;
     };
     let router = router_for(&pg.url).await;
-    assert_eq!(router.specs().len(), 45);
+    assert_eq!(router.specs().len(), nexql_tools::ToolName::ACTIVE.len());
 
     let ctx = router.call("get_current_context", json!({})).await;
     assert!(!ctx.is_error, "{}", ctx.text);

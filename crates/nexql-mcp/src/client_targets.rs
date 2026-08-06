@@ -214,7 +214,11 @@ fn windsurf_config_path() -> Option<PathBuf> {
 }
 
 fn antigravity_config_path() -> Option<PathBuf> {
-    home_dir().map(|h| h.join(".gemini").join("antigravity-ide").join("mcp_config.json"))
+    home_dir().map(|h| {
+        h.join(".gemini")
+            .join("antigravity-ide")
+            .join("mcp_config.json")
+    })
 }
 
 fn deepseek_config_path() -> Option<PathBuf> {

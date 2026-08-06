@@ -1,0 +1,49 @@
+name: Publish to MCP Registry
+
+# Runs after the Release workflow (build + crates.io + npm publish) succeeds on a
+# `v*` tag, so mcp-publisher's package-existence check never races the npm/cargo
+# publish jobs. See docs/reference: modelcontextprotocol/registry
+# docs/modelcontextprotocol-io/github-actions.mdx (GitHub OIDC auth — no secret).
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for GitHub OIDC auth to the registry
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Sync server.json version to the release tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.workflow_run.head_branch }}"
+          VERSION="${VERSION#v}"
+          jq --arg v "$VERSION" \
+            '.version = $v
+             | .packages[0].version = $v
+             | .packages[1].version = $v
+             | .packages[2].identifier = ("ghcr.io/nexql-oss/mcp:" + $v)' \
+            server.json > server.tmp.json
+          mv server.tmp.json server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate server.json
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish

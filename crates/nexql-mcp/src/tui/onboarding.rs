@@ -249,7 +249,8 @@ impl OnboardingApp {
             }
             KeyCode::Enter => {
                 if self.selected_models_count() == 0 {
-                    self.status = Some("Please select at least one model/client to onboard.".into());
+                    self.status =
+                        Some("Please select at least one model/client to onboard.".into());
                 } else {
                     self.screen = OnboardingScreen::ConnectionConfig;
                 }
@@ -377,7 +378,11 @@ impl OnboardingApp {
         let targets = client_targets::mergeable_targets();
 
         // Process mergeable targets
-        for item in self.model_items.iter().filter(|i| i.selected && i.mergeable) {
+        for item in self
+            .model_items
+            .iter()
+            .filter(|i| i.selected && i.mergeable)
+        {
             let Some(target) = targets.iter().find(|t| t.key == item.key) else {
                 continue;
             };
@@ -426,7 +431,11 @@ impl OnboardingApp {
             None
         };
 
-        for item in self.model_items.iter().filter(|i| i.selected && !i.mergeable) {
+        for item in self
+            .model_items
+            .iter()
+            .filter(|i| i.selected && !i.mergeable)
+        {
             match init_clients::init_snippet(item.key, url_arg) {
                 Ok(snippet) => self.summary.push(SummaryEntry {
                     display_name: item.display_name.to_string(),
@@ -588,23 +597,37 @@ fn draw_header(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let header_lines = vec![Line::from(vec![
         Span::styled(
             " 🤖 NexQL MCP ",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             "Model Onboarding Wizard",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
-        Span::styled(step_str, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            step_str,
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled("Selected: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             format!("{selected_cnt} model(s)"),
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled("Config: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(app.config_path.display().to_string(), Style::default().fg(Color::White)),
+        Span::styled(
+            app.config_path.display().to_string(),
+            Style::default().fg(Color::White),
+        ),
     ])];
 
     let header_widget = Paragraph::new(header_lines).block(
@@ -623,8 +646,14 @@ fn draw_picker(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
         .split(area);
 
     let intro = Paragraph::new(Line::from(vec![
-        Span::styled(" Select the AI models, IDEs, and agent SDKs ", Style::default().fg(Color::White)),
-        Span::styled("you want to onboard NexQL MCP into:", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            " Select the AI models, IDEs, and agent SDKs ",
+            Style::default().fg(Color::White),
+        ),
+        Span::styled(
+            "you want to onboard NexQL MCP into:",
+            Style::default().fg(Color::Yellow),
+        ),
     ]));
     frame.render_widget(intro, chunks[0]);
 
@@ -636,13 +665,17 @@ fn draw_picker(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
             let is_focused = idx == app.picker_idx;
             let check = if item.selected { "[x] " } else { "[ ] " };
             let check_style = if item.selected {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
 
             let name_style = if is_focused {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -718,12 +751,16 @@ fn draw_connection(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
             let is_focused_item = focused_0 && idx == app.profile_focus_idx;
             let check = if selected { "[x] " } else { "[ ] " };
             let check_style = if selected {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
             let name_style = if is_focused_item {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -770,9 +807,19 @@ fn draw_connection(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let url_widget = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Custom PostgreSQL URL: ", Style::default().fg(Color::White)),
-            Span::styled(url_display, Style::default().fg(if app.custom_url.is_empty() { Color::DarkGray } else { Color::Green })),
+            Span::styled(
+                url_display,
+                Style::default().fg(if app.custom_url.is_empty() {
+                    Color::DarkGray
+                } else {
+                    Color::Green
+                }),
+            ),
         ]),
-        Line::from(Span::styled("Type to enter custom URL (overrides selected profile)", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "Type to enter custom URL (overrides selected profile)",
+            Style::default().fg(Color::DarkGray),
+        )),
     ])
     .block(
         Block::default()
@@ -793,9 +840,17 @@ fn draw_connection(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let tool_widget = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Tool Profile: ", Style::default().fg(Color::White)),
-            Span::styled(app.tools_option.label(), Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                app.tools_option.label(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
-        Line::from(Span::styled("Use ← / → arrows to cycle tool profiles (full/query/dba/meta)", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "Use ← / → arrows to cycle tool profiles (full/query/dba/meta)",
+            Style::default().fg(Color::DarkGray),
+        )),
     ])
     .block(
         Block::default()
@@ -821,9 +876,19 @@ fn draw_connection(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let emb_widget = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Semantic Embeddings: ", Style::default().fg(Color::White)),
-            Span::styled(emb_str, Style::default().fg(if app.local_embeddings { Color::Green } else { Color::DarkGray })),
+            Span::styled(
+                emb_str,
+                Style::default().fg(if app.local_embeddings {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                }),
+            ),
         ]),
-        Line::from(Span::styled("Press Spacebar to toggle semantic embeddings index", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "Press Spacebar to toggle semantic embeddings index",
+            Style::default().fg(Color::DarkGray),
+        )),
     ])
     .block(
         Block::default()
@@ -867,13 +932,28 @@ fn draw_diff_review(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let title_line = Line::from(vec![
         Span::styled(
             format!(" Config Diff {}/{} — ", app.diff_idx + 1, app.diffs.len()),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(d.display_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            d.display_name,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" (", Style::default().fg(Color::DarkGray)),
-        Span::styled(d.config_path.display().to_string(), Style::default().fg(Color::White)),
+        Span::styled(
+            d.config_path.display().to_string(),
+            Style::default().fg(Color::White),
+        ),
         Span::styled(") │ Status: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(status_str, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            status_str,
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
     let title_bar = Paragraph::new(title_line).block(
         Block::default()
@@ -914,7 +994,9 @@ fn draw_summary(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
 
     lines.push(Line::from(Span::styled(
         "🎉 Onboarding Complete!",
-        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::raw(""));
 
@@ -922,7 +1004,12 @@ fn draw_summary(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
         if s.skipped {
             lines.push(Line::from(vec![
                 Span::styled(" ⏭  ", Style::default().fg(Color::Yellow)),
-                Span::styled(&s.display_name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &s.display_name,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" — Skipped ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     s.error.as_deref().unwrap_or(""),
@@ -932,21 +1019,37 @@ fn draw_summary(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
         } else if let Some(ref path) = s.path {
             lines.push(Line::from(vec![
                 Span::styled(" ✅ ", Style::default().fg(Color::Green)),
-                Span::styled(&s.display_name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &s.display_name,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" — Written to ", Style::default().fg(Color::DarkGray)),
                 Span::styled(path.display().to_string(), Style::default().fg(Color::Cyan)),
             ]));
             if let Some(ref backup) = s.backup {
                 lines.push(Line::from(vec![
                     Span::styled("    Backup saved: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(backup.display().to_string(), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        backup.display().to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]));
             }
         } else if let Some(ref snippet) = s.snippet {
             lines.push(Line::from(vec![
                 Span::styled(" 📋 ", Style::default().fg(Color::Yellow)),
-                Span::styled(&s.display_name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::styled(" — Manual Snippet Required:", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    &s.display_name,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " — Manual Snippet Required:",
+                    Style::default().fg(Color::Yellow),
+                ),
             ]));
             for snip_line in snippet.lines() {
                 lines.push(Line::styled(
@@ -960,7 +1063,9 @@ fn draw_summary(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
 
     lines.push(Line::from(Span::styled(
         "💡 Next Steps:",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::styled(
         "   1. Restart your AI client/IDE (Claude Desktop, Cursor, Zed, Windsurf, VS Code).",
@@ -985,45 +1090,119 @@ fn draw_summary(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
 fn draw_status_line(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
     let line = if let Some(msg) = &app.status {
         Line::from(vec![
-            Span::styled(" ℹ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(msg, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " ℹ ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                msg,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ])
     } else {
         match app.screen {
             OnboardingScreen::ModelPicker => Line::from(vec![
-                Span::styled(" [Space]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " [Space]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Toggle ", Style::default().fg(Color::White)),
-                Span::styled("[A]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[A]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Select/Deselect All ", Style::default().fg(Color::White)),
-                Span::styled("[Enter]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Enter]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Next: Connection ", Style::default().fg(Color::White)),
-                Span::styled("[Esc/Q]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Esc/Q]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Quit", Style::default().fg(Color::White)),
             ]),
             OnboardingScreen::ConnectionConfig => Line::from(vec![
-                Span::styled(" [Tab/Shift+Tab]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " [Tab/Shift+Tab]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Switch Option ", Style::default().fg(Color::White)),
-                Span::styled("[←/→]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[←/→]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Change ", Style::default().fg(Color::White)),
-                Span::styled("[Enter]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Enter]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Review Diffs ", Style::default().fg(Color::White)),
-                Span::styled("[Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Esc]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Back", Style::default().fg(Color::White)),
             ]),
             OnboardingScreen::DiffReview => Line::from(vec![
-                Span::styled(" [Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " [Y]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Apply ", Style::default().fg(Color::White)),
-                Span::styled("[S]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[S]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Skip ", Style::default().fg(Color::White)),
-                Span::styled("[A]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[A]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Apply All ", Style::default().fg(Color::White)),
-                Span::styled("[Enter]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Enter]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Finalize ", Style::default().fg(Color::White)),
-                Span::styled("[Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Esc]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Back", Style::default().fg(Color::White)),
             ]),
             OnboardingScreen::Summary => Line::from(vec![
-                Span::styled(" [Enter/Esc/Q]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " [Enter/Esc/Q]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Exit Wizard", Style::default().fg(Color::White)),
             ]),
         }

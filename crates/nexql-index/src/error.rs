@@ -20,6 +20,12 @@ pub enum IndexError {
     #[error("index build already in progress (lock held) at {0}")]
     Locked(String),
 
+    #[error("another process is building the index at {0}")]
+    Building(String),
+
+    #[error("index needs rebuild: {reason}")]
+    NeedsRebuild { reason: String },
+
     #[error("index build cancelled")]
     Cancelled,
 

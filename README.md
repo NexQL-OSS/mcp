@@ -4,11 +4,11 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer)** + **Phase 9 write/admin tools** landed. Phase 4b breadth complete (41 tools). Full OAuth gateway stays pro-only; HTTP sessions/rate-limit polish TBD. See [docs/CUTOVER.md](docs/CUTOVER.md).
+**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer, sessions, rate limit)** + **Phase 9 write/admin tools** landed. 53 tools across Schema, Query, Context, Perf, Write, and Admin. Full OAuth gateway stays pro-only; session-store LRU eviction cap not yet implemented. See [docs/CUTOVER.md](docs/CUTOVER.md).
 
 ## Why this exists
 
-Competing Postgres MCP servers expose `connect → run query → return rows`. Models hallucinate table names against schemas that do not exist. NexQL's moat is the offline schema index (TF-IDF, join graph with inferred FKs, value profiles, optional embeddings, RRF fusion) built in `pro/src/features/dbindex/`. This repo ports that index and the 22 read-only tools from Pro into a fast, trivially installable binary.
+Competing Postgres MCP servers expose `connect → run query → return rows`. Models hallucinate table names against schemas that do not exist. NexQL's moat is the offline schema index (TF-IDF, join graph with inferred FKs, value profiles, optional embeddings, RRF fusion) built in `pro/src/features/dbindex/`. This repo ports that index plus 53 query/schema/DBA/meta tools from Pro into a fast, trivially installable binary.
 
 ## Architecture
 
@@ -75,10 +75,40 @@ Windows: grab `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` from the [Releases
 
 ### Docker
 
+Prebuilt, published on every release to [GHCR](https://github.com/NexQL-OSS/mcp/pkgs/container/mcp):
+
 ```bash
-docker build -t nexql-mcp:0.1.6 .
-docker run --rm -i nexql-mcp:0.1.6 postgres://dev@host.docker.internal:5432/appdb
+docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.0 postgres://dev@host.docker.internal:5432/appdb
+# or: ghcr.io/nexql-oss/mcp:latest
 ```
+
+Or build locally from the distroless `Dockerfile`:
+
+```bash
+docker build -t nexql-mcp:0.2.0 .
+docker run --rm -i nexql-mcp:0.2.0 postgres://dev@host.docker.internal:5432/appdb
+```
+
+### Claude Desktop (MCPB one-click bundle)
+
+Each release attaches a platform `.mcpb` bundle (`nexql-mcp-<vendor>.mcpb`) — download the one matching
+your OS/arch from the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest) and double-click
+to install into Claude Desktop. Built from [`mcpb/manifest.json`](mcpb/manifest.json) via
+[`scripts/package-mcpb.sh`](scripts/package-mcpb.sh).
+
+### Homebrew
+
+No published tap yet — each release renders a formula (`Formula/nexql-mcp.rb`, via
+[`scripts/render-homebrew-formula.sh`](scripts/render-homebrew-formula.sh)) and attaches it as a release
+asset for a future `homebrew-tap` repo to pick up. Until that tap exists, use the curl or cargo methods
+above.
+
+### MCP Registry
+
+Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io) as
+`io.github.nexql-oss/nexql-mcp` ([`server.json`](server.json)), published automatically after each
+release via GitHub OIDC (no stored credentials) — see
+[`.github/workflows/publish-mcp-registry.yml`](.github/workflows/publish-mcp-registry.yml).
 
 ### From source
 
@@ -161,7 +191,12 @@ Keys: `n` new · `e`/Enter edit · `d` delete · `t` test · `w` wire into clien
 
 ### Releases
 
-Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): builds darwin arm64/x64, linux gnu arm64/x64, and windows x64, attaches archives to a GitHub release, publishes the npm packages, and publishes the workspace crates to crates.io in dependency order. Musl targets deferred until a clang-enabled musl builder is validated.
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): builds
+darwin arm64/x64, linux gnu arm64/x64, and windows x64; attaches archives, per-platform `.mcpb` bundles,
+a CycloneDX SBOM, and a rendered Homebrew formula to a GitHub release; publishes the npm packages and
+GHCR image; and publishes the workspace crates to crates.io in dependency order. A follow-up workflow
+([`publish-mcp-registry.yml`](.github/workflows/publish-mcp-registry.yml)) then lists the release on the
+MCP Registry via GitHub OIDC. Musl targets deferred until a clang-enabled musl builder is validated.
 
 ## Development
 

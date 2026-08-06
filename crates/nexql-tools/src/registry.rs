@@ -83,6 +83,14 @@ pub enum ToolName {
     DiscoverTools,
     AutoTuneQuery,
     CheckDdlSafety,
+    RebuildIndex,
+    RefreshIndex,
+    RunDoctor,
+    SetupConnection,
+    SaveProfile,
+    TestProfile,
+    ExportProfile,
+    ImportProfile,
 }
 
 impl ToolName {
@@ -96,15 +104,23 @@ impl ToolName {
         Self::RunSelect,
         Self::ExplainQuery,
         Self::DiscoverTools,
+        Self::RunDoctor,
+        Self::SetupConnection,
+        Self::SaveProfile,
+        Self::TestProfile,
+        Self::ExportProfile,
+        Self::ImportProfile,
     ];
 
-    /// Index-backed tools (require `nexql-mcp index build`).
+    /// Index-backed tools (require `nexql-mcp index build` or `rebuild_index`).
     pub const PHASE3: &'static [ToolName] = &[
         Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
+        Self::RebuildIndex,
+        Self::RefreshIndex,
     ];
 
     /// Phase 4 monitoring / DDL / index-status (+ free advisory tools).
@@ -161,11 +177,19 @@ impl ToolName {
         Self::RunSelect,
         Self::ExplainQuery,
         Self::DiscoverTools,
+        Self::RunDoctor,
+        Self::SetupConnection,
+        Self::SaveProfile,
+        Self::TestProfile,
+        Self::ExportProfile,
+        Self::ImportProfile,
         Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
+        Self::RebuildIndex,
+        Self::RefreshIndex,
         Self::GetDdl,
         Self::TableStats,
         Self::IndexUsage,
@@ -209,11 +233,19 @@ impl ToolName {
         Self::SwitchConnection,
         Self::RunSelect,
         Self::ExplainQuery,
+        Self::RunDoctor,
+        Self::SetupConnection,
+        Self::SaveProfile,
+        Self::TestProfile,
+        Self::ExportProfile,
+        Self::ImportProfile,
         Self::ResolveTarget,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
+        Self::RebuildIndex,
+        Self::RefreshIndex,
         Self::GetDdl,
         Self::TableStats,
         Self::IndexUsage,
@@ -253,6 +285,9 @@ impl ToolName {
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
+        Self::RebuildIndex,
+        Self::RefreshIndex,
+        Self::RunDoctor,
         Self::GetDdl,
         Self::ExportQuery,
     ];
@@ -284,6 +319,9 @@ impl ToolName {
         Self::CheckDdlSafety,
         Self::RunMaintenance,
         Self::TerminateQuery,
+        Self::RebuildIndex,
+        Self::RefreshIndex,
+        Self::RunDoctor,
     ];
 
     /// Minimal initial tool surface with discover_tools for lazy tool activation.
@@ -294,6 +332,10 @@ impl ToolName {
         Self::DescribeObject,
         Self::RunSelect,
         Self::DiscoverTools,
+        Self::RunDoctor,
+        Self::SetupConnection,
+        Self::SaveProfile,
+        Self::TestProfile,
     ];
 
     pub fn for_profile(profile: ToolProfile) -> &'static [ToolName] {
@@ -352,6 +394,14 @@ impl ToolName {
             Self::RunMaintenance => "run_maintenance",
             Self::TerminateQuery => "terminate_query",
             Self::DiscoverTools => "discover_tools",
+            Self::RebuildIndex => "rebuild_index",
+            Self::RefreshIndex => "refresh_index",
+            Self::RunDoctor => "run_doctor",
+            Self::SetupConnection => "setup_connection",
+            Self::SaveProfile => "save_profile",
+            Self::TestProfile => "test_profile",
+            Self::ExportProfile => "export_profile",
+            Self::ImportProfile => "import_profile",
         }
     }
 
@@ -365,8 +415,8 @@ mod tests {
     use super::ToolName;
 
     #[test]
-    fn read_only_is_thirty_five_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 35);
+    fn read_only_is_forty_one_tools() {
+        assert_eq!(ToolName::READ_ONLY.len(), 43);
     }
 
     #[test]
@@ -375,8 +425,8 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_forty_five_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 45);
+    fn active_surface_is_fifty_one_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 53);
     }
 
     #[test]
@@ -385,5 +435,36 @@ mod tests {
             assert!(ToolName::ACTIVE.contains(tool));
         }
         assert_ne!(ToolName::READ_ONLY.len(), ToolName::ACTIVE.len());
+    }
+
+    /// Guards `docs/tools/README.md` against drifting from the real tool surface:
+    /// every `ToolName::ACTIVE` variant must be named (as `` `snake_case` ``) in the
+    /// doc, and the doc's declared count must equal `ToolName::ACTIVE.len()`.
+    #[test]
+    fn docs_tools_readme_matches_active_surface() {
+        let doc = include_str!("../../../docs/tools/README.md");
+
+        let declared: usize = doc
+            .lines()
+            .next()
+            .and_then(|line| line.split('(').nth(1))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .expect("first line must read \"Active catalog (<N> tools ...)\"");
+        assert_eq!(
+            declared,
+            ToolName::ACTIVE.len(),
+            "docs/tools/README.md's declared tool count is stale"
+        );
+
+        for tool in ToolName::ACTIVE {
+            let needle = format!("`{}`", tool.as_str());
+            assert!(
+                doc.contains(&needle),
+                "docs/tools/README.md is missing `{}` (tool #{:?})",
+                tool.as_str(),
+                tool
+            );
+        }
     }
 }
