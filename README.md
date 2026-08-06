@@ -4,11 +4,11 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer)** + **Phase 9 write/admin tools** landed. Phase 4b breadth complete (41 tools). Full OAuth gateway stays pro-only; HTTP sessions/rate-limit polish TBD. See [docs/CUTOVER.md](docs/CUTOVER.md).
+**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer)** + **Phase 9 write/admin tools** landed. 53 tools across Schema, Query, Context, Perf, Write, and Admin. Full OAuth gateway stays pro-only; HTTP sessions/rate-limit polish TBD. See [docs/CUTOVER.md](docs/CUTOVER.md).
 
 ## Why this exists
 
-Competing Postgres MCP servers expose `connect → run query → return rows`. Models hallucinate table names against schemas that do not exist. NexQL's moat is the offline schema index (TF-IDF, join graph with inferred FKs, value profiles, optional embeddings, RRF fusion) built in `pro/src/features/dbindex/`. This repo ports that index and the 22 read-only tools from Pro into a fast, trivially installable binary.
+Competing Postgres MCP servers expose `connect → run query → return rows`. Models hallucinate table names against schemas that do not exist. NexQL's moat is the offline schema index (TF-IDF, join graph with inferred FKs, value profiles, optional embeddings, RRF fusion) built in `pro/src/features/dbindex/`. This repo ports that index plus 53 query/schema/DBA/meta tools from Pro into a fast, trivially installable binary.
 
 ## Architecture
 

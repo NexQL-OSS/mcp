@@ -1,11 +1,14 @@
-Active catalog (45 tools across Schema, Query, Connection, DBA/Perf, Write, and Diagnostics):
+Active catalog (53 tools across Schema, Query, Context, Perf, Write, Admin, and Meta):
 
-- **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`, `schema_diff`, `generate_migration`
-- **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`, `export_query`, `deep_plan_analysis`
+- **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`, `schema_diff`, `generate_migration`, `resolve_target`
+- **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`, `export_query`, `deep_plan_analysis`, `auto_tune_query`
 - **Context:** `list_connections`, `get_current_context`, `switch_connection`, `get_index_status`, `server_settings`, `db_dashboard`
 - **Perf:** `table_stats`, `index_usage`, `list_running_queries`, `find_blocking_locks`, `slow_queries`, `db_health_check`, `suggest_indexes`, `find_unused_indexes`, `bloat_report`
-- **Write (Write+):** `execute_sql`, `edit_row`, `import_data`
+- **Write (Write+):** `execute_sql`, `edit_row`, `import_data`, `check_ddl_safety`
 - **Admin:** `apply_ddl`, `create_index_concurrently`, `run_maintenance`, `terminate_query`
+- **Index maintenance:** `rebuild_index`, `refresh_index`
+- **Connection setup:** `setup_connection`, `save_profile`, `test_profile`, `export_profile`, `import_profile`
+- **Meta:** `discover_tools` (lazy tool activation for the `meta` tool profile), `run_doctor`
 
 ## Access gating
 

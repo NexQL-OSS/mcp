@@ -436,4 +436,35 @@ mod tests {
         }
         assert_ne!(ToolName::READ_ONLY.len(), ToolName::ACTIVE.len());
     }
+
+    /// Guards `docs/tools/README.md` against drifting from the real tool surface:
+    /// every `ToolName::ACTIVE` variant must be named (as `` `snake_case` ``) in the
+    /// doc, and the doc's declared count must equal `ToolName::ACTIVE.len()`.
+    #[test]
+    fn docs_tools_readme_matches_active_surface() {
+        let doc = include_str!("../../../docs/tools/README.md");
+
+        let declared: usize = doc
+            .lines()
+            .next()
+            .and_then(|line| line.split('(').nth(1))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .expect("first line must read \"Active catalog (<N> tools ...)\"");
+        assert_eq!(
+            declared,
+            ToolName::ACTIVE.len(),
+            "docs/tools/README.md's declared tool count is stale"
+        );
+
+        for tool in ToolName::ACTIVE {
+            let needle = format!("`{}`", tool.as_str());
+            assert!(
+                doc.contains(&needle),
+                "docs/tools/README.md is missing `{}` (tool #{:?})",
+                tool.as_str(),
+                tool
+            );
+        }
+    }
 }
