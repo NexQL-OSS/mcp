@@ -32,14 +32,15 @@ pub enum ConnError {
     #[error("pool error: {0}")]
     Pool(String),
 
-    #[error("postgres error: {}", format_pg_err(.0))]
+    #[error("postgres error: {}", format_postgres_error(.0))]
     Postgres(#[from] tokio_postgres::Error),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
 
-fn format_pg_err(e: &tokio_postgres::Error) -> String {
+/// Human-readable Postgres message (detail/hint included when present).
+pub fn format_postgres_error(e: &tokio_postgres::Error) -> String {
     if let Some(db_err) = e.as_db_error() {
         let mut msg = db_err.message().to_string();
         if let Some(detail) = db_err.detail() {

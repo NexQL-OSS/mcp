@@ -18,7 +18,7 @@ pub use config::{
     ConfigFile, ProfileConfig, ProjectConfigFile, find_project_config, load_project_config,
     write_with_backup,
 };
-pub use error::ConnError;
+pub use error::{ConnError, format_postgres_error};
 pub use pool::{
     ConnectionReport, PoolOptions, apply_session_guards, checkout_guarded, connect_once,
     create_pool, test_connection,

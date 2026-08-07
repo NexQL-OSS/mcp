@@ -5,18 +5,14 @@
 
 use std::sync::Arc;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
     IndexStore, PgCatalogDb, QueryPolicyFilter, SearchOptions, build_index,
 };
-use nexql_policy::{PolicyFilter, SqlDecision, validate_readonly_sql};
-use rust_decimal::Decimal;
+use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, validate_readonly_sql};
 use serde_json::{Value, json};
-use tokio_postgres::types::{FromSql, Kind, Type};
-use uuid::Uuid;
 
+use crate::cell_json::rows_to_json_array;
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
 use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
@@ -529,6 +525,56 @@ impl ToolRouter {
         }
 
         let (winner_candidate, winner_score, winner_evidence) = winner;
+
+        if let Some(object_hint) = object_hint
+            && let Some(store) = self.index_store()
+        {
+            let filter = self.query_filter();
+            let svc = IndexQueryService::new(
+                store,
+                &winner_candidate.connection_id,
+                &winner_candidate.database,
+            );
+            if let Ok(hits) = svc.search_schema(
+                object_hint,
+                5,
+                Some(&filter),
+                SearchOptions {
+                    use_semantic: self.use_semantic,
+                    embedder: self.embedder.as_deref(),
+                },
+            ) && hits.len() >= 2
+            {
+                let top_score = hits[0].score;
+                let tied: Vec<&nexql_index::RankedHit> = hits
+                    .iter()
+                    .filter(|h| scores_equal(h.score, top_score))
+                    .collect();
+                if tied.len() > 1 {
+                    let candidates_json: Vec<Value> = tied
+                        .iter()
+                        .map(|h| {
+                            json!({
+                                "ref": h.ref_,
+                                "score": h.score,
+                                "kind": h.kind,
+                                "connectionId": winner_candidate.connection_id,
+                                "database": winner_candidate.database,
+                            })
+                        })
+                        .collect();
+                    return Ok(ToolOutcome::ok_json(json!({
+                        "ambiguous": true,
+                        "message": format!(
+                            "{} objects matched \"{object_hint}\" with equal scores — choose explicitly.",
+                            tied.len()
+                        ),
+                        "candidates": candidates_json,
+                    })));
+                }
+            }
+        }
+
         self.session
             .switch(
                 &winner_candidate.connection_id,
@@ -1441,6 +1487,7 @@ impl ToolRouter {
                 ));
             }
         }
+        enforce_read_table_policy(&self.session.filter(), sql)?;
         let trimmed = sql.trim().to_ascii_lowercase();
         if trimmed.starts_with("explain") {
             return self.run_select_internal(sql, None).await;
@@ -1463,6 +1510,7 @@ impl ToolRouter {
                 ));
             }
         }
+        enforce_read_table_policy(&self.session.filter(), sql)?;
         let clean = if sql.trim().to_ascii_lowercase().starts_with("explain") {
             sql.to_string()
         } else {
@@ -1661,7 +1709,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(sql)?;
+        require_select_or_with(&self.session.filter(), sql)?;
         let explain = build_explain_sql(sql, true);
         self.run_explain_in_transaction(&explain).await
     }
@@ -1671,7 +1719,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(sql)?;
+        require_select_or_with(&self.session.filter(), sql)?;
         let analyze = args
             .get("analyze")
             .and_then(|v| v.as_bool())
@@ -1805,7 +1853,7 @@ impl ToolRouter {
 
         let mut plan_heuristics = Value::Null;
         if let Some(sql_text) = args.get("sql").and_then(|v| v.as_str()) {
-            require_select_or_with(sql_text)?;
+            require_select_or_with(&self.session.filter(), sql_text)?;
             let explain = build_explain_sql(sql_text, false);
             let outcome = self.run_explain_in_transaction(&explain).await?;
             let rows = outcome.structured.unwrap_or(Value::Null);
@@ -2011,7 +2059,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(sql)?;
+        require_select_or_with(&self.session.filter(), sql)?;
 
         let format = args
             .get("format")
@@ -2147,7 +2195,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(sql)?;
+        require_select_or_with(&self.session.filter(), sql)?;
         let analyze = args
             .get("analyze")
             .and_then(|v| v.as_bool())
@@ -2273,7 +2321,8 @@ impl ToolRouter {
         );
         let rows = client.query(&wrapped, &[]).await.map_err(|e| {
             ToolError::Execution(format!(
-                "Failed to execute row-limited query (refusing unbounded fallback): {e}"
+                "Failed to execute row-limited query (refusing unbounded fallback): {}",
+                nexql_conn::format_postgres_error(&e)
             ))
         })?;
         let truncated = rows.len() as u32 > max_rows;
@@ -2357,7 +2406,7 @@ fn policy_to_query_filter(filter: &PolicyFilter) -> QueryPolicyFilter {
     }
 }
 
-fn require_select_or_with(sql: &str) -> Result<(), ToolError> {
+fn require_select_or_with(filter: &PolicyFilter, sql: &str) -> Result<(), ToolError> {
     match validate_readonly_sql(sql)? {
         SqlDecision::Allow => {}
         SqlDecision::Reject => {
@@ -2366,6 +2415,7 @@ fn require_select_or_with(sql: &str) -> Result<(), ToolError> {
             ));
         }
     }
+    enforce_read_table_policy(filter, sql)?;
     let trimmed = sql.trim().to_ascii_lowercase();
     if !(trimmed.starts_with("select") || trimmed.starts_with("with")) {
         return Err(ToolError::Execution(
@@ -2376,251 +2426,11 @@ fn require_select_or_with(sql: &str) -> Result<(), ToolError> {
 }
 
 fn rows_to_json(rows: &[tokio_postgres::Row]) -> Value {
-    let arr: Vec<Value> = rows
-        .iter()
-        .map(|row| {
-            let mut map = serde_json::Map::new();
-            for (i, col) in row.columns().iter().enumerate() {
-                map.insert(col.name().to_string(), cell_to_json(row, i));
-            }
-            Value::Object(map)
-        })
-        .collect();
-    Value::Array(arr)
+    rows_to_json_array(rows)
 }
 
-/// Detect SQL NULL for any column type without committing to a concrete `FromSql` type.
-enum SqlNullness {
-    Null,
-    Value,
-}
-
-impl<'a> FromSql<'a> for SqlNullness {
-    fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        Ok(SqlNullness::Value)
-    }
-
-    fn from_sql_null(_: &Type) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        Ok(SqlNullness::Null)
-    }
-
-    fn accepts(_: &Type) -> bool {
-        true
-    }
-}
-
-fn try_cell<T, F>(row: &tokio_postgres::Row, idx: usize, map: F) -> Option<Value>
-where
-    T: for<'a> FromSql<'a>,
-    F: FnOnce(T) -> Value,
-{
-    match row.try_get::<_, Option<T>>(idx) {
-        Ok(Some(v)) => Some(map(v)),
-        Ok(None) => Some(Value::Null),
-        Err(_) => None,
-    }
-}
-
-fn cell_to_json(row: &tokio_postgres::Row, idx: usize) -> Value {
-    let col_type = row.columns()[idx].type_();
-    if matches!(row.try_get::<_, SqlNullness>(idx), Ok(SqlNullness::Null)) {
-        return Value::Null;
-    }
-
-    if let Kind::Array(elem) = col_type.kind() {
-        return array_cell_to_json(row, idx, elem);
-    }
-
-    if let Some(v) = match *col_type {
-        Type::BOOL => try_cell::<bool, _>(row, idx, |b| json!(b)),
-        Type::INT2 => try_cell::<i16, _>(row, idx, |n| json!(n)),
-        Type::INT4 | Type::OID => try_cell::<i32, _>(row, idx, |n| json!(n)),
-        Type::INT8 => try_cell::<i64, _>(row, idx, |n| json!(n)),
-        Type::FLOAT4 => try_cell::<f32, _>(row, idx, |n| json!(n)),
-        Type::FLOAT8 => try_cell::<f64, _>(row, idx, |n| json!(n)),
-        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => {
-            try_cell::<String, _>(row, idx, Value::String)
-        }
-        Type::TIMESTAMP => try_cell::<NaiveDateTime, _>(row, idx, |t| {
-            json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string())
-        }),
-        Type::TIMESTAMPTZ => {
-            try_cell::<DateTime<FixedOffset>, _>(row, idx, |t| json!(t.to_rfc3339()))
-        }
-        Type::DATE => {
-            try_cell::<NaiveDate, _>(row, idx, |d| json!(d.format("%Y-%m-%d").to_string()))
-        }
-        Type::TIME => {
-            try_cell::<NaiveTime, _>(row, idx, |t| json!(t.format("%H:%M:%S%.f").to_string()))
-        }
-        Type::UUID => try_cell::<Uuid, _>(row, idx, |u| json!(u.to_string())),
-        Type::JSON | Type::JSONB => try_cell::<Value, _>(row, idx, |j| j),
-        Type::NUMERIC => try_cell::<Decimal, _>(row, idx, |d| json!(d.to_string())),
-        Type::MONEY => try_cell::<i64, _>(row, idx, |v| json!(money_to_string(v))),
-        Type::BYTEA => try_cell::<Vec<u8>, _>(row, idx, |b| json!(BASE64.encode(b))),
-        _ => None,
-    } {
-        return v;
-    }
-
-    cell_to_json_untyped(row, idx, col_type)
-}
-
-fn array_cell_to_json(row: &tokio_postgres::Row, idx: usize, elem: &Type) -> Value {
-    let try_array = |result: Result<Option<Vec<Value>>, tokio_postgres::Error>| -> Option<Value> {
-        match result {
-            Ok(Some(items)) => Some(Value::Array(items)),
-            Ok(None) => Some(Value::Null),
-            Err(_) => None,
-        }
-    };
-
-    match *elem {
-        Type::BOOL => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<bool>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::INT2 => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<i16>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::INT4 | Type::OID => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<i32>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::INT8 => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<i64>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|x| json!(x)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::FLOAT4 => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<f32>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|n| json!(n)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::FLOAT8 => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<f64>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|n| json!(n)).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<String>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(Value::String).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::UUID => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<Uuid>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|u| json!(u.to_string())).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::TIMESTAMP => {
-            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDateTime>>>(idx).map(|v| {
-                v.map(|a| {
-                    a.into_iter()
-                        .map(|t| json!(t.format("%Y-%m-%dT%H:%M:%S%.f").to_string()))
-                        .collect()
-                })
-            })) {
-                return v;
-            }
-        }
-        Type::TIMESTAMPTZ => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<DateTime<FixedOffset>>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|t| json!(t.to_rfc3339())).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::DATE => {
-            if let Some(v) = try_array(row.try_get::<_, Option<Vec<NaiveDate>>>(idx).map(|v| {
-                v.map(|a| {
-                    a.into_iter()
-                        .map(|d| json!(d.format("%Y-%m-%d").to_string()))
-                        .collect()
-                })
-            })) {
-                return v;
-            }
-        }
-        Type::JSON | Type::JSONB => {
-            if let Some(v) = try_array(row.try_get::<_, Option<Vec<Value>>>(idx)) {
-                return v;
-            }
-        }
-        Type::NUMERIC => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<Decimal>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|d| json!(d.to_string())).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::MONEY => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<i64>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|m| json!(money_to_string(m))).collect())),
-            ) {
-                return v;
-            }
-        }
-        Type::BYTEA => {
-            if let Some(v) = try_array(
-                row.try_get::<_, Option<Vec<Vec<u8>>>>(idx)
-                    .map(|v| v.map(|a| a.into_iter().map(|b| json!(BASE64.encode(b))).collect())),
-            ) {
-                return v;
-            }
-        }
-        _ => {}
-    }
-
-    cell_to_json_untyped(row, idx, row.columns()[idx].type_())
-}
-
-/// PostgreSQL `money` is int64 in ten-thousandths of the base currency unit.
-fn money_to_string(v: i64) -> String {
-    let sign = if v < 0 { "-" } else { "" };
-    let abs = v.unsigned_abs();
-    format!("{}{}.{:04}", sign, abs / 10_000, abs % 10_000)
-}
-
-/// Last-resort decoding for unknown or composite Postgres types — never silent null for non-null cells.
-fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -> Value {
-    if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
-        return Value::String(s);
-    }
-    json!({
-        "__untyped": true,
-        "type": pg_type.name()
-    })
+fn scores_equal(a: f64, b: f64) -> bool {
+    (a - b).abs() <= f64::EPSILON * a.abs().max(b.abs()).max(1.0)
 }
 
 fn read_recent_log_errors() -> Vec<String> {
@@ -2684,6 +2494,13 @@ mod tests {
                 environment: None,
             },
         }
+    }
+
+    #[test]
+    fn scores_equal_treats_near_duplicates_as_tied() {
+        let s = 3.295836866004329_f64;
+        assert!(super::scores_equal(s, s));
+        assert!(super::scores_equal(s, s + f64::EPSILON));
     }
 
     #[test]

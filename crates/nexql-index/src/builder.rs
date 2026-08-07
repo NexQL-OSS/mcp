@@ -969,7 +969,9 @@ fn assemble_entries(
                 definition: None,
                 signature: Some(format!(
                     "{}({}) RETURNS {}",
-                    fn_.name, fn_.arguments, fn_.result_type
+                    fn_.name,
+                    fn_.arguments,
+                    fn_.result_type.as_deref().unwrap_or("void")
                 )),
                 language: Some(fn_.language.clone()),
                 volatility: Some(fn_.volatility.clone()),

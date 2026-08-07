@@ -10,6 +10,7 @@ use pg_query::{NodeRef, ParseResult, parse};
 
 use crate::access::AccessMode;
 use crate::error::PolicyError;
+use crate::filter::PolicyFilter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlDecision {
@@ -70,6 +71,23 @@ pub fn validate_readonly_sql(sql: &str) -> Result<SqlDecision, PolicyError> {
     }
 
     Ok(SqlDecision::Allow)
+}
+
+/// Reject read queries that touch schema/table refs denied by [`PolicyFilter`].
+pub fn enforce_read_table_policy(filter: &PolicyFilter, sql: &str) -> Result<(), PolicyError> {
+    let result = parse_sql(sql)?;
+    for table in result.select_tables() {
+        let (schema, name) = split_table_ref(&table);
+        filter.require_table(&schema, &name)?;
+    }
+    Ok(())
+}
+
+fn split_table_ref(table: &str) -> (String, String) {
+    match table.split_once('.') {
+        Some((schema, name)) => (schema.to_owned(), name.to_owned()),
+        None => ("public".to_owned(), table.to_owned()),
+    }
 }
 
 struct WritePolicy;
@@ -488,5 +506,23 @@ mod tests {
             validate_write_sql(AccessMode::Read, "SELECT 1").unwrap(),
             SqlDecision::Allow
         );
+    }
+
+    #[test]
+    fn enforce_read_table_policy_denies_schema() {
+        let filter = crate::filter::PolicyFilter {
+            deny_schemas: vec!["auth".into()],
+            ..Default::default()
+        };
+        let err = enforce_read_table_policy(&filter, "SELECT * FROM auth.credentials")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("denied"));
+    }
+
+    #[test]
+    fn enforce_read_table_policy_allows_public_default() {
+        let filter = crate::filter::PolicyFilter::default();
+        enforce_read_table_policy(&filter, "SELECT * FROM users").unwrap();
     }
 }

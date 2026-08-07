@@ -79,7 +79,8 @@ pub struct RawFunctionRow {
     pub schema_name: String,
     pub name: String,
     pub arguments: String,
-    pub result_type: String,
+    /// `None` for procedures (`prokind = 'p'`) — `pg_get_function_result()` is NULL.
+    pub result_type: Option<String>,
     pub language: String,
     pub volatility: String,
     pub body: String,

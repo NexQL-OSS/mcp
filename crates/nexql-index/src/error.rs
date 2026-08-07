@@ -51,6 +51,6 @@ pub enum IndexError {
 
 impl From<tokio_postgres::Error> for IndexError {
     fn from(err: tokio_postgres::Error) -> Self {
-        IndexError::Db(err.to_string())
+        IndexError::Db(nexql_conn::format_postgres_error(&err))
     }
 }

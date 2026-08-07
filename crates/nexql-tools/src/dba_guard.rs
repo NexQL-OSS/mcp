@@ -97,59 +97,16 @@ pub fn analyze_ddl_safety(ddl: &str) -> Value {
                 update_overall_risk(&mut overall_risk, RiskLevel::Critical);
                 issues.push(issue);
             }
-            NodeRef::AlterTableCmd(cmd) => {
-                use pg_query::protobuf::AlterTableType;
-                if let Ok(subtype) = AlterTableType::try_from(cmd.subtype) {
-                    match subtype {
-                        AlterTableType::AtDropColumn => {
-                            let issue = DdlSafetyIssue {
-                                risk_level: RiskLevel::High,
-                                lock_type: "AccessExclusiveLock",
-                                issue: "Dropping a column acquires an AccessExclusiveLock, blocking all reads and writes.".into(),
-                                recommendation: "Ensure application code has stopped referencing the column before dropping.".into(),
-                                safe_alternative_sql: None,
-                            };
-                            update_overall_risk(&mut overall_risk, RiskLevel::High);
-                            issues.push(issue);
-                        }
-                        AlterTableType::AtAlterColumnType => {
-                            let issue = DdlSafetyIssue {
-                                risk_level: RiskLevel::Critical,
-                                lock_type: "AccessExclusiveLock (Full Table Rewrite)",
-                                issue: "Altering a column type forces a full table rewrite while holding an AccessExclusiveLock.".into(),
-                                recommendation: "Add a new column, backfill data asynchronously, dual-write in app logic, then drop the old column.".into(),
-                                safe_alternative_sql: None,
-                            };
-                            update_overall_risk(&mut overall_risk, RiskLevel::Critical);
-                            issues.push(issue);
-                        }
-                        AlterTableType::AtAddConstraint => {
-                            if let Some(def_node) = &cmd.def
-                                && let Some(pg_query::protobuf::node::Node::Constraint(c)) =
-                                    &def_node.node
-                            {
-                                use pg_query::protobuf::ConstrType;
-                                if let Ok(ConstrType::ConstrForeign) =
-                                    ConstrType::try_from(c.contype)
-                                    && !c.skip_validation
-                                {
-                                    let safe_sql =
-                                        format!("{} NOT VALID;", ddl.trim_end_matches(';'));
-                                    let issue = DdlSafetyIssue {
-                                        risk_level: RiskLevel::High,
-                                        lock_type: "AccessExclusiveLock",
-                                        issue: "Adding a foreign key constraint scans the entire table under AccessExclusiveLock.".into(),
-                                        recommendation: "Add the constraint with NOT VALID first, then run ALTER TABLE ... VALIDATE CONSTRAINT separately.".into(),
-                                        safe_alternative_sql: Some(safe_sql),
-                                    };
-                                    update_overall_risk(&mut overall_risk, RiskLevel::High);
-                                    issues.push(issue);
-                                }
-                            }
-                        }
-                        _ => {}
+            NodeRef::AlterTableStmt(stmt) => {
+                for cmd_node in &stmt.cmds {
+                    if let Some(pg_query::protobuf::node::Node::AlterTableCmd(cmd)) = &cmd_node.node
+                    {
+                        inspect_alter_table_cmd(cmd, ddl, &mut issues, &mut overall_risk);
                     }
                 }
+            }
+            NodeRef::AlterTableCmd(cmd) => {
+                inspect_alter_table_cmd(cmd, ddl, &mut issues, &mut overall_risk);
             }
             _ => {}
         }
@@ -175,6 +132,63 @@ pub fn analyze_ddl_safety(ddl: &str) -> Value {
         "issues": issues_json,
         "is_safe": overall_risk == RiskLevel::Safe,
     })
+}
+
+fn inspect_alter_table_cmd(
+    cmd: &pg_query::protobuf::AlterTableCmd,
+    ddl: &str,
+    issues: &mut Vec<DdlSafetyIssue>,
+    overall_risk: &mut RiskLevel,
+) {
+    use pg_query::protobuf::AlterTableType;
+    if let Ok(subtype) = AlterTableType::try_from(cmd.subtype) {
+        match subtype {
+            AlterTableType::AtDropColumn => {
+                let issue = DdlSafetyIssue {
+                    risk_level: RiskLevel::High,
+                    lock_type: "AccessExclusiveLock",
+                    issue: "Dropping a column acquires an AccessExclusiveLock, blocking all reads and writes.".into(),
+                    recommendation: "Ensure application code has stopped referencing the column before dropping.".into(),
+                    safe_alternative_sql: None,
+                };
+                update_overall_risk(overall_risk, RiskLevel::High);
+                issues.push(issue);
+            }
+            AlterTableType::AtAlterColumnType => {
+                let issue = DdlSafetyIssue {
+                    risk_level: RiskLevel::Critical,
+                    lock_type: "AccessExclusiveLock (Full Table Rewrite)",
+                    issue: "Altering a column type forces a full table rewrite while holding an AccessExclusiveLock.".into(),
+                    recommendation: "Add a new column, backfill data asynchronously, dual-write in app logic, then drop the old column.".into(),
+                    safe_alternative_sql: None,
+                };
+                update_overall_risk(overall_risk, RiskLevel::Critical);
+                issues.push(issue);
+            }
+            AlterTableType::AtAddConstraint => {
+                if let Some(def_node) = &cmd.def
+                    && let Some(pg_query::protobuf::node::Node::Constraint(c)) = &def_node.node
+                {
+                    use pg_query::protobuf::ConstrType;
+                    if let Ok(ConstrType::ConstrForeign) = ConstrType::try_from(c.contype)
+                        && !c.skip_validation
+                    {
+                        let safe_sql = format!("{} NOT VALID;", ddl.trim_end_matches(';'));
+                        let issue = DdlSafetyIssue {
+                            risk_level: RiskLevel::High,
+                            lock_type: "AccessExclusiveLock",
+                            issue: "Adding a foreign key constraint scans the entire table under AccessExclusiveLock.".into(),
+                            recommendation: "Add the constraint with NOT VALID first, then run ALTER TABLE ... VALIDATE CONSTRAINT separately.".into(),
+                            safe_alternative_sql: Some(safe_sql),
+                        };
+                        update_overall_risk(overall_risk, RiskLevel::High);
+                        issues.push(issue);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn update_overall_risk(current: &mut RiskLevel, new_risk: RiskLevel) {
@@ -226,6 +240,22 @@ mod tests {
     #[test]
     fn test_drop_table_flagged() {
         let sql = "DROP TABLE users;";
+        let res = analyze_ddl_safety(sql);
+        assert_eq!(res["overall_risk"], "CRITICAL");
+        assert_eq!(res["issue_count"], 1);
+    }
+
+    #[test]
+    fn test_alter_drop_column_flagged() {
+        let sql = "ALTER TABLE users DROP COLUMN email;";
+        let res = analyze_ddl_safety(sql);
+        assert_eq!(res["overall_risk"], "HIGH");
+        assert_eq!(res["issue_count"], 1);
+    }
+
+    #[test]
+    fn test_alter_column_type_flagged() {
+        let sql = "ALTER TABLE users ALTER COLUMN email TYPE text;";
         let res = analyze_ddl_safety(sql);
         assert_eq!(res["overall_risk"], "CRITICAL");
         assert_eq!(res["issue_count"], 1);

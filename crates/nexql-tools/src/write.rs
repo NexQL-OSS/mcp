@@ -6,11 +6,15 @@
 use std::sync::Arc;
 
 use deadpool_postgres::Object;
-use nexql_policy::{AccessMode, SqlDecision, validate_write_sql};
+use nexql_policy::{
+    AccessMode, SqlDecision, enforce_read_table_policy, validate_readonly_sql,
+    validate_write_sql,
+};
 use serde_json::{Map, Value, json};
 use tokio_postgres::SimpleQueryMessage;
 use tokio_postgres::types::ToSql;
 
+use crate::cell_json::rows_to_json_vec;
 use crate::error::ToolError;
 use crate::exec::ToolOutcome;
 use crate::session::ToolSession;
@@ -33,6 +37,9 @@ pub async fn execute_sql(
                 mode
             )));
         }
+    }
+    if matches!(validate_readonly_sql(sql)?, SqlDecision::Allow) {
+        enforce_read_table_policy(&session.filter(), sql)?;
     }
 
     let client = session.checkout().await?;
@@ -652,19 +659,7 @@ fn collect_simple_query(messages: Vec<SimpleQueryMessage>) -> (Vec<Value>, Optio
 }
 
 fn simple_rows_to_json(rows: &[tokio_postgres::Row]) -> Vec<Value> {
-    rows.iter()
-        .map(|row| {
-            let mut map = Map::new();
-            for (i, col) in row.columns().iter().enumerate() {
-                let val: Option<String> = row.try_get(i).ok().flatten();
-                map.insert(
-                    col.name().to_string(),
-                    val.map(Value::String).unwrap_or(Value::Null),
-                );
-            }
-            Value::Object(map)
-        })
-        .collect()
+    rows_to_json_vec(rows)
 }
 
 #[cfg(test)]
@@ -679,6 +674,19 @@ mod tests {
     #[test]
     fn assert_ddl_accepts_create() {
         assert!(assert_ddl_statement("CREATE TABLE t (id int)").is_ok());
+    }
+
+    #[test]
+    fn execute_sql_enforces_read_table_policy() {
+        use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, validate_readonly_sql};
+
+        let sql = "SELECT * FROM auth.credentials";
+        assert_eq!(validate_readonly_sql(sql).unwrap(), SqlDecision::Allow);
+        let filter = PolicyFilter {
+            deny_schemas: vec!["auth".into()],
+            ..Default::default()
+        };
+        assert!(enforce_read_table_policy(&filter, sql).is_err());
     }
 
     #[test]

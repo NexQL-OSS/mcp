@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 NexQL-OSS Team
 
+use nexql_conn::format_postgres_error;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,6 +24,6 @@ pub enum ToolError {
     #[error(transparent)]
     Index(#[from] nexql_index::IndexError),
 
-    #[error(transparent)]
+    #[error("postgres error: {}", format_postgres_error(.0))]
     Postgres(#[from] tokio_postgres::Error),
 }
