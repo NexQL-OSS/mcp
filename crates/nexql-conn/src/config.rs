@@ -228,14 +228,13 @@ impl ConfigFile {
             profile.password_command = None;
             profile.password_file = None;
             profile.credential_provider = None;
-            if let Some(ref url) = profile.url {
-                if let Ok(mut parsed) = url::Url::parse(url) {
-                    if parsed.password().is_some() || !parsed.username().is_empty() {
-                        let _ = parsed.set_username("");
-                        let _ = parsed.set_password(None);
-                        profile.url = Some(parsed.to_string());
-                    }
-                }
+            if let Some(ref url) = profile.url
+                && let Ok(mut parsed) = url::Url::parse(url)
+                && (parsed.password().is_some() || !parsed.username().is_empty())
+            {
+                let _ = parsed.set_username("");
+                let _ = parsed.set_password(None);
+                profile.url = Some(parsed.to_string());
             }
         }
         sanitized

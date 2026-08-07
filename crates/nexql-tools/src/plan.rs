@@ -78,15 +78,14 @@ pub fn extract_plan_metrics(explain_plan: &Value) -> Option<Value> {
                 .to_owned(),
         );
     }
-    if let Some(ref bs) = buffer_stats {
-        if let Some(ratio) = bs.get("hitRatio").and_then(|v| v.as_f64()) {
-            if ratio < 80.0 {
-                recommendations.push(
-                    "Low buffer hit ratio; consider increasing work_mem or improving indexes"
-                        .to_owned(),
-                );
-            }
-        }
+    if let Some(ref bs) = buffer_stats
+        && let Some(ratio) = bs.get("hitRatio").and_then(|v| v.as_f64())
+        && ratio < 80.0
+    {
+        recommendations.push(
+            "Low buffer hit ratio; consider increasing work_mem or improving indexes"
+                .to_owned(),
+        );
     }
     if let Some(first) = bottlenecks.first() {
         recommendations.push(format!("Review bottlenecks: {first}"));
@@ -147,10 +146,10 @@ fn resolve_plan_root(explain_plan: &Value) -> Option<&Value> {
         if qp.get("Plan").is_some() {
             return Some(qp);
         }
-        if let Some(inner) = qp.as_array().and_then(|a| a.first()) {
-            if inner.get("Plan").is_some() {
-                return Some(inner);
-            }
+        if let Some(inner) = qp.as_array().and_then(|a| a.first())
+            && inner.get("Plan").is_some()
+        {
+            return Some(inner);
         }
     }
     None
@@ -227,15 +226,14 @@ fn analyze_plan_node(
         }
     }
 
-    if node_type.contains("Bitmap Heap Scan") {
-        if let Some(lossy) = node.get("Lossy Heap Blocks").and_then(|v| v.as_f64()) {
-            if lossy > 0.0 {
-                *lossy_bitmap_scans += 1;
-                bottlenecks.push(format!(
-                    "Lossy bitmap heap scan detected ({lossy} lossy blocks)"
-                ));
-            }
-        }
+    if node_type.contains("Bitmap Heap Scan")
+        && let Some(lossy) = node.get("Lossy Heap Blocks").and_then(|v| v.as_f64())
+        && lossy > 0.0
+    {
+        *lossy_bitmap_scans += 1;
+        bottlenecks.push(format!(
+            "Lossy bitmap heap scan detected ({lossy} lossy blocks)"
+        ));
     }
     let temp_written = node
         .get("Temp Written Blocks")
@@ -416,23 +414,23 @@ fn is_ident_cont(c: char) -> bool {
 fn extract_sql_shape(query: &str) -> Value {
     let lower = query.to_ascii_lowercase();
     let mut cte_names = Vec::new();
-    if let Some(with_pos) = lower.find("with") {
-        if let Some(select_rel) = lower[with_pos..].find("select") {
-            let body = &query[with_pos + 4..with_pos + select_rel];
-            let body_lower = body.to_ascii_lowercase();
-            let mut search_from = 0;
-            while let Some(as_rel) = body_lower[search_from..].find(" as ") {
-                let as_abs = search_from + as_rel;
-                let before = body[..as_abs].trim_end();
-                if let Some(name) = before
-                    .rsplit(|c: char| !(is_ident_cont(c)))
-                    .next()
-                    .filter(|s| !s.is_empty() && is_ident_start(s.chars().next().unwrap()))
-                {
-                    cte_names.push(name.to_string());
-                }
-                search_from = as_abs + 4;
+    if let Some(with_pos) = lower.find("with")
+        && let Some(select_rel) = lower[with_pos..].find("select")
+    {
+        let body = &query[with_pos + 4..with_pos + select_rel];
+        let body_lower = body.to_ascii_lowercase();
+        let mut search_from = 0;
+        while let Some(as_rel) = body_lower[search_from..].find(" as ") {
+            let as_abs = search_from + as_rel;
+            let before = body[..as_abs].trim_end();
+            if let Some(name) = before
+                .rsplit(|c: char| !(is_ident_cont(c)))
+                .next()
+                .filter(|s| !s.is_empty() && is_ident_start(s.chars().next().unwrap()))
+            {
+                cte_names.push(name.to_string());
             }
+            search_from = as_abs + 4;
         }
     }
     cte_names.sort();

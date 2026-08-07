@@ -297,10 +297,10 @@ async fn handle_delete(
 }
 
 fn with_session_header(mut resp: Response, session_id: Option<&str>) -> Response {
-    if let Some(id) = session_id {
-        if let Ok(value) = HeaderValue::from_str(id) {
-            resp.headers_mut().insert(SESSION_HEADER, value);
-        }
+    if let Some(id) = session_id
+        && let Ok(value) = HeaderValue::from_str(id)
+    {
+        resp.headers_mut().insert(SESSION_HEADER, value);
     }
     resp
 }

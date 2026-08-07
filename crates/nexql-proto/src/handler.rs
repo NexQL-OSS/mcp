@@ -88,14 +88,15 @@ impl McpHandler {
             }
         };
 
-        if req_val.get("method").is_none() && req_val.get("id").is_some() {
-            if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(req_val.clone()) {
-                let mut pending = self.pending_responses.lock().unwrap();
-                if let Some(tx) = pending.remove(&resp.id) {
-                    let _ = tx.send(resp);
-                }
-                return None;
+        if req_val.get("method").is_none()
+            && req_val.get("id").is_some()
+            && let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(req_val.clone())
+        {
+            let mut pending = self.pending_responses.lock().unwrap();
+            if let Some(tx) = pending.remove(&resp.id) {
+                let _ = tx.send(resp);
             }
+            return None;
         }
 
         let req: JsonRpcRequest = match serde_json::from_value(req_val) {

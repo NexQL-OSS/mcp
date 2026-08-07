@@ -642,11 +642,11 @@ fn write_embeddings_with(
             .get(ref_)
             .map(|e| e.object_hash.as_str())
             .unwrap_or_default();
-        if let Some((old_hash, old_vec)) = existing_map.get(ref_) {
-            if old_hash == current_hash {
-                vectors.push(Some(old_vec.clone()));
-                continue;
-            }
+        if let Some((old_hash, old_vec)) = existing_map.get(ref_)
+            && old_hash == current_hash
+        {
+            vectors.push(Some(old_vec.clone()));
+            continue;
         }
         vectors.push(None);
         to_embed_indices.push(idx);

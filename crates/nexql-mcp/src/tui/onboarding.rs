@@ -32,12 +32,11 @@ pub async fn run_loop(
     loop {
         terminal.draw(|frame| draw(frame, &app))?;
 
-        if event::poll(TICK)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
-            }
+        if event::poll(TICK)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            app.on_key(key);
         }
 
         if app.should_quit {

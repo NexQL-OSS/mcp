@@ -311,64 +311,62 @@ pub fn resolve_with_runner(
                 }
             })
     });
-    if let Some(ref proj) = project {
-        if let Some(ref name) = proj.default_profile {
-            if let Some(ref cfg) = config {
-                if let Some(profile) = cfg.profiles.get(name).cloned() {
-                    let mut params = params_from_profile(&profile, &getenv)?;
-                    fill_password(
-                        &mut params,
-                        inputs,
-                        &getenv,
-                        runner,
-                        profile.password_command.as_deref(),
-                        profile.password_file.as_deref(),
-                        profile
-                            .credential_provider
-                            .as_deref()
-                            .or(Some(name.as_str())),
-                    )?;
-                    return Ok(ResolvedConnection {
-                        params,
-                        source: ConnectionSource::ProjectConfig,
-                        profile_name: Some(name.clone()),
-                        profile: Some(profile),
-                        project_config: Some(proj.clone()),
-                    });
-                }
-            }
-        }
+    if let Some(ref proj) = project
+        && let Some(ref name) = proj.default_profile
+        && let Some(ref cfg) = config
+        && let Some(profile) = cfg.profiles.get(name).cloned()
+    {
+        let mut params = params_from_profile(&profile, &getenv)?;
+        fill_password(
+            &mut params,
+            inputs,
+            &getenv,
+            runner,
+            profile.password_command.as_deref(),
+            profile.password_file.as_deref(),
+            profile
+                .credential_provider
+                .as_deref()
+                .or(Some(name.as_str())),
+        )?;
+        return Ok(ResolvedConnection {
+            params,
+            source: ConnectionSource::ProjectConfig,
+            profile_name: Some(name.clone()),
+            profile: Some(profile),
+            project_config: Some(proj.clone()),
+        });
     }
 
     // 7. default_profile in config
-    if let Some(ref cfg) = config {
-        if let Some(ref name) = cfg.default_profile {
-            let profile = cfg
-                .profiles
-                .get(name)
-                .cloned()
-                .ok_or_else(|| ConnError::ProfileNotFound(name.clone()))?;
-            let mut params = params_from_profile(&profile, &getenv)?;
-            fill_password(
-                &mut params,
-                inputs,
-                &getenv,
-                runner,
-                profile.password_command.as_deref(),
-                profile.password_file.as_deref(),
-                profile
-                    .credential_provider
-                    .as_deref()
-                    .or(Some(name.as_str())),
-            )?;
-            return Ok(ResolvedConnection {
-                params,
-                source: ConnectionSource::DefaultProfile,
-                profile_name: Some(name.clone()),
-                profile: Some(profile),
-                project_config: project.clone(),
-            });
-        }
+    if let Some(ref cfg) = config
+        && let Some(ref name) = cfg.default_profile
+    {
+        let profile = cfg
+            .profiles
+            .get(name)
+            .cloned()
+            .ok_or_else(|| ConnError::ProfileNotFound(name.clone()))?;
+        let mut params = params_from_profile(&profile, &getenv)?;
+        fill_password(
+            &mut params,
+            inputs,
+            &getenv,
+            runner,
+            profile.password_command.as_deref(),
+            profile.password_file.as_deref(),
+            profile
+                .credential_provider
+                .as_deref()
+                .or(Some(name.as_str())),
+        )?;
+        return Ok(ResolvedConnection {
+            params,
+            source: ConnectionSource::DefaultProfile,
+            profile_name: Some(name.clone()),
+            profile: Some(profile),
+            project_config: project.clone(),
+        });
     }
 
     Err(ConnError::NoSource)
@@ -407,10 +405,10 @@ pub fn resolve_all_with_runner(
 
     let mut keys: Vec<String> = cfg.profiles.keys().cloned().collect();
     keys.sort();
-    if let Some(ref def) = cfg.default_profile {
-        if let Some(pos) = keys.iter().position(|k| k == def) {
-            keys.swap(0, pos);
-        }
+    if let Some(ref def) = cfg.default_profile
+        && let Some(pos) = keys.iter().position(|k| k == def)
+    {
+        keys.swap(0, pos);
     }
 
     let mut results = Vec::new();
@@ -442,10 +440,10 @@ fn load_config(inputs: &ResolveInputs) -> Result<Option<ConfigFile>, ConnError> 
         return Ok(Some(cfg.clone()));
     }
     let path = inputs.config_path.clone().or_else(ConfigFile::default_path);
-    if let Some(path) = path {
-        if path.exists() {
-            return Ok(Some(ConfigFile::load_path(&path)?));
-        }
+    if let Some(path) = path
+        && path.exists()
+    {
+        return Ok(Some(ConfigFile::load_path(&path)?));
     }
     Ok(None)
 }
@@ -661,10 +659,10 @@ fn fill_password(
         .pgpass_path
         .clone()
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".pgpass")));
-    if let Some(path) = pgpass_path {
-        if let Some(pw) = pgpass::lookup_password(&path, host, port, dbname, user)? {
-            params.password = Some(pw);
-        }
+    if let Some(path) = pgpass_path
+        && let Some(pw) = pgpass::lookup_password(&path, host, port, dbname, user)?
+    {
+        params.password = Some(pw);
     }
     Ok(())
 }

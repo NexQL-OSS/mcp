@@ -708,30 +708,30 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
 
     let session = ToolSession::from_connections(connections, active_id).await?;
 
-    if let Some(store) = session.index_store.clone() {
-        if let Some(resolved) = active_resolved {
-            let (connection_id, database) = index_ids(resolved);
-            let base = store.base_dir(&connection_id, &database);
-            if store.read_manifest(&base)?.is_none() {
-                let req = default_build_request(
-                    connection_id.clone(),
-                    database.clone(),
-                    BuildDepth::Structure,
-                    cli.embeddings.is_local(),
+    if let Some(store) = session.index_store.clone()
+        && let Some(resolved) = active_resolved
+    {
+        let (connection_id, database) = index_ids(resolved);
+        let base = store.base_dir(&connection_id, &database);
+        if store.read_manifest(&base)?.is_none() {
+            let req = default_build_request(
+                connection_id.clone(),
+                database.clone(),
+                BuildDepth::Structure,
+                cli.embeddings.is_local(),
+            );
+            let resolved_for_index = resolved.clone();
+            tokio::task::spawn_blocking(move || {
+                eprintln!(
+                    "index: no schema index for {connection_id}/{database} — building automatically"
                 );
-                let resolved_for_index = resolved.clone();
-                tokio::task::spawn_blocking(move || {
+                let handle = tokio::runtime::Handle::current();
+                if let Err(e) = handle.block_on(run_build_request(&resolved_for_index, req)) {
                     eprintln!(
-                        "index: no schema index for {connection_id}/{database} — building automatically"
+                        "warning: automatic index build failed for {connection_id}/{database}: {e}"
                     );
-                    let handle = tokio::runtime::Handle::current();
-                    if let Err(e) = handle.block_on(run_build_request(&resolved_for_index, req)) {
-                        eprintln!(
-                            "warning: automatic index build failed for {connection_id}/{database}: {e}"
-                        );
-                    }
-                });
-            }
+                }
+            });
         }
     }
 

@@ -124,28 +124,26 @@ pub fn analyze_ddl_safety(ddl: &str) -> Value {
                             issues.push(issue);
                         }
                         AlterTableType::AtAddConstraint => {
-                            if let Some(def_node) = &cmd.def {
-                                if let Some(pg_query::protobuf::node::Node::Constraint(c)) =
+                            if let Some(def_node) = &cmd.def
+                                && let Some(pg_query::protobuf::node::Node::Constraint(c)) =
                                     &def_node.node
+                            {
+                                use pg_query::protobuf::ConstrType;
+                                if let Ok(ConstrType::ConstrForeign) =
+                                    ConstrType::try_from(c.contype)
+                                    && !c.skip_validation
                                 {
-                                    use pg_query::protobuf::ConstrType;
-                                    if let Ok(ConstrType::ConstrForeign) =
-                                        ConstrType::try_from(c.contype)
-                                    {
-                                        if !c.skip_validation {
-                                            let safe_sql =
-                                                format!("{} NOT VALID;", ddl.trim_end_matches(';'));
-                                            let issue = DdlSafetyIssue {
-                                                risk_level: RiskLevel::High,
-                                                lock_type: "AccessExclusiveLock",
-                                                issue: "Adding a foreign key constraint scans the entire table under AccessExclusiveLock.".into(),
-                                                recommendation: "Add the constraint with NOT VALID first, then run ALTER TABLE ... VALIDATE CONSTRAINT separately.".into(),
-                                                safe_alternative_sql: Some(safe_sql),
-                                            };
-                                            update_overall_risk(&mut overall_risk, RiskLevel::High);
-                                            issues.push(issue);
-                                        }
-                                    }
+                                    let safe_sql =
+                                        format!("{} NOT VALID;", ddl.trim_end_matches(';'));
+                                    let issue = DdlSafetyIssue {
+                                        risk_level: RiskLevel::High,
+                                        lock_type: "AccessExclusiveLock",
+                                        issue: "Adding a foreign key constraint scans the entire table under AccessExclusiveLock.".into(),
+                                        recommendation: "Add the constraint with NOT VALID first, then run ALTER TABLE ... VALIDATE CONSTRAINT separately.".into(),
+                                        safe_alternative_sql: Some(safe_sql),
+                                    };
+                                    update_overall_risk(&mut overall_risk, RiskLevel::High);
+                                    issues.push(issue);
                                 }
                             }
                         }

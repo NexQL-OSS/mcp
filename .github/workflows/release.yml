@@ -291,6 +291,14 @@ jobs:
             sleep 20
           done
 
+      # rust-cache post-step treats any `target/**/tests` dir as trybuild/macrotest
+      # scratch and tries to opendir `tests/{target,trybuild}`. `cargo publish`
+      # leaves `target/package/*/tests/` behind, which triggers harmless but
+      # alarming ENOENT annotations on the workflow summary.
+      - name: Remove cargo package staging (rust-cache cleanup workaround)
+        if: always()
+        run: rm -rf target/package
+
   publish-npm:
     needs: publish-cargo
     runs-on: ubuntu-latest

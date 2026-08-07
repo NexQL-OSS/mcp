@@ -187,20 +187,20 @@ impl ToolRouter {
                 freshness = Some(json!({ "stale": true, "reason": "no_index" }));
             }
         }
-        if let Some(ref mut structured) = outcome.structured {
-            if let Some(obj) = structured.as_object_mut() {
-                if !obj.contains_key("connectionId") {
-                    obj.insert("connectionId".into(), json!(connection_id));
-                }
-                if !obj.contains_key("database") {
-                    obj.insert("database".into(), json!(database));
-                }
-                if !obj.contains_key("accessMode") {
-                    obj.insert("accessMode".into(), json!(access_mode));
-                }
-                if let Some(ref f) = freshness {
-                    obj.insert("freshness".into(), f.clone());
-                }
+        if let Some(ref mut structured) = outcome.structured
+            && let Some(obj) = structured.as_object_mut()
+        {
+            if !obj.contains_key("connectionId") {
+                obj.insert("connectionId".into(), json!(connection_id));
+            }
+            if !obj.contains_key("database") {
+                obj.insert("database".into(), json!(database));
+            }
+            if !obj.contains_key("accessMode") {
+                obj.insert("accessMode".into(), json!(access_mode));
+            }
+            if let Some(ref f) = freshness {
+                obj.insert("freshness".into(), f.clone());
             }
         }
         let header = format!(
@@ -604,16 +604,16 @@ impl ToolRouter {
 
     fn build_tuning_summary(plan_structured: &Option<Value>, suggestions: &Value) -> String {
         let mut parts = Vec::new();
-        if let Some(structured) = plan_structured {
-            if let Some(metrics) = structured.get("metrics") {
-                if let Some(exec_time) = metrics.get("executionTime").and_then(|v| v.as_f64()) {
-                    parts.push(format!("Query executed in {:.2}ms.", exec_time));
-                }
-                if let Some(seq_scans) = metrics.get("sequentialScans").and_then(|v| v.as_u64()) {
-                    if seq_scans > 0 {
-                        parts.push(format!("Found {seq_scans} sequential scan(s)."));
-                    }
-                }
+        if let Some(structured) = plan_structured
+            && let Some(metrics) = structured.get("metrics")
+        {
+            if let Some(exec_time) = metrics.get("executionTime").and_then(|v| v.as_f64()) {
+                parts.push(format!("Query executed in {:.2}ms.", exec_time));
+            }
+            if let Some(seq_scans) = metrics.get("sequentialScans").and_then(|v| v.as_u64())
+                && seq_scans > 0
+            {
+                parts.push(format!("Found {seq_scans} sequential scan(s)."));
             }
         }
 
@@ -1212,28 +1212,28 @@ impl ToolRouter {
         let mut values = result.values;
         let mut message = result.message;
 
-        if values.is_empty() {
-            if let Ok(client) = self.session.checkout().await {
-                let parts: Vec<&str> = ref_.split('.').collect();
-                let (schema, table) = match parts.as_slice() {
-                    [s, t] => (*s, *t),
-                    _ => ("public", ref_),
-                };
-                let safe_schema = schema.replace('"', "\"\"");
-                let safe_table = table.replace('"', "\"\"");
-                let safe_col = col.replace('"', "\"\"");
-                let query = format!(
-                    "SELECT DISTINCT \"{safe_col}\"::text FROM \"{safe_schema}\".\"{safe_table}\" WHERE \"{safe_col}\" IS NOT NULL LIMIT 20"
-                );
-                if let Ok(rows) = client.query(&query, &[]).await {
-                    let sampled: Vec<String> = rows
-                        .iter()
-                        .filter_map(|r| r.get::<_, Option<String>>(0))
-                        .collect();
-                    if !sampled.is_empty() {
-                        values = sampled;
-                        message = None;
-                    }
+        if values.is_empty()
+            && let Ok(client) = self.session.checkout().await
+        {
+            let parts: Vec<&str> = ref_.split('.').collect();
+            let (schema, table) = match parts.as_slice() {
+                [s, t] => (*s, *t),
+                _ => ("public", ref_),
+            };
+            let safe_schema = schema.replace('"', "\"\"");
+            let safe_table = table.replace('"', "\"\"");
+            let safe_col = col.replace('"', "\"\"");
+            let query = format!(
+                "SELECT DISTINCT \"{safe_col}\"::text FROM \"{safe_schema}\".\"{safe_table}\" WHERE \"{safe_col}\" IS NOT NULL LIMIT 20"
+            );
+            if let Ok(rows) = client.query(&query, &[]).await {
+                let sampled: Vec<String> = rows
+                    .iter()
+                    .filter_map(|r| r.get::<_, Option<String>>(0))
+                    .collect();
+                if !sampled.is_empty() {
+                    values = sampled;
+                    message = None;
                 }
             }
         }
@@ -1921,35 +1921,35 @@ impl ToolRouter {
         // Prefer schema-index join-graph inferred edges when an index exists.
         if let Ok((store, connection_id, database)) = self.index_service().await {
             let base = store.base_dir(&connection_id, &database);
-            if let Ok(Some(manifest)) = store.read_manifest(&base) {
-                if let Ok(Some(graph)) = store.read_join_graph(&base, &manifest) {
-                    let candidates: Vec<Value> = graph
-                        .edges
-                        .into_iter()
-                        .filter(|e| e.inferred == Some(true) && e.disabled != Some(true))
-                        .take(capped)
-                        .map(|e| {
-                            let cols: Vec<Value> = e
-                                .cols
-                                .iter()
-                                .map(|(a, b)| json!({ "from": a, "to": b }))
-                                .collect();
-                            json!({
-                                "from_table": e.from,
-                                "to_table": e.to,
-                                "via": e.via,
-                                "columns": cols,
-                                "detection": "join_graph_inferred",
-                            })
+            if let Ok(Some(manifest)) = store.read_manifest(&base)
+                && let Ok(Some(graph)) = store.read_join_graph(&base, &manifest)
+            {
+                let candidates: Vec<Value> = graph
+                    .edges
+                    .into_iter()
+                    .filter(|e| e.inferred == Some(true) && e.disabled != Some(true))
+                    .take(capped)
+                    .map(|e| {
+                        let cols: Vec<Value> = e
+                            .cols
+                            .iter()
+                            .map(|(a, b)| json!({ "from": a, "to": b }))
+                            .collect();
+                        json!({
+                            "from_table": e.from,
+                            "to_table": e.to,
+                            "via": e.via,
+                            "columns": cols,
+                            "detection": "join_graph_inferred",
                         })
-                        .collect();
-                    if !candidates.is_empty() {
-                        return Ok(ToolOutcome::ok_json(json!({
-                            "candidates": candidates,
-                            "source": "join_graph",
-                            "hint": "These edges were inferred by naming convention and have no declared FK. Review before ALTER TABLE … ADD FOREIGN KEY.",
-                        })));
-                    }
+                    })
+                    .collect();
+                if !candidates.is_empty() {
+                    return Ok(ToolOutcome::ok_json(json!({
+                        "candidates": candidates,
+                        "source": "join_graph",
+                        "hint": "These edges were inferred by naming convention and have no declared FK. Review before ALTER TABLE … ADD FOREIGN KEY.",
+                    })));
                 }
             }
         }
@@ -2122,21 +2122,21 @@ impl ToolRouter {
 
         // Normalize single-row sections to objects for agents.
         for key in ["db_info", "object_counts", "extension_count", "cache"] {
-            if let Some(Value::Array(arr)) = report.get(key).cloned() {
-                if arr.len() == 1 {
-                    report.insert(key.into(), arr.into_iter().next().unwrap());
-                }
+            if let Some(Value::Array(arr)) = report.get(key).cloned()
+                && arr.len() == 1
+            {
+                report.insert(key.into(), arr.into_iter().next().unwrap());
             }
         }
-        if let Some(Value::Array(arr)) = report.get("max_connections").cloned() {
-            if let Some(row) = arr.first() {
-                report.insert(
-                    "max_connections".into(),
-                    row.get("max_connections")
-                        .cloned()
-                        .unwrap_or_else(|| row.clone()),
-                );
-            }
+        if let Some(Value::Array(arr)) = report.get("max_connections").cloned()
+            && let Some(row) = arr.first()
+        {
+            report.insert(
+                "max_connections".into(),
+                row.get("max_connections")
+                    .cloned()
+                    .unwrap_or_else(|| row.clone()),
+            );
         }
 
         Ok(ToolOutcome::ok_json(Value::Object(report)))
@@ -2285,11 +2285,11 @@ impl ToolRouter {
         let values = rows_to_json(keep);
         // Always `{ "rows": [...] }` — truncation flags are extra fields on the object.
         let mut payload = ensure_structured_object(values);
-        if truncated {
-            if let Some(obj) = payload.as_object_mut() {
-                obj.insert("truncated".into(), json!(true));
-                obj.insert("maxRows".into(), json!(max_rows));
-            }
+        if truncated
+            && let Some(obj) = payload.as_object_mut()
+        {
+            obj.insert("truncated".into(), json!(true));
+            obj.insert("maxRows".into(), json!(max_rows));
         }
         let text = serde_json::to_string_pretty(&payload)
             .map_err(|e| ToolError::Execution(e.to_string()))?;

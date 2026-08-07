@@ -44,15 +44,15 @@ pub fn interpolate_env(input: &str, getenv: &dyn Fn(&str) -> Option<String>) -> 
     let bytes = input.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if input[i..].starts_with("${env:") {
-            if let Some(end) = input[i + 6..].find('}') {
-                let key = &input[i + 6..i + 6 + end];
-                if let Some(val) = getenv(key) {
-                    out.push_str(&val);
-                }
-                i = i + 6 + end + 1;
-                continue;
+        if input[i..].starts_with("${env:")
+            && let Some(end) = input[i + 6..].find('}')
+        {
+            let key = &input[i + 6..i + 6 + end];
+            if let Some(val) = getenv(key) {
+                out.push_str(&val);
             }
+            i = i + 6 + end + 1;
+            continue;
         }
         out.push(bytes[i] as char);
         i += 1;

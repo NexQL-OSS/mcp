@@ -50,10 +50,10 @@ pub fn validate_readonly_sql(sql: &str) -> Result<SqlDecision, PolicyError> {
         if is_forbidden_always(node_ref) || is_ddl_or_admin_utility(node_ref) {
             return Ok(SqlDecision::Reject);
         }
-        if let NodeRef::SelectStmt(sel) = node_ref {
-            if sel.into_clause.is_some() {
-                return Ok(SqlDecision::Reject);
-            }
+        if let NodeRef::SelectStmt(sel) = node_ref
+            && sel.into_clause.is_some()
+        {
+            return Ok(SqlDecision::Reject);
         }
     }
 
@@ -221,10 +221,11 @@ fn validate_mode_sql<P: SqlModePolicy>(sql: &str) -> Result<SqlDecision, PolicyE
         if P::reject_node_in_walk(node_ref) {
             return Ok(SqlDecision::Reject);
         }
-        if let NodeRef::SelectStmt(sel) = node_ref {
-            if sel.into_clause.is_some() && !P::allows_select_into() {
-                return Ok(SqlDecision::Reject);
-            }
+        if let NodeRef::SelectStmt(sel) = node_ref
+            && sel.into_clause.is_some()
+            && !P::allows_select_into()
+        {
+            return Ok(SqlDecision::Reject);
         }
     }
 

@@ -218,11 +218,11 @@ impl App {
 
     /// Poll the in-flight test-connection task, if any. Call once per UI tick.
     pub fn poll_test(&mut self) {
-        if let Some(rx) = &mut self.test_rx {
-            if let Ok(result) = rx.try_recv() {
-                self.test_outcome = TestOutcome::Done(result);
-                self.test_rx = None;
-            }
+        if let Some(rx) = &mut self.test_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.test_outcome = TestOutcome::Done(result);
+            self.test_rx = None;
         }
     }
 
@@ -288,10 +288,10 @@ impl App {
             .filter(|n| self.checked_profiles.contains(*n))
             .cloned()
             .collect();
-        if selected_names.is_empty() {
-            if let Some(name) = self.selected_name() {
-                selected_names.push(name);
-            }
+        if selected_names.is_empty()
+            && let Some(name) = self.selected_name()
+        {
+            selected_names.push(name);
         }
         if selected_names.is_empty() {
             return;
@@ -465,11 +465,11 @@ impl App {
                 self.screen = Screen::ProfileForm;
             }
             KeyCode::Char('e') | KeyCode::Enter => {
-                if let Some(name) = self.selected_name() {
-                    if let Some(profile) = self.config.profiles.get(&name).cloned() {
-                        self.form = ProfileForm::from_profile(&name, &profile);
-                        self.screen = Screen::ProfileForm;
-                    }
+                if let Some(name) = self.selected_name()
+                    && let Some(profile) = self.config.profiles.get(&name).cloned()
+                {
+                    self.form = ProfileForm::from_profile(&name, &profile);
+                    self.screen = Screen::ProfileForm;
                 }
             }
             KeyCode::Char('d') => {
@@ -478,10 +478,10 @@ impl App {
                 }
             }
             KeyCode::Char('t') => {
-                if let Some(name) = self.selected_name() {
-                    if let Some(profile) = self.config.profiles.get(&name).cloned() {
-                        self.start_test(profile, TestReturn::List);
-                    }
+                if let Some(name) = self.selected_name()
+                    && let Some(profile) = self.config.profiles.get(&name).cloned()
+                {
+                    self.start_test(profile, TestReturn::List);
                 }
             }
             KeyCode::Char(' ') => {

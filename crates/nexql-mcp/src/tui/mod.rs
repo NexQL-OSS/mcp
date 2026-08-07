@@ -76,12 +76,11 @@ async fn run_loop(
         app.poll_test();
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
-        if event::poll(TICK)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
-            }
+        if event::poll(TICK)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            app.on_key(key);
         }
 
         if app.should_quit {

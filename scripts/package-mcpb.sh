@@ -45,7 +45,7 @@ jq --arg entry "server/$BIN_NAME" --arg cmd "\${__dirname}/server/$BIN_NAME" \
   "$MANIFEST" > "$STAGE/manifest.json"
 
 mkdir -p "$OUT_DIR"
-OUT_FILE="$OUT_DIR/nexql-mcp-${VENDOR}.mcpb"
+OUT_FILE="$(cd "$OUT_DIR" && pwd)/nexql-mcp-${VENDOR}.mcpb"
 ( cd "$STAGE" && zip -qr "$OUT_FILE" manifest.json server )
 
 sha256sum "$OUT_FILE" > "$OUT_FILE.sha256" 2>/dev/null \

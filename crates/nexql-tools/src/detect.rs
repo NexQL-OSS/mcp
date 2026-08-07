@@ -89,22 +89,22 @@ impl ConnectionDetector {
 
     /// Detect from environment variables (DATABASE_URL, POSTGRES_URL, PG*).
     pub fn detect_env_vars() -> Option<DetectedCandidate> {
-        if let Ok(url) = std::env::var("DATABASE_URL").or_else(|_| std::env::var("POSTGRES_URL")) {
-            if !url.trim().is_empty() {
-                let mut cand = DetectedCandidate {
-                    source: "environment (DATABASE_URL/POSTGRES_URL)".into(),
-                    url: Some(url),
-                    host: None,
-                    port: None,
-                    dbname: None,
-                    user: None,
-                    password: None,
-                    sslmode: None,
-                    is_complete: true,
-                };
-                cand.check_complete();
-                return Some(cand);
-            }
+        if let Ok(url) = std::env::var("DATABASE_URL").or_else(|_| std::env::var("POSTGRES_URL"))
+            && !url.trim().is_empty()
+        {
+            let mut cand = DetectedCandidate {
+                source: "environment (DATABASE_URL/POSTGRES_URL)".into(),
+                url: Some(url),
+                host: None,
+                port: None,
+                dbname: None,
+                user: None,
+                password: None,
+                sslmode: None,
+                is_complete: true,
+            };
+            cand.check_complete();
+            return Some(cand);
         }
 
         let host = std::env::var("PGHOST")

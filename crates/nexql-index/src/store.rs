@@ -182,26 +182,25 @@ impl IndexStore {
             Ok(s) => s,
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 // Fallback for legacy paths (e.g. dbindex/localhost/db or dbindex/localhost_db/db)
-                if let (Some(db_name), Some(parent)) = (base_dir.file_name(), base_dir.parent()) {
-                    if parent.file_name().and_then(|n| n.to_str()) == Some("default") {
-                        if let Some(index_root) = parent.parent() {
-                            let legacy_candidates = [
-                                index_root
-                                    .join("localhost")
-                                    .join(db_name)
-                                    .join(MANIFEST_FILE),
-                                index_root
-                                    .join(format!("localhost_{}", db_name.to_string_lossy()))
-                                    .join(db_name)
-                                    .join(MANIFEST_FILE),
-                            ];
-                            for cand in legacy_candidates {
-                                if cand.exists() {
-                                    if let Ok(s) = fs::read_to_string(&cand) {
-                                        return Ok(Some(migrate_manifest(&s)?));
-                                    }
-                                }
-                            }
+                if let (Some(db_name), Some(parent)) = (base_dir.file_name(), base_dir.parent())
+                    && parent.file_name().and_then(|n| n.to_str()) == Some("default")
+                    && let Some(index_root) = parent.parent()
+                {
+                    let legacy_candidates = [
+                        index_root
+                            .join("localhost")
+                            .join(db_name)
+                            .join(MANIFEST_FILE),
+                        index_root
+                            .join(format!("localhost_{}", db_name.to_string_lossy()))
+                            .join(db_name)
+                            .join(MANIFEST_FILE),
+                    ];
+                    for cand in legacy_candidates {
+                        if cand.exists()
+                            && let Ok(s) = fs::read_to_string(&cand)
+                        {
+                            return Ok(Some(migrate_manifest(&s)?));
                         }
                     }
                 }

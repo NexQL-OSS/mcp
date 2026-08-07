@@ -35,10 +35,10 @@ pub fn resolve_index_root(
     if let Ok(p) = std::env::var("NEXQL_MCP_INDEX_DIR") {
         return PathBuf::from(p);
     }
-    if let (Some(root), Some(cfg)) = (workspace_root, project_config) {
-        if let Some(ref index_dir) = cfg.index_dir {
-            return root.join(".nexql").join(index_dir);
-        }
+    if let (Some(root), Some(cfg)) = (workspace_root, project_config)
+        && let Some(ref index_dir) = cfg.index_dir
+    {
+        return root.join(".nexql").join(index_dir);
     }
     default_index_root()
 }
