@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Secret indirection — `password_command` and related.
 
 use std::process::Command;

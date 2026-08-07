@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Auto-detection of Postgres connection candidates from environment, workspace files, and local settings.
 
 use serde::{Deserialize, Serialize};

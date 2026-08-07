@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Catalog SQL query constants — port of
 //! `pro/src/features/dbindex/catalogQueries.ts`.
 //!

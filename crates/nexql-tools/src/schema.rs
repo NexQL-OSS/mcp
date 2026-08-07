@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Tool descriptors for the active MCP surface (Phase 2–4).
 
 use serde_json::{Value, json};

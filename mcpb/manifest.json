@@ -14,7 +14,7 @@
     "type": "git",
     "url": "https://github.com/NexQL-OSS/mcp"
   },
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-only",
   "keywords": ["postgres", "postgresql", "sql", "mcp", "database", "schema"],
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"]

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Table-driven injection corpus — 100% must pass for Phase 1 exit.
 
 use nexql_policy::{AccessMode, SqlDecision, validate_readonly_sql, validate_write_sql};

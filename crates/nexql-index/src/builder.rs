@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Index builder — port of `pro/src/features/dbindex/IndexBuilder.ts`.
 //!
 //! Catalog access is abstracted behind [`CatalogDb`] so unit tests can inject

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! MCP resources backed by the on-disk schema index (dbindex).
 //!
 //! Port of `pro/src/mcp/McpResourceProvider.ts`. Disk-only — no DB connections.

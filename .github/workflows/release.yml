@@ -91,12 +91,14 @@ jobs:
           cp "$SRC" "$STAGE/"
           cp README.md LICENSE* NOTICE "$STAGE/" 2>/dev/null || cp README.md "$STAGE/"
           tar -czf "${STAGE}.tar.gz" "$STAGE"
-          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256" 2>/dev/null \
+            || shasum -a 256 "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
 
           mkdir -p "dist/vendor/${VENDOR}"
           cp "$SRC" "dist/vendor/${VENDOR}/${BIN}"
           tar -czf "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" -C "dist/vendor" "${VENDOR}"
-          sha256sum "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" > "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz.sha256"
+          sha256sum "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" > "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz.sha256" 2>/dev/null \
+            || shasum -a 256 "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz" > "nexql-mcp-${TAG}-vendor-${VENDOR}.tar.gz.sha256"
 
       - name: Stage npm platform package
         shell: bash

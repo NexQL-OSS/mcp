@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Structured (not string-templated) MCP client config targets — the subset of
 //! `init_clients::SUPPORTED_CLIENTS` that live at a real, mergeable on-disk JSON
 //! file. Used by the TUI's client-picker/diff/write flow.

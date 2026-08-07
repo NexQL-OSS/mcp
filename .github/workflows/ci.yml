@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install MSRV Rust toolchain
-        uses: dtolnay/rust-toolchain@1.85
+        uses: dtolnay/rust-toolchain@1.88
       - name: Install clang (pg_query bindgen)
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - name: MSRV check

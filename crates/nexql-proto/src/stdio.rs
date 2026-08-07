@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Stdio MCP server — newline-delimited JSON-RPC.
 
 use std::sync::Arc;

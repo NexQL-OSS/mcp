@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Parse-based SQL validation via `pg_query` (libpg_query).
 //!
 //! Replaces the TS prefix check at `ToolExecutor.ts:218`.

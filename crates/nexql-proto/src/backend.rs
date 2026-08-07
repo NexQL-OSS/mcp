@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Async backends injected by the binary (avoids nexql-tools → nexql-proto).
 
 use async_trait::async_trait;

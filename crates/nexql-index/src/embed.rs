@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Embedding surface for schema search + index build.
 //!
 //! The [`Embedder`] trait is always available so tests can inject fakes without

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Result formatting for `export_query` (CSV / JSON / SQL-INSERT).
 //! Ported from core `CoreHandlers.rowsToCsv` / `rowsToSqlInsert`.
 

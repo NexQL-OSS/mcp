@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Safety policy — access modes, schema/table filters, row caps, SQL validation.
 
 pub mod access;

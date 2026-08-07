@@ -185,4 +185,4 @@ long-running multi-client HTTP exposure).
 
 ## Phase 10 — pro (ongoing)
 
-Proprietary crate: provider embeddings, team sync, hosted gateway, SSO. Out of Apache-2.0 repo.
+Proprietary crate: provider embeddings, team sync, hosted gateway, SSO. Out of this GPL-3.0-only repo.

@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+  # rkyv 0.7.x remains in Cargo.lock as rust_decimal's optional dep metadata.
+  # nexql-tools uses rust_decimal with default-features = false and db-tokio-postgres only;
+  # the rkyv feature is never enabled and rkyv is not in the compile graph (cargo tree).
+  # Waiting on rust_decimal to adopt rkyv >=0.8 or stop listing unused optional deps in lock.
+  "RUSTSEC-2026-0235",
+]

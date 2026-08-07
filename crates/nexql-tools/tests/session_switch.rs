@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Integration: `switch_connection` must pool by (connection_id, database).
 
 use std::net::TcpListener;

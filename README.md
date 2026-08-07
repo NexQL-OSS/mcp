@@ -212,7 +212,16 @@ Read [CLAUDE.md](CLAUDE.md) and [docs/REFERENCE.md](docs/REFERENCE.md) before im
 
 ## License
 
-Apache-2.0 for all crates in this repo. Premium extensions (provider embeddings, team sync, hosted gateway) will live in a separate proprietary crate later.
+GPL-3.0-only for all crates in this repo, from v0.2.0 onward. If you distribute this
+program or a derivative — including bundled inside another application — you must
+release your source under the GPL as well.
+
+Releases up to and including **v0.1.6** were published under Apache-2.0. That grant
+is irrevocable for those versions and is unaffected by this change.
+
+Copyright is held solely by the NexQL-OSS Team, so commercial licenses that lift the
+GPL obligation are available on request. Premium extensions (provider embeddings,
+team sync, hosted gateway) live in a separate proprietary crate.
 
 ## Roadmap
 

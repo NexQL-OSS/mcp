@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Schema snapshot load + pure diff/migration (ported from core SchemaDiffEngine).
 
 use serde::{Deserialize, Serialize};

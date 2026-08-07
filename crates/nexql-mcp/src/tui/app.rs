@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! TUI state machine — screens, form state, and transitions. No rendering or
 //! terminal I/O here (see `super::ui` and `super::run`).
 

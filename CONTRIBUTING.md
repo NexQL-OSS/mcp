@@ -4,7 +4,7 @@ Thank you for your interest in contributing to `nexql-mcp`!
 
 ## Development Setup
 
-1. **Toolchain**: Ensure Rust 1.85+ and Node.js 20+ are installed.
+1. **Toolchain**: Ensure Rust 1.88+ and Node.js 20+ are installed.
 2. **Clone & Build**:
    ```bash
    cd mcp

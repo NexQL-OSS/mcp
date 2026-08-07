@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! MCP protocol layer — JSON-RPC types and transports.
 //!
 //! Decision: hand-rolled for Phase 2 (see `docs/PROTO_DECISION.md`).

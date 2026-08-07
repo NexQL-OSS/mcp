@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Offline-built schema index (dbindex port).
 //!
 //! On-disk format must stay byte-compatible with the TS extension index

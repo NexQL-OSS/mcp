@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Write/admin MCP tool executors (Phase 9).
 
 use std::sync::Arc;

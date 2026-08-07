@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Row / result size caps.
 
 pub const DEFAULT_MAX_ROWS: u32 = 500;

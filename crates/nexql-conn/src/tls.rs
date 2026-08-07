@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Shared rustls connector for pooled and one-shot Postgres connections.
 
 use std::path::Path;

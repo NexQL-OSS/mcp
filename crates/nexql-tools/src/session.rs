@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Session state: resolved profiles + active pool + optional schema index.
 
 use std::collections::HashMap;

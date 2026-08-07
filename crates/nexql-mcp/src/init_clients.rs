@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Paste-ready MCP client configs for `nexql-mcp init <client>`.
 
 /// Clients accepted by `nexql-mcp init`.

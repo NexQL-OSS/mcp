@@ -2,7 +2,7 @@
   "name": "@nexql/mcp-win32-x64",
   "version": "0.2.0",
   "description": "nexql-mcp Windows x64 binary (optionalDependency of nexql-mcp)",
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-only",
   "repository": "github:NexQL-OSS/mcp",
   "os": ["win32"],
   "cpu": ["x64"],

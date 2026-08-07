@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Minimal `completions/complete` for `ref` tool arguments from the schema index.
 
 use nexql_index::IndexStore;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! `nexql-mcp tui` — interactive profile editor + multi-client wiring.
 
 mod app;

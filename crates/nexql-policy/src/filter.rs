@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Schema / table allow-deny and PII column filters.
 
 use crate::error::PolicyError;

@@ -38,6 +38,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
+seed_smoke_schema() {
+  local url="$1"
+  if [[ -f "$ROOT/crates/nexql-index/tests/fixtures/seed_schema.sql" ]]; then
+    psql "$url" -v ON_ERROR_STOP=1 -f "$ROOT/crates/nexql-index/tests/fixtures/seed_schema.sql" >/dev/null
+  else
+    psql "$url" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+CREATE TABLE public.users (
+  id serial PRIMARY KEY,
+  email text NOT NULL,
+  name text
+);
+CREATE TABLE public.orders (
+  id serial PRIMARY KEY,
+  user_id int REFERENCES public.users(id),
+  total numeric
+);
+SQL
+  fi
+}
+
+public_has_user_tables() {
+  local url="$1"
+  local count
+  count="$(psql "$url" -tAc \
+    "SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'" \
+    2>/dev/null || echo 0)"
+  [[ "${count:-0}" -gt 0 ]]
+}
+
 start_temp_pg() {
   command -v initdb >/dev/null
   command -v postgres >/dev/null
@@ -68,29 +97,17 @@ PY
     fi
     sleep 0.1
   done
-  # Seed minimal schema for catalog + index tools
-  if [[ -f "$ROOT/crates/nexql-index/tests/fixtures/seed_schema.sql" ]]; then
-    psql "$url" -v ON_ERROR_STOP=1 -f "$ROOT/crates/nexql-index/tests/fixtures/seed_schema.sql" >/dev/null
-  else
-    psql "$url" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-CREATE TABLE public.users (
-  id serial PRIMARY KEY,
-  email text NOT NULL,
-  name text
-);
-CREATE TABLE public.orders (
-  id serial PRIMARY KEY,
-  user_id int REFERENCES public.users(id),
-  total numeric
-);
-SQL
-  fi
+  seed_smoke_schema "$url"
   echo "$url"
 }
 
 if [[ -n "${DATABASE_URL:-}" ]]; then
   URL="$DATABASE_URL"
   echo "using DATABASE_URL"
+  if command -v psql >/dev/null 2>&1 && ! public_has_user_tables "$URL"; then
+    echo "seeding empty public schema for smoke"
+    seed_smoke_schema "$URL"
+  fi
 else
   echo "starting throwaway Postgres (initdb)…"
   URL="$(start_temp_pg)"

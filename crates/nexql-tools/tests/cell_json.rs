@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Integration: `cell_to_json` / `rows_to_json` against typed Postgres columns.
 
 use std::net::TcpListener;

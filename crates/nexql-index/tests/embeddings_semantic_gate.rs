@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Phase 5 exit gate: "semantic search beats lexical on synonym fixture" —
 //! using the real MiniLM embedder (candle), not the `FakeEmbedder` RRF-fusion
 //! tests in `query.rs`. Only compiled/run with `--features embeddings`.

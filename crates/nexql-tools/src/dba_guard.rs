@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! DDL migration safety inspection rules for locking risk assessment.
 
 use serde_json::{Value, json};

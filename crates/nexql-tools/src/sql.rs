@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! SQL builders for Phase 4 monitoring / DDL tools.
 //! Ported from `pro/.../ToolExecutor.ts` + `core/commands/sql/{profile,monitoring}.ts`.
 

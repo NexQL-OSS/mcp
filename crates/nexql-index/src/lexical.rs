@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Lexical tokenization, stemming, synonyms, and TF-IDF scoring.
 //!
 //! Port of `pro/src/features/dbindex/lexical.ts`. Pure CPU — no I/O.

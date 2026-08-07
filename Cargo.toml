@@ -20,13 +20,13 @@ resolver = "2"
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
-license = "Apache-2.0"
+license = "GPL-3.0-only"
 repository = "https://github.com/NexQL-OSS/mcp"
 homepage = "https://github.com/NexQL-OSS/mcp"
 readme = "README.md"
 keywords = ["postgres", "mcp", "ai", "llm", "database"]
 categories = ["database", "command-line-utilities"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [profile.release]
 lto = "thin"
@@ -46,7 +46,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "rt", "macros", "process
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
 chrono = { version = "0.4", features = ["clock"] }
 uuid = "1"
-rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+rust_decimal = { version = "1", default-features = false, features = ["db-tokio-postgres"] }
 deadpool-postgres = "0.14"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio-postgres-rustls = "0.13"

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Tool dispatch for catalog (Phase 2) + index (Phase 3) + Phase 4 surfaces.
 
 use std::sync::Arc;

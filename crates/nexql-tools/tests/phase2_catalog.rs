@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Integration: Phase 2 catalog tools against a throwaway Postgres.
 
 use std::net::TcpListener;

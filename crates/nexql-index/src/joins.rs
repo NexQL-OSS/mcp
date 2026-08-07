@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Shortest join-path BFS over an undirected FK edge list.
 //!
 //! Port of `pro/src/features/dbindex/joinPath.ts` (+ unreachable message from

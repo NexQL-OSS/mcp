@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Phase 3 golden-file gate for `nexql-index`.
 //!
 //! Live path: TempPg (initdb) → seed → `build_index` → normalize → compare/update

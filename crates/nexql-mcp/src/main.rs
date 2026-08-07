@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! CLI entrypoint for the standalone NexQL Postgres MCP server.
 
 mod client_targets;

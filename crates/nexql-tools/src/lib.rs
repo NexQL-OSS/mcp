@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Tool catalog and executors.
 //!
 //! Tools return typed results; the protocol layer serializes them.

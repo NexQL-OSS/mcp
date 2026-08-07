@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Connection resolution and pooling.
 //!
 //! Precedence (highest first): CLI arg → profile → flags → DATABASE_URL → PG* env →

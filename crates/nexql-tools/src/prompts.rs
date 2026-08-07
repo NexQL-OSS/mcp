@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Static MCP prompts — canned diagnostic workflows.
 //!
 //! Port of `pro/src/mcp/McpPrompts.ts`, plus Phase 4 additions:

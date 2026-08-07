@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Streamable HTTP MCP server — JSON-RPC over HTTP POST.
 //!
 //! Implements the spec's session lifecycle (`Mcp-Session-Id` issued on

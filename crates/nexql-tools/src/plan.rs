@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! EXPLAIN JSON plan metrics — port of `QueryPerformanceAnalyzer.extractPlanMetrics`.
 
 use serde_json::{Value, json};

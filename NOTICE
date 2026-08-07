@@ -1,9 +1,24 @@
 NexQL Postgres MCP Server (nexql-mcp)
-Copyright (c) 2026 NexQL-OSS Team
+Copyright (C) 2026 NexQL-OSS Team
 
-This product includes software developed by The Apache Software Foundation (http://www.apache.org/).
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3.
 
-Third-party dependencies:
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Releases up to and including v0.1.6 were published under the Apache
+License 2.0. That grant is irrevocable for those versions; it does not
+extend to v0.2.0 or later.
+
+Third-party dependencies (their own licenses apply, all GPL-3.0
+compatible; see `cargo deny check licenses`):
 - tokio (MIT)
 - tokio-postgres (MIT/Apache-2.0)
 - pg_query (BSD-3-Clause)

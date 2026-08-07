@@ -12,6 +12,8 @@ ignore = [
     "RUSTSEC-2025-0119",
     # paste (proc-macro) <- gemm <- candle-core <- nexql-index (optional `embeddings` feature only).
     "RUSTSEC-2024-0436",
+    # rkyv 0.7.x lockfile-only via rust_decimal optional dep; not enabled (see .cargo/audit.toml).
+    "RUSTSEC-2026-0235",
 ]
 
 [licenses]
@@ -29,6 +31,16 @@ allow = [
     # webpki-roots ships the Mozilla CA bundle as data under CDLA-Permissive-2.0.
     # Permissive, no copyleft on our code; reaches us via hf-hub -> ureq (embeddings feature).
     "CDLA-Permissive-2.0",
+]
+# Our own crates are GPL-3.0-only (see workspace Cargo.toml). GPL stays OUT of
+# `allow` above on purpose: a copyleft *dependency* must never slip in silently.
+exceptions = [
+    { allow = ["GPL-3.0-only"], crate = "nexql-mcp" },
+    { allow = ["GPL-3.0-only"], crate = "nexql-proto" },
+    { allow = ["GPL-3.0-only"], crate = "nexql-tools" },
+    { allow = ["GPL-3.0-only"], crate = "nexql-index" },
+    { allow = ["GPL-3.0-only"], crate = "nexql-conn" },
+    { allow = ["GPL-3.0-only"], crate = "nexql-policy" },
 ]
 
 [bans]

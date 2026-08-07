@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Shared MCP JSON-RPC dispatch for stdio and HTTP transports.
 
 use async_trait::async_trait;

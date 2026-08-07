@@ -56,7 +56,9 @@ See `docs/REFERENCE.md` for TS → Rust file mapping.
 
 ## IP / licensing
 
-Apache-2.0 here. Pro-only features (provider embeddings, OAuth gateway, audit sinks) stay out of this repo. Do not copy proprietary strings from `nexql-pro` into free artifacts.
+GPL-3.0-only here from v0.2.0 (v0.1.6 and earlier shipped Apache-2.0 — that grant stands). Every `.rs` file carries an `SPDX-License-Identifier: GPL-3.0-only` header; keep it on new files. Pro-only features (provider embeddings, OAuth gateway, audit sinks) stay out of this repo. Do not copy proprietary strings from `nexql-pro` into free artifacts.
+
+Copyleft is one-directional: Apache/MIT/BSD/MPL deps may flow **into** this repo, but code from here must not be copied into `nexql-pro` or any other proprietary tree. `deny.toml` keeps GPL deps out of the graph while allowing it on our own six crates.
 
 ## Before phase 2
 

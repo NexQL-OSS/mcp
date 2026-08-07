@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Phase 3 / Phase 7 gate: Rust `IndexStore` + `IndexQueryService` must read a
 //! pre-cutover on-disk index laid out exactly as the VS Code extension writes
 //! under `{globalStorage}/dbindex/{conn}/{db}/`.

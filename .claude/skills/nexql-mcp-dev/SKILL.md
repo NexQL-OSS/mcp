@@ -43,7 +43,7 @@ proto (transport only; no tool logic)
 | Index format | Byte-compatible with `../pro/src/features/dbindex/indexFormat.ts` |
 | Resource URIs | `nexql://<profile>/<database>/…` unchanged |
 | Config / env | `~/.config/nexql-mcp/`, `NEXQL_MCP_*` |
-| License | Apache-2.0 only — no pro strings, OAuth gateway, provider embeddings |
+| License | GPL-3.0-only (v0.2.0+; v0.1.6 and earlier were Apache-2.0) — no pro strings, OAuth gateway, provider embeddings |
 
 ## Implementation workflow
 

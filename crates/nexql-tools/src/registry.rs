@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Tool name catalog for the MCP surface.
 
 /// Tool surface preset profiles to control context window overhead.

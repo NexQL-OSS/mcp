@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Manifest format version and migration.
 //!
 //! Port of `pro/src/features/dbindex/indexFormat.ts`.

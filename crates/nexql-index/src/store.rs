@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! On-disk index store — port of `pro/src/features/dbindex/IndexStore.ts`.
 //!
 //! Layout under `{root}/dbindex/{safe_segment(connectionId)}/{safe_segment(database)}/`:

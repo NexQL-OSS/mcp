@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! Structural object hash — port of `pro/src/features/dbindex/objectHash.ts`.
 //!
 //! SHA-1 hex digest of selected ObjectEntry fields; used for shard skip and

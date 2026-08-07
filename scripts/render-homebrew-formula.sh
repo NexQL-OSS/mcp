@@ -41,7 +41,7 @@ class NexqlMcp < Formula
   desc "Standalone Postgres MCP server — schema-aware, read-only by default"
   homepage "https://github.com/NexQL-OSS/mcp"
   version "${VERSION}"
-  license "Apache-2.0"
+  license "GPL-3.0-only"
 
   on_macos do
     if Hardware::CPU.arm?

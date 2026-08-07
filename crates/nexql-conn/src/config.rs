@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 NexQL-OSS Team
+
 //! TOML config — `~/.config/nexql-mcp/config.toml` or `$NEXQL_MCP_CONFIG`.
 
 use std::collections::HashMap;

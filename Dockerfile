@@ -6,7 +6,7 @@
 # Run (stdio):
 #   docker run --rm -i nexql-mcp:0.1.0 postgres://user:pass@host.docker.internal:5432/db
 
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang libclang-dev pkg-config \
