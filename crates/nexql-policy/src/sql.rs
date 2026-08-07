@@ -10,7 +10,7 @@ use pg_query::{NodeRef, ParseResult, parse};
 
 use crate::access::AccessMode;
 use crate::error::PolicyError;
-use crate::filter::PolicyFilter;
+use crate::filter::{ObjectRef, PolicyFilter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlDecision {
@@ -75,12 +75,23 @@ pub fn validate_readonly_sql(sql: &str) -> Result<SqlDecision, PolicyError> {
 
 /// Reject read queries that touch schema/table refs denied by [`PolicyFilter`].
 pub fn enforce_read_table_policy(filter: &PolicyFilter, sql: &str) -> Result<(), PolicyError> {
-    let result = parse_sql(sql)?;
-    for table in result.select_tables() {
-        let (schema, name) = split_table_ref(&table);
-        filter.require_table(&schema, &name)?;
+    for table in select_table_refs(sql)? {
+        filter.require_table(&table.schema, &table.name)?;
     }
     Ok(())
+}
+
+/// Tables referenced by a read query (`FROM` / `JOIN`), for PII column redaction.
+pub fn select_table_refs(sql: &str) -> Result<Vec<ObjectRef>, PolicyError> {
+    let result = parse_sql(sql)?;
+    Ok(result
+        .select_tables()
+        .into_iter()
+        .map(|table| {
+            let (schema, name) = split_table_ref(&table);
+            ObjectRef::new(schema, name)
+        })
+        .collect())
 }
 
 fn split_table_ref(table: &str) -> (String, String) {
@@ -524,5 +535,16 @@ mod tests {
     fn enforce_read_table_policy_allows_public_default() {
         let filter = crate::filter::PolicyFilter::default();
         enforce_read_table_policy(&filter, "SELECT * FROM users").unwrap();
+    }
+
+    #[test]
+    fn select_table_refs_collects_joined_tables() {
+        let tables = select_table_refs(
+            "SELECT u.id, o.total FROM public.users u JOIN public.orders o ON o.user_id = u.id",
+        )
+        .unwrap();
+        let names: Vec<_> = tables.iter().map(|t| t.qualified()).collect();
+        assert!(names.contains(&"public.users".to_string()));
+        assert!(names.contains(&"public.orders".to_string()));
     }
 }

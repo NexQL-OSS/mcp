@@ -12,7 +12,10 @@ pub mod sql;
 pub use access::{AccessMode, check_superuser_guard};
 pub use caps::{DEFAULT_MAX_RESULT_CHARS, DEFAULT_MAX_ROWS, PolicyCaps, clamp_max_rows};
 pub use error::PolicyError;
-pub use filter::{ObjectRef, PolicyFilter, is_pii_column};
+pub use filter::{
+    ObjectRef, PolicyFilter, PII_REDACTED, column_matches_pii_policy, is_pii_column,
+};
 pub use sql::{
-    SqlDecision, enforce_read_table_policy, validate_readonly_sql, validate_write_sql,
+    SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
+    validate_write_sql,
 };

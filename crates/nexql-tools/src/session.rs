@@ -3,13 +3,14 @@
 
 //! Session state: resolved profiles + active pool + optional schema index.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use deadpool_postgres::{Object, Pool};
 use nexql_conn::{
     ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded, create_pool,
+    resolve_profile,
 };
 use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter};
@@ -71,7 +72,9 @@ struct ActivePolicy {
 }
 
 pub struct ToolSession {
-    pub connections: Vec<ConnectionInfo>,
+    connections: RwLock<Vec<ConnectionInfo>>,
+    /// `connection_id\0database` keys marked stale after DDL until index rebuild/refresh.
+    stale_index_keys: RwLock<HashSet<String>>,
     policy: RwLock<ActivePolicy>,
     /// Schema index root; `None` disables Phase 3 tools with an actionable error.
     pub index_store: Option<IndexStore>,
@@ -142,6 +145,66 @@ fn active_policy_from(policy: &ConnectionPolicy) -> ActivePolicy {
 }
 
 impl ToolSession {
+    pub fn connections(&self) -> Vec<ConnectionInfo> {
+        self.connections
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+
+    /// Register or update a profile in the live session (after save/import/setup).
+    pub fn register_profile(
+        &self,
+        name: &str,
+        profile: &ProfileConfig,
+        default_mode: AccessMode,
+        default_caps: PolicyCaps,
+    ) -> Result<(), ToolError> {
+        let params = resolve_profile(profile).map_err(ToolError::Conn)?;
+        let policy = policy_from_profile(Some(profile), default_mode, default_caps);
+        let info = ConnectionInfo {
+            id: name.to_string(),
+            name: name.to_string(),
+            host: params.host.clone(),
+            port: params.port,
+            database: params.dbname.clone(),
+            params,
+            policy,
+        };
+        let mut conns = self
+            .connections
+            .write()
+            .map_err(|_| ToolError::Execution("connection registry lock poisoned".into()))?;
+        if let Some(existing) = conns.iter_mut().find(|c| c.id == name) {
+            *existing = info;
+        } else {
+            conns.push(info);
+        }
+        Ok(())
+    }
+
+    pub fn mark_index_stale(&self, connection_id: &str, database: &str) {
+        let key = pool_key(connection_id, database);
+        if let Ok(mut keys) = self.stale_index_keys.write() {
+            keys.insert(key);
+        }
+    }
+
+    pub fn clear_index_stale(&self, connection_id: &str, database: &str) {
+        let key = pool_key(connection_id, database);
+        if let Ok(mut keys) = self.stale_index_keys.write() {
+            keys.remove(&key);
+        }
+    }
+
+    pub fn is_index_stale(&self, connection_id: &str, database: &str) -> bool {
+        let key = pool_key(connection_id, database);
+        self.stale_index_keys
+            .read()
+            .map(|keys| keys.contains(&key))
+            .unwrap_or(false)
+    }
+
     pub fn access_mode(&self) -> AccessMode {
         self.policy
             .read()
@@ -223,7 +286,8 @@ impl ToolSession {
             .clone()
             .unwrap_or_else(|| "postgres".into());
         Ok(Arc::new(Self {
-            connections,
+            connections: RwLock::new(connections),
+            stale_index_keys: RwLock::new(HashSet::new()),
             policy: RwLock::new(active_policy),
             index_store: Some(IndexStore::new(default_index_root())),
             inner: AsyncRwLock::new(SessionInner {
@@ -264,8 +328,8 @@ impl ToolSession {
         database: Option<String>,
     ) -> Result<(), ToolError> {
         let conn = self
-            .connections
-            .iter()
+            .connections()
+            .into_iter()
             .find(|c| c.id == connection_id)
             .ok_or_else(|| {
                 ToolError::Execution(format!(
@@ -320,7 +384,8 @@ impl ToolSession {
             environment: None,
         };
         Arc::new(Self {
-            connections,
+            connections: RwLock::new(connections),
+            stale_index_keys: RwLock::new(HashSet::new()),
             policy: RwLock::new(active_policy_from(&policy)),
             index_store,
             inner: AsyncRwLock::new(SessionInner {
@@ -353,5 +418,58 @@ mod tests {
         assert!(f.allows_schema("public"));
         assert!(!f.allows_schema("pgboss"));
         assert!(!f.allows_table("auth", "sessions"));
+    }
+
+    #[test]
+    fn register_profile_upserts_connection() {
+        let session = ToolSession::for_tests(
+            vec![ConnectionInfo {
+                id: "existing".into(),
+                name: "existing".into(),
+                host: Some("localhost".into()),
+                port: Some(5432),
+                database: Some("postgres".into()),
+                params: ConnectionParams::default(),
+                policy: policy_from_profile(None, AccessMode::Read, PolicyCaps::default()),
+            }],
+            PolicyFilter::default(),
+            None,
+        );
+        let profile = ProfileConfig {
+            host: Some("db.example.com".into()),
+            port: Some(5432),
+            dbname: Some("app".into()),
+            user: Some("app".into()),
+            password: Some("secret".into()),
+            ..Default::default()
+        };
+        session
+            .register_profile("newdb", &profile, AccessMode::Read, PolicyCaps::default())
+            .unwrap();
+        let names: Vec<_> = session.connections().iter().map(|c| c.id.clone()).collect();
+        assert!(names.contains(&"existing".to_string()));
+        assert!(names.contains(&"newdb".to_string()));
+    }
+
+    #[test]
+    fn index_stale_marker_round_trip() {
+        let session = ToolSession::for_tests(
+            vec![ConnectionInfo {
+                id: "local".into(),
+                name: "local".into(),
+                host: None,
+                port: None,
+                database: Some("postgres".into()),
+                params: ConnectionParams::default(),
+                policy: policy_from_profile(None, AccessMode::Read, PolicyCaps::default()),
+            }],
+            PolicyFilter::default(),
+            None,
+        );
+        assert!(!session.is_index_stale("local", "postgres"));
+        session.mark_index_stale("local", "postgres");
+        assert!(session.is_index_stale("local", "postgres"));
+        session.clear_index_stale("local", "postgres");
+        assert!(!session.is_index_stale("local", "postgres"));
     }
 }

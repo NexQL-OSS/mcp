@@ -411,6 +411,48 @@ impl ToolName {
     pub fn parse(s: &str) -> Option<Self> {
         Self::ACTIVE.iter().copied().find(|t| t.as_str() == s)
     }
+
+    /// MCP client hints (`readOnlyHint`, `destructiveHint`, …).
+    pub fn hints(self) -> ToolHints {
+        let read_only = Self::READ_ONLY.contains(&self);
+        let destructive = matches!(
+            self,
+            Self::ApplyDdl
+                | Self::EditRow
+                | Self::ImportData
+                | Self::ExecuteSql
+                | Self::RunMaintenance
+                | Self::TerminateQuery
+        );
+        let idempotent = read_only
+            && !matches!(
+                self,
+                Self::RebuildIndex
+                    | Self::RefreshIndex
+                    | Self::RunDoctor
+                    | Self::SetupConnection
+                    | Self::SaveProfile
+                    | Self::ImportProfile
+                    | Self::SwitchConnection
+                    | Self::ExplainAnalyze
+                    | Self::DiscoverTools
+            );
+        ToolHints {
+            read_only,
+            destructive,
+            idempotent,
+            open_world: true,
+        }
+    }
+}
+
+/// Hints surfaced as MCP `tools/list` annotations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolHints {
+    pub read_only: bool,
+    pub destructive: bool,
+    pub idempotent: bool,
+    pub open_world: bool,
 }
 
 #[cfg(test)]
@@ -438,6 +480,14 @@ mod tests {
             assert!(ToolName::ACTIVE.contains(tool));
         }
         assert_ne!(ToolName::READ_ONLY.len(), ToolName::ACTIVE.len());
+    }
+
+    #[test]
+    fn tool_hints_classify_read_and_write_tools() {
+        assert!(ToolName::RunSelect.hints().read_only);
+        assert!(!ToolName::RunSelect.hints().destructive);
+        assert!(!ToolName::ApplyDdl.hints().read_only);
+        assert!(ToolName::ApplyDdl.hints().destructive);
     }
 
     /// Guards `docs/tools/README.md` against drifting from the real tool surface:

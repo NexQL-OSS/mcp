@@ -549,8 +549,8 @@ SELECT schemaname || '.' || relname AS table_name,
        seq_scan,
        COALESCE(idx_scan, 0) AS idx_scan,
        CASE WHEN seq_scan + COALESCE(idx_scan, 0) > 0
-            THEN ROUND(100.0 * seq_scan / (seq_scan + COALESCE(idx_scan, 0)), 1)
-            ELSE 0 END AS seq_scan_pct,
+            THEN (ROUND(100.0 * seq_scan / (seq_scan + COALESCE(idx_scan, 0)), 1))::double precision
+            ELSE 0::double precision END AS seq_scan_pct,
        n_live_tup AS row_count,
        'High sequential scan ratio — consider indexes on frequently filtered/joined columns' AS rationale
 FROM pg_stat_user_tables
@@ -587,7 +587,7 @@ WHERE con.contype = 'f'
     SELECT 1
     FROM pg_index i
     WHERE i.indrelid = c.oid
-      AND i.indkey[0] = a.attnum
+      AND a.attnum = ANY (i.indkey::int2[])
   )
 ORDER BY n.nspname, c.relname, a.attname
 LIMIT {capped}
@@ -722,9 +722,9 @@ LIMIT {capped}
 }
 
 /// Map tokio-postgres errors from `pg_stat_statements` queries to actionable guidance.
-pub fn map_stat_statements_error(e: impl std::fmt::Display) -> Option<String> {
-    let message = e.to_string();
-    if message.to_ascii_lowercase().contains("pg_stat_statements") {
+pub fn map_stat_statements_error(e: &tokio_postgres::Error) -> Option<String> {
+    let message = nexql_conn::format_postgres_error(e);
+    if is_pg_stat_statements_error_message(&message) {
         Some(
             "pg_stat_statements is not available — CREATE EXTENSION pg_stat_statements; \
              (and GRANT) or ignore slow query suggestions."
@@ -735,20 +735,24 @@ pub fn map_stat_statements_error(e: impl std::fmt::Display) -> Option<String> {
     }
 }
 
+fn is_pg_stat_statements_error_message(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("pg_stat_statements")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn map_stat_statements_error_matches_extension_errors() {
-        let msg = map_stat_statements_error("relation \"pg_stat_statements\" does not exist");
-        assert!(msg.is_some());
-        assert!(msg.unwrap().contains("CREATE EXTENSION pg_stat_statements"));
+        assert!(is_pg_stat_statements_error_message(
+            "relation \"pg_stat_statements\" does not exist"
+        ));
     }
 
     #[test]
     fn map_stat_statements_error_ignores_unrelated() {
-        assert!(map_stat_statements_error("connection refused").is_none());
+        assert!(!is_pg_stat_statements_error_message("connection refused"));
     }
 
     #[test]

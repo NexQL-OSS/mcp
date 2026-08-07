@@ -76,9 +76,26 @@ impl PolicyFilter {
     }
 }
 
+/// Placeholder substituted for PII column values in query results.
+pub const PII_REDACTED: &str = "<redacted>";
+
 pub fn is_pii_column(pii: &[String], schema: &str, table: &str, column: &str) -> bool {
     let qualified = format!("{schema}.{table}.{column}");
     pii.iter().any(|p| p == &qualified)
+}
+
+/// True when `column` is flagged PII on any table referenced by the query.
+pub fn column_matches_pii_policy(
+    pii_columns: &[String],
+    tables: &[ObjectRef],
+    column: &str,
+) -> bool {
+    if pii_columns.is_empty() || tables.is_empty() {
+        return false;
+    }
+    tables
+        .iter()
+        .any(|t| is_pii_column(pii_columns, &t.schema, &t.name, column))
 }
 
 fn table_glob_matches(glob: &str, schema: &str, table: &str) -> bool {
@@ -122,6 +139,15 @@ mod tests {
         let pii = vec!["public.users.ssn".into(), "public.users.email".into()];
         assert!(is_pii_column(&pii, "public", "users", "ssn"));
         assert!(!is_pii_column(&pii, "public", "users", "id"));
+    }
+
+    #[test]
+    fn column_matches_pii_policy_uses_query_tables() {
+        let pii = vec!["public.users.ssn".into()];
+        let tables = vec![ObjectRef::new("public", "users")];
+        assert!(column_matches_pii_policy(&pii, &tables, "ssn"));
+        assert!(!column_matches_pii_policy(&pii, &tables, "id"));
+        assert!(!column_matches_pii_policy(&pii, &[], "ssn"));
     }
 
     #[test]

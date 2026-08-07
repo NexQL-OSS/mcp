@@ -24,7 +24,7 @@ use nexql_index::{
 use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
 use nexql_proto::{
     CompletionBackend, HttpAuth, HttpServer, McpHandler, PromptBackend, ResourceBackend,
-    RpcFailure, StdioServer, ToolBackend, ToolCallResult, ToolDescriptor,
+    RpcFailure, StdioServer, ToolAnnotations, ToolBackend, ToolCallResult, ToolDescriptor,
 };
 use nexql_tools::{
     CompletionsProvider, PromptCatalog, ResourceProvider, ToolRouter, ToolSession,
@@ -333,10 +333,19 @@ impl ToolBackend for RouterBackend {
         self.router
             .specs()
             .iter()
-            .map(|s| ToolDescriptor {
-                name: s.name.as_str().to_string(),
-                description: s.description.to_string(),
-                input_schema: s.input_schema.clone(),
+            .map(|s| {
+                let h = s.name.hints();
+                ToolDescriptor {
+                    name: s.name.as_str().to_string(),
+                    description: s.description.to_string(),
+                    input_schema: s.input_schema.clone(),
+                    annotations: Some(ToolAnnotations {
+                        read_only_hint: Some(h.read_only),
+                        destructive_hint: Some(h.destructive),
+                        idempotent_hint: Some(h.idempotent),
+                        open_world_hint: Some(h.open_world),
+                    }),
+                }
             })
             .collect()
     }

@@ -3,18 +3,22 @@
 
 //! Write/admin MCP tool executors (Phase 9).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use deadpool_postgres::Object;
 use nexql_policy::{
-    AccessMode, SqlDecision, enforce_read_table_policy, validate_readonly_sql,
-    validate_write_sql,
+    AccessMode, ObjectRef, SqlDecision, enforce_read_table_policy, select_table_refs,
+    validate_readonly_sql, validate_write_sql,
 };
+use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
 use tokio_postgres::SimpleQueryMessage;
-use tokio_postgres::types::ToSql;
+use tokio_postgres::types::{Json, ToSql};
+use uuid::Uuid;
 
-use crate::cell_json::rows_to_json_vec;
+use crate::cell_json::{redact_pii_in_rows, rows_to_json_vec};
 use crate::error::ToolError;
 use crate::exec::ToolOutcome;
 use crate::session::ToolSession;
@@ -58,12 +62,15 @@ pub async fn execute_sql(
     }
 
     match outcome {
-        Ok((rows, rows_affected)) => Ok(ToolOutcome::ok_json(json!({
-            "dry_run": dry_run,
-            "rolled_back": rolled_back,
-            "rows_affected": rows_affected,
-            "rows": rows,
-        }))),
+        Ok((rows, rows_affected)) => {
+            let rows = redact_row_results(session, Some(sql), None, None, rows);
+            Ok(ToolOutcome::ok_json(json!({
+                "dry_run": dry_run,
+                "rolled_back": rolled_back,
+                "rows_affected": rows_affected,
+                "rows": rows,
+            })))
+        }
         Err(e) => Err(e),
     }
 }
@@ -90,9 +97,9 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
 
     let result = async {
         match action.to_ascii_lowercase().as_str() {
-            "insert" => edit_row_insert(&client, &schema, &table, args).await,
-            "update" => edit_row_update(&client, &schema, &table, args).await,
-            "delete" => edit_row_delete(&client, &schema, &table, args).await,
+            "insert" => edit_row_insert(session, &client, &schema, &table, args).await,
+            "update" => edit_row_update(session, &client, &schema, &table, args).await,
+            "delete" => edit_row_delete(session, &client, &schema, &table, args).await,
             other => Err(ToolError::InvalidArgs(format!(
                 "Unsupported action \"{other}\". Use insert, update, or delete."
             ))),
@@ -112,6 +119,7 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
 }
 
 async fn edit_row_insert(
+    session: &Arc<ToolSession>,
     client: &Object,
     schema: &str,
     table: &str,
@@ -126,12 +134,16 @@ async fn edit_row_insert(
             "values must contain at least one column".into(),
         ));
     }
+    let column_types = load_column_types(client, schema, table).await?;
     let mut columns = Vec::new();
     let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
     for (col, val) in values {
         validate_column_name(col)?;
         columns.push(quote_ident(col));
-        params.push(json_to_sql_param(val));
+        params.push(json_to_sql_param(
+            column_types.get(col).map(String::as_str),
+            val,
+        )?);
     }
     let placeholders: Vec<String> = (1..=params.len()).map(|i| format!("${i}")).collect();
     let sql = format!(
@@ -145,14 +157,16 @@ async fn edit_row_insert(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
+    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
     Ok(ToolOutcome::ok_json(json!({
         "action": "insert",
         "table": format!("{schema}.{table}"),
-        "rows": simple_rows_to_json(&rows),
+        "rows": rows,
     })))
 }
 
 async fn edit_row_update(
+    session: &Arc<ToolSession>,
     client: &Object,
     schema: &str,
     table: &str,
@@ -177,20 +191,27 @@ async fn edit_row_update(
         ));
     }
 
+    let column_types = load_column_types(client, schema, table).await?;
     let mut set_cols = Vec::new();
     let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
     for (col, val) in values {
         validate_column_name(col)?;
         let idx = params.len() + 1;
         set_cols.push(format!("{} = ${idx}", quote_ident(col)));
-        params.push(json_to_sql_param(val));
+        params.push(json_to_sql_param(
+            column_types.get(col).map(String::as_str),
+            val,
+        )?);
     }
     let mut where_cols = Vec::new();
     for (col, val) in pk {
         validate_column_name(col)?;
         let idx = params.len() + 1;
         where_cols.push(format!("{} = ${idx}", quote_ident(col)));
-        params.push(json_to_sql_param(val));
+        params.push(json_to_sql_param(
+            column_types.get(col).map(String::as_str),
+            val,
+        )?);
     }
     let sql = format!(
         "UPDATE {} SET {} WHERE {} RETURNING *",
@@ -203,14 +224,16 @@ async fn edit_row_update(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
+    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
     Ok(ToolOutcome::ok_json(json!({
         "action": "update",
         "table": format!("{schema}.{table}"),
-        "rows": simple_rows_to_json(&rows),
+        "rows": rows,
     })))
 }
 
 async fn edit_row_delete(
+    session: &Arc<ToolSession>,
     client: &Object,
     schema: &str,
     table: &str,
@@ -225,13 +248,17 @@ async fn edit_row_delete(
             "pk must contain at least one primary-key column".into(),
         ));
     }
+    let column_types = load_column_types(client, schema, table).await?;
     let mut where_cols = Vec::new();
     let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
     for (col, val) in pk {
         validate_column_name(col)?;
         let idx = params.len() + 1;
         where_cols.push(format!("{} = ${idx}", quote_ident(col)));
-        params.push(json_to_sql_param(val));
+        params.push(json_to_sql_param(
+            column_types.get(col).map(String::as_str),
+            val,
+        )?);
     }
     let sql = format!(
         "DELETE FROM {} WHERE {} RETURNING *",
@@ -243,10 +270,11 @@ async fn edit_row_delete(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
+    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
     Ok(ToolOutcome::ok_json(json!({
         "action": "delete",
         "table": format!("{schema}.{table}"),
-        "rows": simple_rows_to_json(&rows),
+        "rows": rows,
     })))
 }
 
@@ -360,7 +388,7 @@ fn build_batch_insert(
             let val = obj.get(col).unwrap_or(&Value::Null);
             let idx = params.len() + 1;
             placeholders.push(format!("${idx}"));
-            params.push(json_to_sql_param(val));
+            params.push(json_to_sql_param(None, val)?);
         }
         value_groups.push(format!("({})", placeholders.join(", ")));
     }
@@ -399,11 +427,16 @@ pub async fn apply_ddl(
         let _ = client.batch_execute("COMMIT").await;
     }
     let (rows, rows_affected) = outcome?;
+    if !rolled_back {
+        let (connection_id, database) = session.active_context().await;
+        session.mark_index_stale(&connection_id, &database);
+    }
     Ok(ToolOutcome::ok_json(json!({
         "dry_run": dry_run,
         "rolled_back": rolled_back,
         "rows_affected": rows_affected,
         "rows": rows,
+        "indexStale": !rolled_back,
     })))
 }
 
@@ -429,10 +462,13 @@ pub async fn create_index_concurrently(
 
     let client = session.checkout().await?;
     let (rows, rows_affected) = run_simple_query(&client, sql).await?;
+    let (connection_id, database) = session.active_context().await;
+    session.mark_index_stale(&connection_id, &database);
     Ok(ToolOutcome::ok_json(json!({
         "rows_affected": rows_affected,
         "rows": rows,
         "note": "CREATE INDEX CONCURRENTLY runs outside a transaction.",
+        "indexStale": true,
     })))
 }
 
@@ -604,24 +640,97 @@ fn validate_column_name(col: &str) -> Result<(), ToolError> {
     Ok(())
 }
 
-fn json_to_sql_param(val: &Value) -> Box<dyn ToSql + Sync + Send> {
+fn json_to_sql_param(
+    pg_type: Option<&str>,
+    val: &Value,
+) -> Result<Box<dyn ToSql + Sync + Send>, ToolError> {
+    let typ = pg_type.unwrap_or("text").to_ascii_lowercase();
     match val {
-        Value::Null => Box::new(None::<String>),
-        Value::Bool(b) => Box::new(*b),
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Box::new(i)
-            } else if let Some(u) = n.as_u64() {
-                Box::new(i64::try_from(u).unwrap_or(i64::MAX))
-            } else if let Some(f) = n.as_f64() {
-                Box::new(f)
-            } else {
-                Box::new(n.to_string())
+        Value::Null => Ok(Box::new(None::<String>)),
+        Value::Bool(b) => Ok(Box::new(*b)),
+        Value::String(s) => {
+            if typ.contains("json") {
+                return Ok(Box::new(Json(val.clone())));
             }
+            if typ.contains("uuid") {
+                let parsed = Uuid::parse_str(s).map_err(|e| {
+                    ToolError::InvalidArgs(format!("invalid uuid for column: {e}"))
+                })?;
+                return Ok(Box::new(parsed));
+            }
+            if typ.contains("int") || typ == "bigint" || typ == "smallint" {
+                let n: i64 = s.parse().map_err(|e| {
+                    ToolError::InvalidArgs(format!("invalid integer for column: {e}"))
+                })?;
+                return Ok(Box::new(n));
+            }
+            if typ.contains("numeric") || typ.contains("decimal") {
+                let d = Decimal::from_str_exact(s).or_else(|_| s.parse::<Decimal>()).map_err(
+                    |e| ToolError::InvalidArgs(format!("invalid numeric for column: {e}")),
+                )?;
+                return Ok(Box::new(d));
+            }
+            if typ.contains("timestamp") {
+                if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+                    return Ok(Box::new(dt));
+                }
+                if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+                    return Ok(Box::new(dt));
+                }
+            }
+            if typ == "date" {
+                let d = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|e| {
+                    ToolError::InvalidArgs(format!("invalid date for column: {e}"))
+                })?;
+                return Ok(Box::new(d));
+            }
+            return Ok(Box::new(s.clone()));
         }
-        Value::String(s) => Box::new(s.clone()),
-        Value::Array(_) | Value::Object(_) => Box::new(val.clone()),
+        Value::Number(n) => {
+            if typ.contains("json") {
+                return Ok(Box::new(Json(val.clone())));
+            }
+            if typ.contains("int") || typ == "bigint" || typ == "smallint" {
+                let i = n
+                    .as_i64()
+                    .ok_or_else(|| ToolError::InvalidArgs("integer out of range".into()))?;
+                return Ok(Box::new(i));
+            }
+            if typ.contains("numeric") || typ.contains("decimal") {
+                let d = Decimal::from_str_exact(&n.to_string()).map_err(|e| {
+                    ToolError::InvalidArgs(format!("invalid numeric for column: {e}"))
+                })?;
+                return Ok(Box::new(d));
+            }
+            if let Some(f) = n.as_f64() {
+                return Ok(Box::new(f));
+            }
+            return Ok(Box::new(n.to_string()));
+        }
+        Value::Array(_) | Value::Object(_) => Ok(Box::new(Json(val.clone()))),
     }
+}
+
+async fn load_column_types(
+    client: &Object,
+    schema: &str,
+    table: &str,
+) -> Result<HashMap<String, String>, ToolError> {
+    let rows = client
+        .query(
+            r#"SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS typ
+               FROM pg_attribute a
+               JOIN pg_class c ON c.oid = a.attrelid
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = $1 AND c.relname = $2
+                 AND a.attnum > 0 AND NOT a.attisdropped"#,
+            &[&schema, &table],
+        )
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| (r.get::<_, String>("name"), r.get::<_, String>("typ")))
+        .collect())
 }
 
 async fn run_simple_query(
@@ -660,6 +769,27 @@ fn collect_simple_query(messages: Vec<SimpleQueryMessage>) -> (Vec<Value>, Optio
 
 fn simple_rows_to_json(rows: &[tokio_postgres::Row]) -> Vec<Value> {
     rows_to_json_vec(rows)
+}
+
+fn redact_row_results(
+    session: &ToolSession,
+    sql: Option<&str>,
+    schema: Option<&str>,
+    table: Option<&str>,
+    rows: Vec<Value>,
+) -> Vec<Value> {
+    let filter = session.filter();
+    if filter.pii_columns.is_empty() {
+        return rows;
+    }
+    let tables = if let (Some(schema), Some(table)) = (schema, table) {
+        vec![ObjectRef::new(schema, table)]
+    } else if let Some(sql) = sql {
+        select_table_refs(sql).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    redact_pii_in_rows(rows, &filter.pii_columns, &tables).0
 }
 
 #[cfg(test)]

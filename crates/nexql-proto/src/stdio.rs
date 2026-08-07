@@ -102,6 +102,7 @@ mod tests {
                 name: "ping_tool".into(),
                 description: "test".into(),
                 input_schema: json!({"type":"object","properties":{}}),
+                annotations: None,
             }]
         }
 

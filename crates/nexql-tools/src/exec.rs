@@ -9,10 +9,10 @@ use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
     IndexStore, PgCatalogDb, QueryPolicyFilter, SearchOptions, build_index,
 };
-use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, validate_readonly_sql};
+use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql};
 use serde_json::{Value, json};
 
-use crate::cell_json::rows_to_json_array;
+use crate::cell_json::{redact_pii_in_payload, rows_to_json_array};
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
 use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
@@ -174,11 +174,16 @@ impl ToolRouter {
         if let Some(store) = self.session.index_store.as_ref() {
             let base = store.base_dir(&connection_id, &database);
             if let Ok(Some(manifest)) = store.read_manifest(&base) {
-                freshness = Some(json!({
+                let stale = self.session.is_index_stale(&connection_id, &database);
+                let mut freshness_obj = json!({
                     "indexedAt": manifest.indexed_at,
                     "schemaFingerprint": manifest.schema_fingerprint,
-                    "stale": false,
-                }));
+                    "stale": stale,
+                });
+                if stale {
+                    freshness_obj["reason"] = json!("schema_changed");
+                }
+                freshness = Some(freshness_obj);
             } else {
                 freshness = Some(json!({ "stale": true, "reason": "no_index" }));
             }
@@ -359,7 +364,7 @@ impl ToolRouter {
             ));
         }
 
-        let connections = &self.session.connections;
+        let connections = self.session.connections();
         if connections.is_empty() {
             return Ok(ToolOutcome::err("No connections configured."));
         }
@@ -396,7 +401,7 @@ impl ToolRouter {
         for (cid, db) in &indexed {
             add_candidate(cid, db);
         }
-        for c in connections {
+        for c in &connections {
             let db = c.database.clone().unwrap_or_else(|| "postgres".into());
             add_candidate(&c.id, &db);
         }
@@ -765,6 +770,8 @@ impl ToolRouter {
         let manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
             .await
             .map_err(|e| ToolError::Execution(format!("Index build failed: {e}")))?;
+        self.session
+            .clear_index_stale(&connection_id, &database);
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "completed",
@@ -803,6 +810,8 @@ impl ToolRouter {
         let new_manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
             .await
             .map_err(|e| ToolError::Execution(format!("Index refresh failed: {e}")))?;
+        self.session
+            .clear_index_stale(&connection_id, &database);
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "refreshed",
@@ -884,6 +893,19 @@ impl ToolRouter {
             "index": index_status,
             "recent_errors": recent_errors,
         })))
+    }
+
+    fn register_profile_in_session(
+        &self,
+        name: &str,
+        profile: &nexql_conn::ProfileConfig,
+    ) -> Result<(), ToolError> {
+        self.session.register_profile(
+            name,
+            profile,
+            self.session.access_mode(),
+            self.session.caps(),
+        )
     }
 
     async fn setup_connection_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -973,10 +995,11 @@ impl ToolRouter {
                     ToolError::Execution("Could not resolve config directory".into())
                 })?;
                 let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
-                cfg.upsert_profile(profile_name, p_config);
+                cfg.upsert_profile(profile_name, p_config.clone());
                 let backup = cfg
                     .save(&path)
                     .map_err(|e| ToolError::Execution(e.to_string()))?;
+                self.register_profile_in_session(profile_name, &p_config)?;
 
                 Ok(ToolOutcome::ok_json(json!({
                     "status": "configured",
@@ -985,7 +1008,8 @@ impl ToolRouter {
                     "isSuperuser": report.is_superuser,
                     "latencyMs": report.latency.as_millis(),
                     "configPath": path.to_string_lossy().to_string(),
-                    "backup": backup.map(|b| b.to_string_lossy().to_string())
+                    "backup": backup.map(|b| b.to_string_lossy().to_string()),
+                    "sessionReloaded": true,
                 })))
             }
             Err(e) => Ok(ToolOutcome::ok_json(json!({
@@ -1034,16 +1058,18 @@ impl ToolRouter {
             .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
 
         let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
-        cfg.upsert_profile(name, p_config);
+        cfg.upsert_profile(name, p_config.clone());
         let backup = cfg
             .save(&path)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
+        self.register_profile_in_session(name, &p_config)?;
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "saved",
             "profile": name,
             "configPath": path.to_string_lossy().to_string(),
-            "backup": backup.map(|b| b.to_string_lossy().to_string())
+            "backup": backup.map(|b| b.to_string_lossy().to_string()),
+            "sessionReloaded": true,
         })))
     }
 
@@ -1053,8 +1079,8 @@ impl ToolRouter {
         let params = if let Some(pname) = name {
             let conn = self
                 .session
-                .connections
-                .iter()
+                .connections()
+                .into_iter()
                 .find(|c| c.id == pname)
                 .ok_or_else(|| ToolError::InvalidArgs(format!("Profile '{pname}' not found")))?;
             conn.params.clone()
@@ -1098,27 +1124,30 @@ impl ToolRouter {
         let format = args
             .get("format")
             .and_then(|v| v.as_str())
-            .unwrap_or("project");
+            .unwrap_or("full");
         let path = nexql_conn::ConfigFile::default_path()
             .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
         let cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
 
-        if format == "full" {
-            let sanitized = cfg.export_full_sanitized();
-            let toml_str = sanitized
-                .to_toml_string()
-                .map_err(|e| ToolError::Execution(e.to_string()))?;
-            Ok(ToolOutcome::ok_json(json!({
-                "format": "full",
-                "content": toml_str,
-            })))
-        } else {
+        if format == "project" {
             let proj = cfg.export_shareable();
             let toml_str =
                 toml::to_string_pretty(&proj).map_err(|e| ToolError::Execution(e.to_string()))?;
             Ok(ToolOutcome::ok_json(json!({
                 "format": "project",
                 "filename": ".nexql/config.toml",
+                "description": "Project policy overlay (no credentials). Use format=full for shareable connection profiles.",
+                "content": toml_str,
+            })))
+        } else {
+            let sanitized = cfg.export_full_sanitized();
+            let toml_str = sanitized
+                .to_toml_string()
+                .map_err(|e| ToolError::Execution(e.to_string()))?;
+            Ok(ToolOutcome::ok_json(json!({
+                "format": "full",
+                "description": "Full user config with passwords and secrets stripped — suitable for team sharing.",
+                "profileCount": sanitized.profiles.len(),
                 "content": toml_str,
             })))
         }
@@ -1144,8 +1173,11 @@ impl ToolRouter {
             .map_err(|e| ToolError::Execution(format!("failed to parse TOML content: {e}")))?;
 
         let mut count = 0;
+        let mut imported_names: Vec<String> = Vec::new();
         for (name, prof) in imported.profiles {
-            cfg.upsert_profile(name, prof);
+            cfg.upsert_profile(name.clone(), prof.clone());
+            self.register_profile_in_session(&name, &prof)?;
+            imported_names.push(name);
             count += 1;
         }
         if imported.default_profile.is_some() {
@@ -1159,8 +1191,10 @@ impl ToolRouter {
         Ok(ToolOutcome::ok_json(json!({
             "status": "imported",
             "imported_profiles": count,
+            "profiles": imported_names,
             "configPath": path.to_string_lossy().to_string(),
-            "backup": backup.map(|b| b.to_string_lossy().to_string())
+            "backup": backup.map(|b| b.to_string_lossy().to_string()),
+            "sessionReloaded": true,
         })))
     }
 
@@ -1294,7 +1328,7 @@ impl ToolRouter {
     fn list_connections(&self) -> ToolOutcome {
         let rows: Vec<Value> = self
             .session
-            .connections
+            .connections()
             .iter()
             .map(|c| {
                 json!({
@@ -1316,8 +1350,8 @@ impl ToolRouter {
             .ok_or_else(|| ToolError::InvalidArgs("connectionId is required".into()))?;
         let conn = self
             .session
-            .connections
-            .iter()
+            .connections()
+            .into_iter()
             .find(|c| c.id == connection_id)
             .ok_or_else(|| {
                 ToolError::Execution(format!(
@@ -1443,15 +1477,15 @@ impl ToolRouter {
         let (connection_id, database) = self.session.active_context().await;
         let conn = self
             .session
-            .connections
-            .iter()
+            .connections()
+            .into_iter()
             .find(|c| c.id == connection_id);
         Ok(ToolOutcome::ok_json(json!({
             "connectionId": connection_id,
-            "connectionName": conn.map(|c| c.name.as_str()).unwrap_or("Unknown"),
+            "connectionName": conn.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| "Unknown".into()),
             "database": database,
-            "host": conn.and_then(|c| c.host.clone()),
-            "port": conn.and_then(|c| c.port),
+            "host": conn.as_ref().and_then(|c| c.host.clone()),
+            "port": conn.as_ref().and_then(|c| c.port),
             "access_mode": match self.session.access_mode() {
                 nexql_policy::AccessMode::Read => "read",
                 nexql_policy::AccessMode::Write => "write",
@@ -1830,9 +1864,35 @@ impl ToolRouter {
             .map(|n| n as u32)
             .unwrap_or(REPORT_LIMIT_DEFAULT);
         let client = self.session.checkout().await?;
+        let mut query_errors = serde_json::Map::new();
 
-        let high_seq = client.query(&sql::high_seq_scan_tables(limit), &[]).await?;
-        let unindexed_fks = client.query(&sql::unindexed_fk_columns(limit), &[]).await?;
+        let high_seq_json = match client
+            .query(&sql::high_seq_scan_tables(limit), &[])
+            .await
+        {
+            Ok(rows) => rows_to_json(&rows),
+            Err(e) => {
+                query_errors.insert(
+                    "high_seq_scan_tables".into(),
+                    json!(nexql_conn::format_postgres_error(&e)),
+                );
+                Value::Null
+            }
+        };
+
+        let unindexed_json = match client
+            .query(&sql::unindexed_fk_columns(limit), &[])
+            .await
+        {
+            Ok(rows) => rows_to_json(&rows),
+            Err(e) => {
+                query_errors.insert(
+                    "unindexed_fk_columns".into(),
+                    json!(nexql_conn::format_postgres_error(&e)),
+                );
+                Value::Null
+            }
+        };
 
         let mut pg_stat_available = false;
         let mut slow_queries = Value::Null;
@@ -1846,7 +1906,10 @@ impl ToolRouter {
                 if let Some(message) = sql::map_stat_statements_error(&e) {
                     pg_stat_note = Some(message);
                 } else {
-                    return Err(ToolError::Postgres(e));
+                    query_errors.insert(
+                        "slow_queries".into(),
+                        json!(nexql_conn::format_postgres_error(&e)),
+                    );
                 }
             }
         }
@@ -1855,23 +1918,28 @@ impl ToolRouter {
         if let Some(sql_text) = args.get("sql").and_then(|v| v.as_str()) {
             require_select_or_with(&self.session.filter(), sql_text)?;
             let explain = build_explain_sql(sql_text, false);
-            let outcome = self.run_explain_in_transaction(&explain).await?;
-            let rows = outcome.structured.unwrap_or(Value::Null);
-            let plan = rows
-                .as_array()
-                .and_then(|a| a.first())
-                .and_then(|r| r.get("QUERY PLAN"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let metrics = extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
-            plan_heuristics = json!({
-                "metrics": metrics,
-                "hint": "Use analyze_query_plan with analyze=true for actual timings before creating indexes.",
-            });
+            match self.run_explain_in_transaction(&explain).await {
+                Ok(outcome) => {
+                    let rows = outcome.structured.unwrap_or(Value::Null);
+                    let plan = rows
+                        .as_array()
+                        .and_then(|a| a.first())
+                        .and_then(|r| r.get("QUERY PLAN"))
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    let metrics =
+                        extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
+                    plan_heuristics = json!({
+                        "metrics": metrics,
+                        "hint": "Use analyze_query_plan with analyze=true for actual timings before creating indexes.",
+                    });
+                }
+                Err(e) => {
+                    query_errors.insert("plan_heuristics".into(), json!(e.to_string()));
+                }
+            }
         }
 
-        let high_seq_json = rows_to_json(&high_seq);
-        let unindexed_json = rows_to_json(&unindexed_fks);
         let has_candidates = high_seq_json
             .as_array()
             .map(|a| !a.is_empty())
@@ -1882,35 +1950,39 @@ impl ToolRouter {
                 .unwrap_or(false)
             || plan_heuristics != Value::Null;
 
-        if !has_candidates && !pg_stat_available {
-            return Ok(ToolOutcome::ok_json(json!({
+        let mut payload = if !has_candidates && !pg_stat_available {
+            json!({
                 "suggestions": [],
                 "message": "No index suggestions yet. Either table stats show healthy index use, or there is not enough scan history. Enable pg_stat_statements and/or pass a sql argument for EXPLAIN plan heuristics.",
                 "hint": pg_stat_note,
-            })));
-        }
-
-        if !has_candidates {
-            return Ok(ToolOutcome::ok_json(json!({
+            })
+        } else if !has_candidates {
+            json!({
                 "high_seq_scan_tables": high_seq_json,
                 "unindexed_fk_columns": unindexed_json,
                 "slow_queries": slow_queries,
                 "plan_heuristics": plan_heuristics,
                 "message": "No strong index candidates from sequential-scan or unindexed-FK heuristics. Review slow_queries / pass sql for plan-level advice.",
                 "hint": "CREATE INDEX CONCURRENTLY after validating with EXPLAIN (ANALYZE, BUFFERS).",
-            })));
+            })
+        } else {
+            json!({
+                "high_seq_scan_tables": high_seq_json,
+                "unindexed_fk_columns": unindexed_json,
+                "slow_queries": slow_queries,
+                "plan_heuristics": plan_heuristics,
+                "pg_stat_statements": pg_stat_available,
+                "hint": pg_stat_note.unwrap_or_else(|| {
+                    "Validate candidates with analyze_query_plan / EXPLAIN before CREATE INDEX CONCURRENTLY.".into()
+                }),
+            })
+        };
+
+        if !query_errors.is_empty() {
+            payload["query_errors"] = Value::Object(query_errors);
         }
 
-        Ok(ToolOutcome::ok_json(json!({
-            "high_seq_scan_tables": high_seq_json,
-            "unindexed_fk_columns": unindexed_json,
-            "slow_queries": slow_queries,
-            "plan_heuristics": plan_heuristics,
-            "pg_stat_statements": pg_stat_available,
-            "hint": pg_stat_note.unwrap_or_else(|| {
-                "Validate candidates with analyze_query_plan / EXPLAIN before CREATE INDEX CONCURRENTLY.".into()
-            }),
-        })))
+        Ok(ToolOutcome::ok_json(payload))
     }
 
     async fn find_unused_indexes(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -2296,8 +2368,7 @@ impl ToolRouter {
         let Some(max_rows) = max_rows else {
             let rows = client.query(sql, &[]).await?;
             let values = rows_to_json(&rows);
-            // Always object-shaped for Cursor structuredContent (bare arrays are dropped).
-            let payload = ensure_structured_object(values);
+            let payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
             let text = serde_json::to_string_pretty(&payload)
                 .map_err(|e| ToolError::Execution(e.to_string()))?;
             let caps = self.session.caps();
@@ -2333,7 +2404,7 @@ impl ToolRouter {
         };
         let values = rows_to_json(keep);
         // Always `{ "rows": [...] }` — truncation flags are extra fields on the object.
-        let mut payload = ensure_structured_object(values);
+        let mut payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
         if truncated
             && let Some(obj) = payload.as_object_mut()
         {
@@ -2354,6 +2425,24 @@ impl ToolRouter {
             structured: Some(structured),
             is_error: false,
         })
+    }
+
+    fn apply_pii_redaction(&self, sql: &str, mut payload: Value) -> Value {
+        let filter = self.session.filter();
+        if filter.pii_columns.is_empty() {
+            return payload;
+        }
+        let Ok(tables) = select_table_refs(sql) else {
+            return payload;
+        };
+        let (redacted, cols) = redact_pii_in_payload(payload, &filter.pii_columns, &tables);
+        payload = redacted;
+        if !cols.is_empty()
+            && let Some(obj) = payload.as_object_mut()
+        {
+            obj.insert("piiRedactedColumns".into(), json!(cols));
+        }
+        payload
     }
 }
 

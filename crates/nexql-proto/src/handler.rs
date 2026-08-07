@@ -204,11 +204,15 @@ impl McpHandler {
         let tools_json: Vec<Value> = tools
             .into_iter()
             .map(|t| {
-                json!({
+                let mut tool = json!({
                     "name": t.name,
                     "description": t.description,
-                    "inputSchema": t.input_schema
-                })
+                    "inputSchema": t.input_schema,
+                });
+                if let Some(annotations) = t.annotations {
+                    tool["annotations"] = serde_json::to_value(annotations).unwrap_or(Value::Null);
+                }
+                tool
             })
             .collect();
         JsonRpcResponse::ok(id, json!({ "tools": tools_json }))
@@ -462,6 +466,7 @@ mod tests {
                 name: "ping_tool".into(),
                 description: "test".into(),
                 input_schema: json!({"type":"object","properties":{}}),
+                annotations: None,
             }]
         }
 

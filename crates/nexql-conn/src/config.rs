@@ -207,15 +207,29 @@ impl ConfigFile {
     }
 
     /// Export a secret-sanitized ProjectConfigFile suitable for `.nexql/config.toml`.
+    /// Policy fields are taken from `default_profile` when set, otherwise the first profile.
     pub fn export_shareable(&self) -> ProjectConfigFile {
+        let policy_source = self
+            .default_profile
+            .as_ref()
+            .and_then(|name| self.profiles.get(name))
+            .or_else(|| self.profiles.values().next());
         ProjectConfigFile {
             default_profile: self.default_profile.clone(),
-            access_mode: None,
-            schemas: Vec::new(),
-            deny_schemas: Vec::new(),
-            deny_tables: Vec::new(),
-            pii_columns: Vec::new(),
-            max_rows: None,
+            access_mode: policy_source.and_then(|p| p.access_mode.clone()),
+            schemas: policy_source
+                .map(|p| p.schemas.clone())
+                .unwrap_or_default(),
+            deny_schemas: policy_source
+                .map(|p| p.deny_schemas.clone())
+                .unwrap_or_default(),
+            deny_tables: policy_source
+                .map(|p| p.deny_tables.clone())
+                .unwrap_or_default(),
+            pii_columns: policy_source
+                .map(|p| p.pii_columns.clone())
+                .unwrap_or_default(),
+            max_rows: policy_source.and_then(|p| p.max_rows),
             index_dir: None,
         }
     }
@@ -487,6 +501,26 @@ url = "postgres://evil.com/db"
             ..Default::default()
         };
         assert_eq!(proj2.tighten_access_mode("read"), "read");
+    }
+
+    #[test]
+    fn export_shareable_includes_default_profile_policy() {
+        let mut cfg = ConfigFile::default();
+        cfg.default_profile = Some("team".into());
+        cfg.upsert_profile(
+            "team",
+            ProfileConfig {
+                deny_schemas: vec!["auth".into()],
+                pii_columns: vec!["public.users.ssn".into()],
+                max_rows: Some(500),
+                ..Default::default()
+            },
+        );
+        let proj = cfg.export_shareable();
+        assert_eq!(proj.default_profile.as_deref(), Some("team"));
+        assert_eq!(proj.deny_schemas, vec!["auth"]);
+        assert_eq!(proj.pii_columns, vec!["public.users.ssn"]);
+        assert_eq!(proj.max_rows, Some(500));
     }
 
     #[test]

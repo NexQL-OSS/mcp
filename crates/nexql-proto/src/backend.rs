@@ -6,11 +6,26 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
+/// MCP tool hints for clients (readOnlyHint, destructiveHint, …).
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolAnnotations {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_only_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destructive_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotent_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_world_hint: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolDescriptor {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    pub annotations: Option<ToolAnnotations>,
 }
 
 #[derive(Debug, Clone)]

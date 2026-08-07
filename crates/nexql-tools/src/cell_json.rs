@@ -3,6 +3,7 @@
 
 //! Typed Postgres cell → JSON conversion shared by read and write tools.
 
+use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
@@ -27,6 +28,75 @@ pub fn rows_to_json_vec(rows: &[tokio_postgres::Row]) -> Vec<Value> {
 /// Convert query rows to a JSON array value (read-tool shape).
 pub fn rows_to_json_array(rows: &[tokio_postgres::Row]) -> Value {
     Value::Array(rows_to_json_vec(rows))
+}
+
+/// Redact configured PII columns in row objects. Returns redacted JSON and column names touched.
+pub fn redact_pii_in_rows(
+    rows: Vec<Value>,
+    pii_columns: &[String],
+    tables: &[ObjectRef],
+) -> (Vec<Value>, Vec<String>) {
+    if pii_columns.is_empty() || tables.is_empty() {
+        return (rows, Vec::new());
+    }
+    let mut redacted_cols = Vec::new();
+    let out = rows
+        .into_iter()
+        .map(|row| {
+            let mut obj = match row {
+                Value::Object(map) => map,
+                other => return other,
+            };
+            for (col, val) in obj.iter_mut() {
+                if column_matches_pii_policy(pii_columns, tables, col) {
+                    *val = Value::String(PII_REDACTED.into());
+                    if !redacted_cols.iter().any(|c| c == col) {
+                        redacted_cols.push(col.clone());
+                    }
+                }
+            }
+            Value::Object(obj)
+        })
+        .collect();
+    (out, redacted_cols)
+}
+
+/// Redact PII inside a structured read payload (`{ "rows": [...] }` or a bare array).
+pub fn redact_pii_in_payload(
+    mut payload: Value,
+    pii_columns: &[String],
+    tables: &[ObjectRef],
+) -> (Value, Vec<String>) {
+    if let Some(rows) = payload.get_mut("rows").and_then(|v| v.as_array_mut()) {
+        let taken = std::mem::take(rows);
+        let (redacted, cols) = redact_pii_in_rows(taken, pii_columns, tables);
+        *rows = redacted;
+        return (payload, cols);
+    }
+    if let Value::Array(rows) = &mut payload {
+        let taken = std::mem::take(rows);
+        let (redacted, cols) = redact_pii_in_rows(taken, pii_columns, tables);
+        *rows = redacted;
+        return (payload, cols);
+    }
+    (payload, Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redact_pii_replaces_matching_columns() {
+        let rows = vec![json!({"id": 1, "ssn": "123-45-6789"})];
+        let tables = vec![ObjectRef::new("public", "users")];
+        let pii = vec!["public.users.ssn".into()];
+        let (out, cols) = redact_pii_in_rows(rows, &pii, &tables);
+        assert_eq!(cols, vec!["ssn"]);
+        assert_eq!(out[0]["ssn"], json!(PII_REDACTED));
+        assert_eq!(out[0]["id"], json!(1));
+    }
 }
 
 /// Detect SQL NULL for any column type without committing to a concrete `FromSql` type.
