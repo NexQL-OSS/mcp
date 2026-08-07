@@ -5,6 +5,25 @@ All notable changes to `nexql-mcp` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-08-07
+
+### Added
+- **PII result redaction**: Query/read tool rows replace configured `pii_columns` values with `<redacted>` (policy-aware via `FROM`/`JOIN` table refs).
+- **Index stale markers**: DDL write paths mark `(connection_id, database)` stale until `rebuild_index` / `refresh_index` clears it; agents can detect post-DDL index drift.
+- **Live profile registration**: `ToolSession::register_profile` upserts connections after `save_profile` / import / setup without restarting the server.
+- **MCP tool hints**: Specs advertise `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint` for client UX.
+- **Typed cell → JSON**: Shared `cell_json` conversion for Postgres types (incl. arrays, money, timestamps) used by read and write tools.
+- **Typed write parameters**: Insert/update bind JSON args to typed Postgres parameters instead of string-only binding.
+
+### Fixed
+- **Read table policy on SELECT**: `enforce_read_table_policy` applied on execute/read paths so `deny_schemas` / schema allowlists actually block reads.
+- **Clippy `-D warnings`**: `field_reassign_with_default` in config tests, `needless_return` in write param binding, and `items_after_test_module` in `cell_json`.
+- **Release packaging**: `package-mcpb.sh` writes an absolute output path; release workflow cleans cargo package staging dirs.
+- **Version bump coverage**: `scripts/bump-version.sh` now syncs `server.json` and npm `optionalDependencies` pins (previously left at the prior release).
+
+### Changed
+- Nested `if let` chains refactored to pattern matching across conn/index/mcp/tools for clearer control flow.
+
 ## [0.2.0] - 2026-08-06
 
 ### Fixed

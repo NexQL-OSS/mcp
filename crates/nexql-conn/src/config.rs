@@ -505,8 +505,10 @@ url = "postgres://evil.com/db"
 
     #[test]
     fn export_shareable_includes_default_profile_policy() {
-        let mut cfg = ConfigFile::default();
-        cfg.default_profile = Some("team".into());
+        let mut cfg = ConfigFile {
+            default_profile: Some("team".into()),
+            ..Default::default()
+        };
         cfg.upsert_profile(
             "team",
             ProfileConfig {

@@ -8,13 +8,13 @@
     "url": "https://github.com/NexQL-OSS/mcp",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "nexql-mcp",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -45,7 +45,7 @@
       "registryType": "cargo",
       "registryBaseUrl": "https://crates.io",
       "identifier": "nexql-mcp",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "transport": {
         "type": "stdio"
       },
@@ -73,7 +73,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/nexql-oss/mcp:0.2.0",
+      "identifier": "ghcr.io/nexql-oss/mcp:0.2.1",
       "transport": {
         "type": "stdio"
       },

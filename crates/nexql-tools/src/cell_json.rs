@@ -82,23 +82,6 @@ pub fn redact_pii_in_payload(
     (payload, Vec::new())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn redact_pii_replaces_matching_columns() {
-        let rows = vec![json!({"id": 1, "ssn": "123-45-6789"})];
-        let tables = vec![ObjectRef::new("public", "users")];
-        let pii = vec!["public.users.ssn".into()];
-        let (out, cols) = redact_pii_in_rows(rows, &pii, &tables);
-        assert_eq!(cols, vec!["ssn"]);
-        assert_eq!(out[0]["ssn"], json!(PII_REDACTED));
-        assert_eq!(out[0]["id"], json!(1));
-    }
-}
-
 /// Detect SQL NULL for any column type without committing to a concrete `FromSql` type.
 enum SqlNullness {
     Null,
@@ -331,4 +314,21 @@ fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -
         "__untyped": true,
         "type": pg_type.name()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redact_pii_replaces_matching_columns() {
+        let rows = vec![json!({"id": 1, "ssn": "123-45-6789"})];
+        let tables = vec![ObjectRef::new("public", "users")];
+        let pii = vec!["public.users.ssn".into()];
+        let (out, cols) = redact_pii_in_rows(rows, &pii, &tables);
+        assert_eq!(cols, vec!["ssn"]);
+        assert_eq!(out[0]["ssn"], json!(PII_REDACTED));
+        assert_eq!(out[0]["id"], json!(1));
+    }
 }

@@ -684,7 +684,7 @@ fn json_to_sql_param(
                 })?;
                 return Ok(Box::new(d));
             }
-            return Ok(Box::new(s.clone()));
+            Ok(Box::new(s.clone()))
         }
         Value::Number(n) => {
             if typ.contains("json") {
@@ -705,7 +705,7 @@ fn json_to_sql_param(
             if let Some(f) = n.as_f64() {
                 return Ok(Box::new(f));
             }
-            return Ok(Box::new(n.to_string()));
+            Ok(Box::new(n.to_string()))
         }
         Value::Array(_) | Value::Object(_) => Ok(Box::new(Json(val.clone()))),
     }
