@@ -178,7 +178,7 @@ impl ToolRouter {
     /// sends to the model. Placed here (the single choke point every tool's
     /// result passes through before the MCP transport) rather than in each
     /// handler: internal tool-to-tool reuse (`auto_tune_query` calling
-    /// `self.suggest_indexes(...)` directly, `analyze_query_plan` reading
+    /// `self.suggest_indexes(...)` directly, `deep_plan_analysis` reading
     /// `run_explain_in_transaction`'s row-objects) goes through direct method
     /// calls, never `call()`/`call_inner()` — so those internal consumers
     /// keep seeing the original row-object shape they depend on, and only
@@ -281,8 +281,6 @@ impl ToolRouter {
             ToolName::FindBlockingLocks => self.find_blocking_locks().await,
             ToolName::SlowQueries => self.slow_queries(&args).await,
             ToolName::DbHealthCheck => self.db_health_check().await,
-            ToolName::ExplainAnalyze => self.explain_analyze(&args).await,
-            ToolName::AnalyzeQueryPlan => self.analyze_query_plan(&args).await,
             ToolName::GetIndexStatus => self.get_index_status().await,
             ToolName::ListExtensions => self.list_extensions().await,
             ToolName::ServerSettings => self.server_settings().await,
@@ -2351,51 +2349,6 @@ impl ToolRouter {
         Ok(ToolOutcome::ok_json(Value::Object(report)))
     }
 
-    async fn explain_analyze(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let sql = args
-            .get("sql")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(&self.session.filter(), sql)?;
-        let explain = build_explain_sql(sql, true);
-        self.run_explain_in_transaction(&explain).await
-    }
-
-    async fn analyze_query_plan(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let sql = args
-            .get("sql")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
-        require_select_or_with(&self.session.filter(), sql)?;
-        let analyze = args
-            .get("analyze")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let explain = build_explain_sql(sql, analyze);
-        let outcome = self.run_explain_in_transaction(&explain).await?;
-        let rows = outcome.structured.unwrap_or(Value::Null);
-        let row_array = rows
-            .get("rows")
-            .and_then(|v| v.as_array())
-            .or_else(|| rows.as_array());
-        let plan = row_array
-            .and_then(|a| a.first())
-            .and_then(|r| r.get("QUERY PLAN"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        let metrics = extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
-        let recommendations = metrics
-            .as_ref()
-            .and_then(|m| m.get("recommendations"))
-            .cloned()
-            .unwrap_or_else(|| json!([]));
-        Ok(ToolOutcome::ok_json(json!({
-            "metrics": metrics,
-            "recommendations": recommendations,
-            "plan": plan,
-        })))
-    }
-
     /// EXPLAIN ANALYZE executes the query — always wrap in READ ONLY + ROLLBACK.
     async fn run_explain_in_transaction(
         &self,
@@ -2557,7 +2510,7 @@ impl ToolRouter {
                         extract_plan_metrics(&plan).or_else(|| extract_plan_metrics(&rows));
                     plan_heuristics = json!({
                         "metrics": metrics,
-                        "hint": "Use analyze_query_plan with analyze=true for actual timings before creating indexes.",
+                        "hint": "Use deep_plan_analysis with analyze=true for actual timings before creating indexes.",
                     });
                 }
                 Err(e) => {
@@ -2599,7 +2552,7 @@ impl ToolRouter {
                 "plan_heuristics": plan_heuristics,
                 "pg_stat_statements": pg_stat_available,
                 "hint": pg_stat_note.unwrap_or_else(|| {
-                    "Validate candidates with analyze_query_plan / EXPLAIN before CREATE INDEX CONCURRENTLY.".into()
+                    "Validate candidates with deep_plan_analysis / EXPLAIN before CREATE INDEX CONCURRENTLY.".into()
                 }),
             })
         };
@@ -3234,6 +3187,13 @@ mod tests {
     use crate::session::{ConnectionInfo, ConnectionPolicy, ToolSession};
     use nexql_policy::{AccessMode, PolicyCaps};
 
+    /// Serializes tests that mutate the process-wide `NEXQL_MCP_CONFIG` env
+    /// var — `std::env::set_var` is racy across tests running in parallel
+    /// otherwise (each test wants its own temp config path). `tokio::sync`
+    /// (not `std::sync`) because the guard needs to stay held across the
+    /// `router.call(...).await` below — not poisonable, unlike a std `Mutex`.
+    static CONFIG_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     fn test_conn() -> ConnectionInfo {
         ConnectionInfo {
             id: "conn-1".into(),
@@ -3299,7 +3259,7 @@ mod tests {
         let names: Vec<_> = router.specs().iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"search_schema"));
         assert!(names.contains(&"get_ddl"));
-        assert!(names.contains(&"explain_analyze"));
+        assert!(names.contains(&"deep_plan_analysis"));
         assert!(names.contains(&"get_index_status"));
         assert!(names.contains(&"list_extensions"));
         assert!(names.contains(&"server_settings"));
@@ -4031,6 +3991,7 @@ mod tests {
     async fn save_profile_persists_config() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let cfg_path = temp_dir.path().join("config.toml");
         unsafe {
@@ -4070,6 +4031,7 @@ mod tests {
     async fn save_profile_rejects_elevated_access_without_confirmation() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let cfg_path = temp_dir.path().join("config.toml");
         unsafe {
@@ -4098,6 +4060,7 @@ mod tests {
     async fn save_profile_allows_elevated_access_with_confirmation() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let cfg_path = temp_dir.path().join("config.toml");
         unsafe {
@@ -4122,6 +4085,7 @@ mod tests {
     async fn save_profile_read_access_mode_needs_no_confirmation() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
         let temp_dir = tempfile::tempdir().unwrap();
         let cfg_path = temp_dir.path().join("config.toml");
         unsafe {

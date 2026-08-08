@@ -523,34 +523,6 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
             input_schema: object_schema(&[]),
         },
         ToolSpec {
-            name: ToolName::ExplainAnalyze,
-            description: "Run EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) on a SELECT/WITH query inside a read-only transaction that is always rolled back. WARNING: the query actually executes (volatile functions run), so expect real query runtime.",
-            input_schema: object_schema(&[(
-                "sql",
-                "string",
-                true,
-                "A single SELECT or WITH statement to analyze. It executes for real (inside a rolled-back transaction).",
-            )]),
-        },
-        ToolSpec {
-            name: ToolName::AnalyzeQueryPlan,
-            description: "Run EXPLAIN (FORMAT JSON) on a SELECT/WITH query and return parsed plan metrics (scan counts, bottlenecks, buffer stats) plus performance recommendations. Set analyze=true to also execute the query for actual timings.",
-            input_schema: object_schema(&[
-                (
-                    "sql",
-                    "string",
-                    true,
-                    "A single SELECT or WITH statement to explain/analyze.",
-                ),
-                (
-                    "analyze",
-                    "boolean",
-                    false,
-                    "If true, actually execute the query for real timings (EXPLAIN ANALYZE) instead of estimate-only. Default false.",
-                ),
-            ]),
-        },
-        ToolSpec {
             name: ToolName::GetIndexStatus,
             description: "Return schema-index status for the active connection/database: indexed_at, fingerprint, object counts, and optional live fingerprint drift. Returns status:\"missing\" (not an error) if no index has been built yet.",
             input_schema: object_schema(&[]),
@@ -660,7 +632,7 @@ pub fn phase4b_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::DeepPlanAnalysis,
-            description: "Run EXPLAIN (ANALYZE by default) and return severity-graded findings: estimate skew, expensive function/CTE/subquery nodes, and recommendations. Set analyze=false for plan-only (no execution).",
+            description: "Run EXPLAIN (ANALYZE by default) and return parsed plan metrics (scan counts, bottlenecks, buffer stats) plus severity-graded findings: estimate skew, expensive function/CTE/subquery nodes, and recommendations. Set analyze=false for plan-only (no execution). The single query-plan-analysis tool — covers what separate explain_analyze/analyze_query_plan tools used to.",
             input_schema: object_schema(&[
                 (
                     "sql",
@@ -916,7 +888,7 @@ mod tests {
     #[test]
     fn active_tools_lists_fifty_three() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 54);
+        assert_eq!(specs.len(), 52);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -956,13 +928,13 @@ mod tests {
         assert_eq!(query_specs.len(), 19);
 
         let dba_specs = tools_for_profile(ToolProfile::Dba);
-        assert_eq!(dba_specs.len(), 28);
+        assert_eq!(dba_specs.len(), 26);
 
         let meta_specs = tools_for_profile(ToolProfile::Meta);
         assert_eq!(meta_specs.len(), 11);
 
         let full_specs = tools_for_profile(ToolProfile::Full);
-        assert_eq!(full_specs.len(), 54);
+        assert_eq!(full_specs.len(), 52);
     }
 
     /// Regression guard for Issue 1: every tool parameter must carry a non-empty

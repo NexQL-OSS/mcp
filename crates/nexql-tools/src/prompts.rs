@@ -97,7 +97,7 @@ const PROMPTS: &[PromptDef] = &[
             [
                 "Identify and improve the slowest queries in the connected database:",
                 "1. Run the slow_queries tool to get the top statements by mean execution time.",
-                "2. For each of the top 3 offenders, run analyze_query_plan on the query text to get plan metrics and bottlenecks.",
+                "2. For each of the top 3 offenders, run deep_plan_analysis on the query text to get plan metrics and bottlenecks.",
                 "3. Before proposing any index, verify the referenced tables and columns exist using describe_object.",
                 "Deliver: for each slow query — the bottleneck (seq scan, spill, misestimate), a proposed fix (CREATE INDEX CONCURRENTLY statement or query rewrite), and the expected impact.",
             ]
@@ -201,8 +201,8 @@ const PROMPTS: &[PromptDef] = &[
                 "Deep-dive this query plan:".to_owned(),
                 format!("```sql\n{sql}\n```"),
                 "1. Ground referenced objects with search_schema / describe_object.".into(),
-                "2. Run deep_plan_analysis (analyze=true) for severity-graded skew / CTE / function / subquery findings.".into(),
-                "3. Cross-check with analyze_query_plan; propose indexes or rewrites with evidence.".into(),
+                "2. Run deep_plan_analysis (analyze=true) for severity-graded skew / CTE / function / subquery findings and parsed plan metrics.".into(),
+                "3. Cross-check with suggest_indexes; propose indexes or rewrites with evidence.".into(),
             ]
             .join("\n")
         },
@@ -221,7 +221,7 @@ const PROMPTS: &[PromptDef] = &[
                 format!("Optimize table {ref_}:"),
                 "1. Run describe_object on the ref to get columns, keys, and indexes.".into(),
                 "2. Run table_stats and index_usage for the same ref.".into(),
-                "3. Cross-check with slow_queries / analyze_query_plan for statements that hit this table.".into(),
+                "3. Cross-check with slow_queries / deep_plan_analysis for statements that hit this table.".into(),
                 "Deliver: unused or redundant indexes, missing indexes (with CREATE INDEX CONCURRENTLY), and VACUUM/ANALYZE advice with evidence.".into(),
             ]
             .join("\n")
@@ -241,7 +241,7 @@ const PROMPTS: &[PromptDef] = &[
                 "Explain and improve this query:".to_owned(),
                 format!("```sql\n{sql}\n```"),
                 "1. Ground every referenced object with describe_object / search_schema before commenting on columns.".into(),
-                "2. Run explain_query (and analyze_query_plan if available) on the SQL.".into(),
+                "2. Run explain_query (and deep_plan_analysis if available) on the SQL.".into(),
                 "3. Call out seq scans, misestimates, spills, and missing indexes; propose a rewritten query or index when justified.".into(),
             ]
             .join("\n")

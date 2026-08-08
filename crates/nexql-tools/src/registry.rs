@@ -62,8 +62,6 @@ pub enum ToolName {
     FindBlockingLocks,
     SlowQueries,
     DbHealthCheck,
-    ExplainAnalyze,
-    AnalyzeQueryPlan,
     GetIndexStatus,
     ListExtensions,
     ServerSettings,
@@ -137,8 +135,6 @@ impl ToolName {
         Self::FindBlockingLocks,
         Self::SlowQueries,
         Self::DbHealthCheck,
-        Self::ExplainAnalyze,
-        Self::AnalyzeQueryPlan,
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
@@ -203,8 +199,6 @@ impl ToolName {
         Self::FindBlockingLocks,
         Self::SlowQueries,
         Self::DbHealthCheck,
-        Self::ExplainAnalyze,
-        Self::AnalyzeQueryPlan,
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
@@ -260,8 +254,6 @@ impl ToolName {
         Self::FindBlockingLocks,
         Self::SlowQueries,
         Self::DbHealthCheck,
-        Self::ExplainAnalyze,
-        Self::AnalyzeQueryPlan,
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
@@ -275,6 +267,9 @@ impl ToolName {
         Self::DeepPlanAnalysis,
         Self::SchemaDiff,
         Self::GenerateMigration,
+        // Non-destructive (both callees are read-only); was previously missing
+        // from this list — drive-by fix found alongside the EXPLAIN consolidation.
+        Self::AutoTuneQuery,
     ];
 
     /// Subset of tools optimized for context-constrained query & schema exploration tasks.
@@ -310,8 +305,6 @@ impl ToolName {
         Self::FindBlockingLocks,
         Self::SlowQueries,
         Self::DbHealthCheck,
-        Self::ExplainAnalyze,
-        Self::AnalyzeQueryPlan,
         Self::GetIndexStatus,
         Self::ListExtensions,
         Self::ServerSettings,
@@ -379,8 +372,6 @@ impl ToolName {
             Self::FindBlockingLocks => "find_blocking_locks",
             Self::SlowQueries => "slow_queries",
             Self::DbHealthCheck => "db_health_check",
-            Self::ExplainAnalyze => "explain_analyze",
-            Self::AnalyzeQueryPlan => "analyze_query_plan",
             Self::GetIndexStatus => "get_index_status",
             Self::ListExtensions => "list_extensions",
             Self::ServerSettings => "server_settings",
@@ -441,7 +432,6 @@ impl ToolName {
                     | Self::SaveProfile
                     | Self::ImportProfile
                     | Self::SwitchConnection
-                    | Self::ExplainAnalyze
                     | Self::DiscoverTools
             );
         ToolHints {
@@ -468,7 +458,7 @@ mod tests {
 
     #[test]
     fn read_only_is_forty_one_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 44);
+        assert_eq!(ToolName::READ_ONLY.len(), 43);
     }
 
     #[test]
@@ -478,7 +468,7 @@ mod tests {
 
     #[test]
     fn active_surface_is_fifty_one_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 54);
+        assert_eq!(ToolName::ACTIVE.len(), 52);
     }
 
     #[test]
