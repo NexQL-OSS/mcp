@@ -8,10 +8,19 @@ on:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to publish (default main)
+        required: false
+        default: main
 
 jobs:
   publish:
-    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for GitHub OIDC auth to the registry
@@ -20,9 +29,10 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
 
       - name: Sync server.json version to the release tag
+        if: github.event_name == 'workflow_run'
         run: |
           set -euo pipefail
           VERSION="${{ github.event.workflow_run.head_branch }}"

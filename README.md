@@ -191,7 +191,7 @@ above.
 ### MCP Registry
 
 Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io) as
-`io.github.nexql-oss/nexql-mcp` ([`server.json`](server.json)), published automatically after each
+`io.github.NexQL-OSS/nexql-mcp` ([`server.json`](server.json)), published automatically after each
 release via GitHub OIDC (no stored credentials) — see
 [`.github/workflows/publish-mcp-registry.yml`](.github/workflows/publish-mcp-registry.yml).
 

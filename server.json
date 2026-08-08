@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.nexql-oss/nexql-mcp",
+  "name": "io.github.NexQL-OSS/nexql-mcp",
   "description": "Standalone Postgres MCP server \u2014 schema-aware, read-only by default, installable everywhere.",
   "title": "NexQL Postgres MCP",
   "websiteUrl": "https://github.com/NexQL-OSS/mcp",
