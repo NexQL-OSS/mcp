@@ -1,6 +1,6 @@
 {
   "name": "@nexql/mcp-darwin-arm64",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "nexql-mcp macOS arm64 binary (optionalDependency of nexql-mcp)",
   "license": "GPL-3.0-only",
   "repository": "github:NexQL-OSS/mcp",

@@ -195,6 +195,8 @@ Listed in the [official MCP Registry](https://registry.modelcontextprotocol.io) 
 release via GitHub OIDC (no stored credentials) — see
 [`.github/workflows/publish-mcp-registry.yml`](.github/workflows/publish-mcp-registry.yml).
 
+- mcp-name: io.github.NexQL-OSS/nexql-mcp
+
 ### From source
 
 ```bash
