@@ -15,7 +15,9 @@ use nexql_policy::{
 };
 use serde_json::{Value, json};
 
-use crate::cell_json::{columnarize_read_payload, redact_pii_in_payload, rows_to_json_array};
+use crate::cell_json::{
+    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload, rows_to_json_array,
+};
 use crate::critique;
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
@@ -164,7 +166,47 @@ impl ToolRouter {
             Ok(out) => out,
             Err(e) => ToolOutcome::err(e.to_string()),
         };
+        let outcome = Self::columnarize_outcome(name, outcome);
         self.tag_outcome_with_context(outcome).await
+    }
+
+    /// Issue 5 (full scope): reshape every array of uniform row-objects
+    /// anywhere in a successful tool's structured result into columnar form
+    /// (`cell_json::columnarize_row_arrays`), and resync the wire text to
+    /// match — this is also what drops pretty-printing everywhere, not just
+    /// for `run_select`, since `outcome.text` is what `content[0].text`
+    /// sends to the model. Placed here (the single choke point every tool's
+    /// result passes through before the MCP transport) rather than in each
+    /// handler: internal tool-to-tool reuse (`auto_tune_query` calling
+    /// `self.suggest_indexes(...)` directly, `analyze_query_plan` reading
+    /// `run_explain_in_transaction`'s row-objects) goes through direct method
+    /// calls, never `call()`/`call_inner()` — so those internal consumers
+    /// keep seeing the original row-object shape they depend on, and only
+    /// the final MCP-facing response gets reshaped.
+    ///
+    /// Skipped for `orient` and `get_join_path`: their arrays (`tables`/
+    /// `joins`, `path`) are hand-compacted summaries and an edge-list, not
+    /// bulk SQL result sets — grid-ifying them would undo deliberate design,
+    /// not save tokens.
+    fn columnarize_outcome(name: &str, mut outcome: ToolOutcome) -> ToolOutcome {
+        if outcome.is_error {
+            return outcome;
+        }
+        if matches!(
+            ToolName::parse(name),
+            Some(ToolName::Orient) | Some(ToolName::GetJoinPath)
+        ) {
+            return outcome;
+        }
+        let Some(structured) = outcome.structured.take() else {
+            return outcome;
+        };
+        let transformed = columnarize_row_arrays(structured);
+        if let Ok(text) = serde_json::to_string(&transformed) {
+            outcome.text = text;
+        }
+        outcome.structured = Some(transformed);
+        outcome
     }
 
     async fn tag_outcome_with_context(&self, mut outcome: ToolOutcome) -> ToolOutcome {
@@ -2571,13 +2613,30 @@ impl ToolRouter {
             .unwrap_or(false);
 
         let payload = match format {
-            ExportFormat::Json => json!({
-                "format": format.as_str(),
-                "rowCount": rows.len(),
-                "truncated": truncated,
-                "columns": columns,
-                "rows": rows,
-            }),
+            ExportFormat::Json => {
+                // Grid directly, using the `columns` list already derived
+                // above — avoids the redundant `rows.columns` nesting the
+                // ToolRouter::call() columnar choke point would otherwise
+                // produce from a bare row-object array here.
+                let grid: Vec<Value> = rows
+                    .iter()
+                    .map(|row| {
+                        json!(
+                            columns
+                                .iter()
+                                .map(|c| row.get(c).cloned().unwrap_or(Value::Null))
+                                .collect::<Vec<_>>()
+                        )
+                    })
+                    .collect();
+                json!({
+                    "format": format.as_str(),
+                    "rowCount": rows.len(),
+                    "truncated": truncated,
+                    "columns": columns,
+                    "rows": grid,
+                })
+            }
             ExportFormat::Csv => {
                 let content = rows_to_csv(&rows, &columns);
                 let caps = self.session.caps();
@@ -3289,6 +3348,62 @@ mod tests {
             Some(IndexStore::new(store.root())),
         );
         ToolRouter::with_index_store(session, Some(store))
+    }
+
+    /// Issue 5 (full scope): the ToolRouter::call() choke point reshapes any
+    /// tool's flat row-object array into columnar form.
+    #[test]
+    fn columnarize_outcome_reshapes_flat_rows_for_generic_tool() {
+        let outcome = ToolOutcome::ok_json(json!({
+            "rows": [{ "name": "pgcrypto" }, { "name": "pg_stat_statements" }]
+        }));
+        let out = ToolRouter::columnarize_outcome("list_extensions", outcome);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["columns"], json!(["name"]));
+        assert_eq!(
+            structured["rows"],
+            json!([["pgcrypto"], ["pg_stat_statements"]])
+        );
+        // Text stays in sync with the reshaped structured content.
+        assert!(out.text.contains("pgcrypto"));
+        assert!(
+            !out.text.contains('\n'),
+            "wire text should be compact, not pretty-printed"
+        );
+    }
+
+    /// Regression guard for the exact risk found while planning full Issue 5:
+    /// `auto_tune_query` reads `suggestions.get("high_seq_scan_tables")` etc.
+    /// as an array directly (`build_tuning_summary`, exec.rs) — if that ever
+    /// went through the columnar choke point it would silently become an
+    /// object and `.as_array()` would return `None`, zeroing the count. This
+    /// locks the row-object contract `build_tuning_summary` depends on.
+    #[test]
+    fn build_tuning_summary_reads_row_object_shaped_suggestions() {
+        let suggestions = json!({
+            "high_seq_scan_tables": [{ "table_name": "orders" }],
+            "unindexed_fk_columns": [{ "column_name": "customer_id" }],
+        });
+        let summary = ToolRouter::build_tuning_summary(&None, &suggestions);
+        assert!(summary.contains("2 index recommendation"), "{summary}");
+    }
+
+    /// `orient` / `get_join_path` are excluded from the choke-point reshape —
+    /// their arrays are hand-compacted summaries/edge-lists, not bulk SQL rows.
+    #[test]
+    fn columnarize_outcome_skips_orient_and_get_join_path() {
+        for tool in ["orient", "get_join_path"] {
+            let outcome = ToolOutcome::ok_json(json!({
+                "tables": [{ "ref": "public.orders" }, { "ref": "public.customers" }]
+            }));
+            let out = ToolRouter::columnarize_outcome(tool, outcome);
+            let structured = out.structured.unwrap();
+            assert_eq!(
+                structured["tables"],
+                json!([{ "ref": "public.orders" }, { "ref": "public.customers" }]),
+                "{tool} should be excluded from columnarization"
+            );
+        }
     }
 
     /// Issue 6: `LIMIT` without `ORDER BY` should attach a critique even
