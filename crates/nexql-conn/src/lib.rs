@@ -27,4 +27,6 @@ pub use resolve::{
     ConnectionParams, ConnectionSource, DbEngine, ResolveInputs, ResolvedConnection,
     params_from_url, resolve, resolve_all, resolve_profile,
 };
-pub use secret::{CommandRunner, ProcessCommandRunner};
+pub use secret::{
+    CommandRunner, ProcessCommandRunner, resolve_keyring_password, store_keyring_password,
+};

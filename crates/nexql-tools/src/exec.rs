@@ -1201,6 +1201,40 @@ impl ToolRouter {
         )
     }
 
+    /// Route a plaintext `password` arg to the OS keyring instead of persisting it
+    /// to disk. Second-review finding: `setup_connection`/`save_profile` copied the
+    /// raw password verbatim into `ProfileConfig.password`, written to
+    /// `~/.config/nexql-mcp/config.toml` — plaintext, plus a plaintext
+    /// `.bak-<ts>` backup on every overwrite. The `keyring` crate was already a
+    /// dependency with a working *read* path (`resolve_keyring_password`, used by
+    /// the resolution ladder in `resolve.rs`) but the write path
+    /// (`store_keyring_password`) had zero call sites.
+    ///
+    /// Returns `(password, credential_provider)` fields for `ProfileConfig`:
+    /// `password` is always `None` on success — `credential_provider: "keyring"`
+    /// is what the existing read-side ladder needs to find it again. `None` input
+    /// (no password arg) passes through unchanged. On keyring failure (no OS
+    /// backend — expect this on some headless/CI hosts), returns an error naming
+    /// the `password_command`/`password_file` `ProfileConfig` fields as the
+    /// supported alternative — **never** silently falls back to plaintext, which
+    /// would defeat the entire point of this fix.
+    fn route_password_to_keyring(
+        profile_name: &str,
+        password: Option<&str>,
+    ) -> Result<(Option<String>, Option<String>), ToolError> {
+        let Some(password) = password else {
+            return Ok((None, None));
+        };
+        nexql_conn::store_keyring_password(profile_name, password).map_err(|e| {
+            ToolError::Execution(format!(
+                "Could not store the password in the OS keyring ({e}) — refusing to write it to \
+                 disk in plaintext. Use password_command or password_file in the profile config \
+                 instead, or fix the keyring backend and retry."
+            ))
+        })?;
+        Ok((None, Some("keyring".into())))
+    }
+
     async fn setup_connection_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         let profile_name = args
             .get("name")
@@ -1273,14 +1307,17 @@ impl ToolRouter {
 
         match nexql_conn::test_connection(&params).await {
             Ok(report) => {
+                let (kr_password, kr_provider) =
+                    Self::route_password_to_keyring(profile_name, params.password.as_deref())?;
                 let p_config = nexql_conn::ProfileConfig {
                     url: params.url.clone(),
                     host: params.host.clone(),
                     port: params.port,
                     dbname: params.dbname.clone(),
                     user: params.user.clone(),
-                    password: params.password.clone(),
+                    password: kr_password,
                     sslmode: params.sslmode.clone(),
+                    credential_provider: kr_provider,
                     ..Default::default()
                 };
 
@@ -1341,6 +1378,9 @@ impl ToolRouter {
             }
         }
 
+        let (kr_password, kr_provider) =
+            Self::route_password_to_keyring(name, args.get("password").and_then(|v| v.as_str()))?;
+
         let p_config = nexql_conn::ProfileConfig {
             url: args.get("url").and_then(|v| v.as_str()).map(String::from),
             host: args.get("host").and_then(|v| v.as_str()).map(String::from),
@@ -1350,10 +1390,7 @@ impl ToolRouter {
                 .and_then(|v| v.as_str())
                 .map(String::from),
             user: args.get("user").and_then(|v| v.as_str()).map(String::from),
-            password: args
-                .get("password")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            password: kr_password,
             sslmode: args
                 .get("sslmode")
                 .and_then(|v| v.as_str())
@@ -1366,6 +1403,7 @@ impl ToolRouter {
                 .get("max_rows")
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32),
+            credential_provider: kr_provider,
             ..Default::default()
         };
 
@@ -4020,6 +4058,67 @@ mod tests {
             structured.get("profile").and_then(|v| v.as_str()),
             Some("staging")
         );
+    }
+
+    /// Second-review finding: setup_connection/save_profile copied the raw
+    /// password arg verbatim into the persisted TOML config (plus a plaintext
+    /// `.bak-<ts>` backup on every overwrite). Environment-independent
+    /// invariant (keyring backend availability varies by host, e.g. CI): the
+    /// literal password string must never land on disk, whether the keyring
+    /// write succeeds (config gets credential_provider: "keyring" instead) or
+    /// fails (the whole save is refused — no partial plaintext write).
+    #[tokio::test]
+    async fn save_profile_never_persists_password_in_plaintext() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+        const SECRET: &str = "correct-horse-battery-staple";
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "prod-db",
+                    "host": "127.0.0.1",
+                    "password": SECRET,
+                }),
+            )
+            .await;
+
+        if out.is_error {
+            // Keyring unavailable on this host — must fail closed, not write
+            // plaintext. Confirmed by the assertion below regardless.
+            assert!(
+                out.text.contains("keyring") || out.text.contains("password_command"),
+                "{}",
+                out.text
+            );
+        } else {
+            let structured = out.structured.expect("structured outcome");
+            assert_eq!(
+                structured.get("status").and_then(|v| v.as_str()),
+                Some("saved")
+            );
+        }
+
+        if cfg_path.exists() {
+            let raw = std::fs::read_to_string(&cfg_path).unwrap();
+            assert!(
+                !raw.contains(SECRET),
+                "password must never appear in the persisted config file: {raw}"
+            );
+            if !out.is_error {
+                assert!(
+                    raw.contains("keyring"),
+                    "successful save must record credential_provider = \"keyring\": {raw}"
+                );
+            }
+        }
     }
 
     /// Second-review finding: access_mode was a plain string arg applied to

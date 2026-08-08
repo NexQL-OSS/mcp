@@ -209,7 +209,12 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                 ),
                 ("dbname", "string", false, "Database name to connect to."),
                 ("user", "string", false, "Database role/username."),
-                ("password", "string", false, "Database role password."),
+                (
+                    "password",
+                    "string",
+                    false,
+                    "Database role password. Never written to disk in plaintext — stored in the OS keyring, or the call fails with the password_command/password_file alternative.",
+                ),
                 (
                     "sslmode",
                     "string",
@@ -244,7 +249,12 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                 ),
                 ("dbname", "string", false, "Database name to connect to."),
                 ("user", "string", false, "Database role/username."),
-                ("password", "string", false, "Database role password."),
+                (
+                    "password",
+                    "string",
+                    false,
+                    "Database role password. Never written to disk in plaintext — stored in the OS keyring, or the call fails with the password_command/password_file alternative.",
+                ),
                 (
                     "sslmode",
                     "string",
