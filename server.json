@@ -73,7 +73,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/nexql-oss/mcp:0.2.4",
+      "identifier": "ghcr.io/nexql-oss/mcp:v0.2.4",
       "transport": {
         "type": "stdio"
       },
