@@ -70,29 +70,6 @@
           "isRequired": false
         }
       ]
-    },
-    {
-      "registryType": "oci",
-      "identifier": "ghcr.io/nexql-oss/mcp:v0.2.4",
-      "transport": {
-        "type": "stdio"
-      },
-      "packageArguments": [
-        {
-          "type": "positional",
-          "valueHint": "connection_string",
-          "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Omit to use DATABASE_URL.",
-          "isRequired": false
-        }
-      ],
-      "environmentVariables": [
-        {
-          "name": "DATABASE_URL",
-          "description": "Postgres connection string, used when no positional URL is given.",
-          "isRequired": false,
-          "isSecret": true
-        }
-      ]
     }
   ]
 }
