@@ -28,6 +28,9 @@ jobs:
     name: build-${{ matrix.vendor }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container != '' && matrix.container || null }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
