@@ -775,7 +775,9 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
 
     let tools = Arc::new(RouterBackend { router });
 
-    let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
+    let mut handler = McpHandler::new(tools)
+        .with_prompts(Arc::new(StaticPromptBackend))
+        .with_server_title("NexQL Postgres MCP");
 
     if let Some(store) = session.index_store.clone() {
         handler = handler

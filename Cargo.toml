@@ -24,7 +24,7 @@ license = "GPL-3.0-only"
 repository = "https://github.com/NexQL-OSS/mcp"
 homepage = "https://github.com/NexQL-OSS/mcp"
 readme = "README.md"
-keywords = ["postgres", "mcp", "ai", "llm", "database"]
+keywords = ["postgres", "mcp", "sql", "llm", "database"]
 categories = ["database", "command-line-utilities"]
 rust-version = "1.88"
 

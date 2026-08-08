@@ -3,6 +3,17 @@
   "mcpName": "io.github.NexQL-OSS/nexql-mcp",
   "version": "0.2.4",
   "description": "Standalone Postgres MCP server \u2014 npx shim (binaries ship in optionalDependencies)",
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "sql",
+    "mcp",
+    "model-context-protocol",
+    "database",
+    "schema",
+    "query",
+    "agent"
+  ],
   "license": "GPL-3.0-only",
   "repository": "github:NexQL-OSS/mcp",
   "bin": {
