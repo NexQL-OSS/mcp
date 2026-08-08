@@ -367,6 +367,16 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             ]),
         },
         ToolSpec {
+            name: ToolName::Orient,
+            description: "One-call schema bootstrap digest: tables (columns, PK, row estimate), FK join edges (declared vs inferred), enum-like low-cardinality text columns, and degradation notes. Call this FIRST on an unfamiliar database — before search_schema, describe_object, or get_join_path — to build context in a single low-token round trip instead of many.",
+            input_schema: object_schema(&[(
+                "focus",
+                "string",
+                false,
+                "Substring to filter tables/joins by ref (e.g. \"orders\"). Omit to summarize the whole indexed schema.",
+            )]),
+        },
+        ToolSpec {
             name: ToolName::SearchSchema,
             description: "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Call this FIRST before writing any SQL — do not assume a table exists without finding it here.",
             input_schema: object_schema(&[(
@@ -900,7 +910,7 @@ mod tests {
     #[test]
     fn active_tools_lists_fifty_three() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 53);
+        assert_eq!(specs.len(), 54);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -937,16 +947,16 @@ mod tests {
     #[test]
     fn profile_tools_filtering() {
         let query_specs = tools_for_profile(ToolProfile::Query);
-        assert_eq!(query_specs.len(), 18);
+        assert_eq!(query_specs.len(), 19);
 
         let dba_specs = tools_for_profile(ToolProfile::Dba);
         assert_eq!(dba_specs.len(), 28);
 
         let meta_specs = tools_for_profile(ToolProfile::Meta);
-        assert_eq!(meta_specs.len(), 10);
+        assert_eq!(meta_specs.len(), 11);
 
         let full_specs = tools_for_profile(ToolProfile::Full);
-        assert_eq!(full_specs.len(), 53);
+        assert_eq!(full_specs.len(), 54);
     }
 
     /// Regression guard for Issue 1: every tool parameter must carry a non-empty

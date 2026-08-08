@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
-    IndexStore, PgCatalogDb, QueryPolicyFilter, RefResolution, SearchOptions, build_index,
+    IndexStore, ObjectEntry, PgCatalogDb, QueryPolicyFilter, RefResolution, SearchOptions,
+    build_index,
 };
 use nexql_policy::{
     PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
@@ -260,6 +261,7 @@ impl ToolRouter {
             ToolName::RunMaintenance => self.run_maintenance_tool(&args).await,
             ToolName::TerminateQuery => self.terminate_query_tool(&args).await,
             ToolName::ResolveTarget => self.resolve_target(&args).await,
+            ToolName::Orient => self.orient(&args).await,
             ToolName::DiscoverTools => self.discover_tools(&args).await,
             ToolName::AutoTuneQuery => self.auto_tune_query(&args).await,
             ToolName::CheckDdlSafety => self.check_ddl_safety_tool(&args).await,
@@ -647,6 +649,158 @@ impl ToolRouter {
             "database": winner_candidate.database,
             "confidence": winner_score,
             "evidence": winner_evidence,
+        })))
+    }
+
+    /// Bootstrap digest (Issue 4): tables + FK joins + enum-like columns in one
+    /// call, so orienting on an unfamiliar schema costs one round trip instead
+    /// of the ~10 calls (list_objects, search_schema, find_missing_fks,
+    /// get_join_path ×N, describe_object, sample_values, table_stats, get_ddl…)
+    /// the field report measured. Flat "name:type!" column strings instead of
+    /// per-column objects — cheaper in tokens at the cost of structure the
+    /// caller rarely needs here (full detail is one describe_object away).
+    async fn orient(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        const TABLE_LIMIT: usize = 40;
+        /// Enum-heuristic thresholds: a text/varchar column profiled with a
+        /// small number of distinct values and captured common_values reads
+        /// as an enum-ish status/category column an agent should know the
+        /// vocabulary of before writing an equality filter (see Issue 6).
+        const ENUM_MAX_DISTINCT: f64 = 20.0;
+
+        let focus = args
+            .get("focus")
+            .and_then(|v| v.as_str())
+            .map(str::to_ascii_lowercase);
+        let (connection_id, database) = self.session.active_context().await;
+
+        let Some(store) = self.index_store() else {
+            return Ok(ToolOutcome::ok_json(json!({
+                "database": database,
+                "tables": [],
+                "joins": [],
+                "enums": {},
+                "notes": [NO_INDEX_HINT],
+            })));
+        };
+        let base = store.base_dir(&connection_id, &database);
+        let Some(manifest) = store.read_manifest(&base)? else {
+            return Ok(ToolOutcome::ok_json(json!({
+                "database": database,
+                "tables": [],
+                "joins": [],
+                "enums": {},
+                "notes": [format!(
+                    "No schema index for database \"{database}\" — call the 'rebuild_index' tool to build an index."
+                )],
+            })));
+        };
+
+        let mut entries: Vec<(String, ObjectEntry)> = Vec::new();
+        for shard in &manifest.shards {
+            if let Some(shard_entries) = store.read_shard_entries(&base, &shard.file)? {
+                entries.extend(shard_entries);
+            }
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        if let Some(f) = &focus {
+            entries.retain(|(ref_, _)| ref_.to_ascii_lowercase().contains(f.as_str()));
+        }
+
+        let mut notes: Vec<String> = manifest.stats.warnings.clone();
+        let total = entries.len();
+        if total > TABLE_LIMIT {
+            notes.push(format!(
+                "Showing {TABLE_LIMIT} of {total} objects — pass `focus` to narrow the digest."
+            ));
+            entries.truncate(TABLE_LIMIT);
+        }
+        let shown_refs: std::collections::HashSet<&str> =
+            entries.iter().map(|(r, _)| r.as_str()).collect();
+
+        let mut tables = Vec::with_capacity(entries.len());
+        let mut enums = serde_json::Map::new();
+        for (ref_, entry) in &entries {
+            if entry.excluded == Some(true) {
+                continue;
+            }
+            let pk = entry
+                .primary_key
+                .as_ref()
+                .map(|cols| cols.join(","))
+                .filter(|s| !s.is_empty());
+            let columns = entry
+                .columns
+                .iter()
+                .map(|c| {
+                    let bang = if c.not_null { "!" } else { "" };
+                    format!("{}:{}{bang}", c.name, c.type_name)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            tables.push(json!({
+                "ref": ref_,
+                "kind": entry.kind.as_str(),
+                "rows": format!("~{}", entry.row_estimate.round() as i64),
+                "pk": pk,
+                "columns": columns,
+            }));
+
+            for col in &entry.columns {
+                if col.pii == Some(true) {
+                    continue;
+                }
+                let is_textish = col.type_name.contains("char") || col.type_name.contains("text");
+                let Some(profile) = &col.profile else {
+                    continue;
+                };
+                if !is_textish
+                    || profile.n_distinct <= 0.0
+                    || profile.n_distinct > ENUM_MAX_DISTINCT
+                {
+                    continue;
+                }
+                if let Some(vals) = &profile.common_values
+                    && !vals.is_empty()
+                {
+                    enums.insert(format!("{ref_}.{}", col.name), json!(vals));
+                }
+            }
+        }
+
+        let mut joins = Vec::new();
+        if let Some(graph) = store.read_join_graph(&base, &manifest)? {
+            for edge in &graph.edges {
+                if focus.is_some()
+                    && !(shown_refs.contains(edge.from.as_str())
+                        || shown_refs.contains(edge.to.as_str()))
+                {
+                    continue;
+                }
+                let edge_str = edge
+                    .cols
+                    .iter()
+                    .map(|(from_col, to_col)| {
+                        format!("{}.{from_col} -> {}.{to_col}", edge.from, edge.to)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let inferred = edge.inferred == Some(true);
+                joins.push(json!({
+                    "edge": edge_str,
+                    "declared": !inferred,
+                    "detection": if inferred { "join_graph_inferred" } else { "declared_fk" },
+                    "via": edge.via,
+                    "disabled": edge.disabled == Some(true),
+                }));
+            }
+        }
+
+        Ok(ToolOutcome::ok_json(json!({
+            "database": database,
+            "tables": tables,
+            "joins": joins,
+            "enums": Value::Object(enums),
+            "notes": notes,
         })))
     }
 
@@ -3090,6 +3244,65 @@ mod tests {
         let structured = out.structured.unwrap();
         assert_eq!(structured["status"], "ok");
         assert_eq!(structured["database"], "appdb");
+    }
+
+    /// Issue 4: `orient` should answer "what tables/joins exist" in one call
+    /// from the same fixture that previously needed `list_objects` +
+    /// `search_schema` + `get_join_path` ×N to piece together.
+    #[tokio::test]
+    async fn orient_lists_tables_and_declared_joins() {
+        let router = join_path_router();
+        let out = router.call("orient", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["database"], "appdb");
+
+        let tables = structured["tables"].as_array().unwrap();
+        let refs: Vec<&str> = tables.iter().map(|t| t["ref"].as_str().unwrap()).collect();
+        assert_eq!(
+            refs,
+            vec!["public.customers", "public.order_items", "public.orders"]
+        );
+        let orders = tables.iter().find(|t| t["ref"] == "public.orders").unwrap();
+        assert_eq!(orders["pk"], "id");
+        assert!(orders["columns"].as_str().unwrap().contains("id:integer!"));
+
+        let joins = structured["joins"].as_array().unwrap();
+        assert_eq!(joins.len(), 2);
+        assert!(joins.iter().any(|j| j["edge"]
+            == "public.order_items.order_id -> public.orders.id"
+            && j["declared"] == true));
+    }
+
+    #[tokio::test]
+    async fn orient_focus_narrows_tables_and_joins() {
+        let router = join_path_router();
+        let out = router.call("orient", json!({ "focus": "customers" })).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        let tables = structured["tables"].as_array().unwrap();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0]["ref"], "public.customers");
+        // The orders->customers edge touches a focused table, so it stays.
+        let joins = structured["joins"].as_array().unwrap();
+        assert_eq!(joins.len(), 1);
+        assert!(
+            joins[0]["edge"]
+                .as_str()
+                .unwrap()
+                .contains("public.customers")
+        );
+    }
+
+    #[tokio::test]
+    async fn orient_no_index_returns_notes_not_error() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let out = router.call("orient", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["tables"].as_array().unwrap().len(), 0);
+        assert!(!structured["notes"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

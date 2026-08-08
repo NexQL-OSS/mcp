@@ -42,6 +42,7 @@ impl ToolProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolName {
     ResolveTarget,
+    Orient,
     SearchSchema,
     DescribeObject,
     GetJoinPath,
@@ -118,6 +119,7 @@ impl ToolName {
     /// Index-backed tools (require `nexql-mcp index build` or `rebuild_index`).
     pub const PHASE3: &'static [ToolName] = &[
         Self::ResolveTarget,
+        Self::Orient,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -187,6 +189,7 @@ impl ToolName {
         Self::ExportProfile,
         Self::ImportProfile,
         Self::ResolveTarget,
+        Self::Orient,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -243,6 +246,7 @@ impl ToolName {
         Self::ExportProfile,
         Self::ImportProfile,
         Self::ResolveTarget,
+        Self::Orient,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -284,6 +288,7 @@ impl ToolName {
         Self::RunSelect,
         Self::ExplainQuery,
         Self::ResolveTarget,
+        Self::Orient,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -331,6 +336,7 @@ impl ToolName {
     pub const META_PROFILE: &'static [ToolName] = &[
         Self::ListConnections,
         Self::GetCurrentContext,
+        Self::Orient,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::RunSelect,
@@ -353,6 +359,7 @@ impl ToolName {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ResolveTarget => "resolve_target",
+            Self::Orient => "orient",
             Self::SearchSchema => "search_schema",
             Self::DescribeObject => "describe_object",
             Self::GetJoinPath => "get_join_path",
@@ -461,7 +468,7 @@ mod tests {
 
     #[test]
     fn read_only_is_forty_one_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 43);
+        assert_eq!(ToolName::READ_ONLY.len(), 44);
     }
 
     #[test]
@@ -471,7 +478,7 @@ mod tests {
 
     #[test]
     fn active_surface_is_fifty_one_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 53);
+        assert_eq!(ToolName::ACTIVE.len(), 54);
     }
 
     #[test]
