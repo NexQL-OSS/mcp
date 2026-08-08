@@ -8,6 +8,7 @@
 
 pub mod cell_json;
 pub mod completions;
+pub mod critique;
 pub mod dba_guard;
 pub mod detect;
 pub mod error;

@@ -16,6 +16,7 @@ use nexql_policy::{
 use serde_json::{Value, json};
 
 use crate::cell_json::{columnarize_read_payload, redact_pii_in_payload, rows_to_json_array};
+use crate::critique;
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
 use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
@@ -1812,11 +1813,98 @@ impl ToolRouter {
         }
         enforce_read_table_policy(&self.session.filter(), sql)?;
         let trimmed = sql.trim().to_ascii_lowercase();
-        if trimmed.starts_with("explain") {
-            return self.run_select_internal(sql, None, true).await;
+        let outcome = if trimmed.starts_with("explain") {
+            self.run_select_internal(sql, None, true).await?
+        } else {
+            let max_rows = self.session.caps().max_rows;
+            self.run_select_internal(sql, Some(max_rows), true).await?
+        };
+        Ok(self.attach_critique(sql, outcome).await)
+    }
+
+    /// Issue 6: attach a `critique` array to the response when a cheap
+    /// heuristic fires — converting a silent plausible-but-wrong result into
+    /// a self-correcting one. Best-effort only: any failure here (parse
+    /// error, no index, ambiguous table) just means no critique, never a
+    /// tool error — this must never break a successful query result.
+    async fn attach_critique(&self, sql: &str, mut outcome: ToolOutcome) -> ToolOutcome {
+        if outcome.is_error {
+            return outcome;
         }
-        let max_rows = self.session.caps().max_rows;
-        self.run_select_internal(sql, Some(max_rows), true).await
+        let Some(structured) = outcome.structured.as_ref() else {
+            return outcome;
+        };
+        if structured.get("truncated_chars").is_some() {
+            // Payload already had to be cut for size — not worth the extra
+            // data-access round trip for a critique on top of that.
+            return outcome;
+        }
+        let Some(row_count) = structured
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .map(Vec::len)
+        else {
+            return outcome;
+        };
+
+        let mut critique = Vec::new();
+        if let Some(item) = critique::limit_without_order_by(sql) {
+            critique.push(item.to_json());
+        }
+        if row_count == 0
+            && let Some((col, val)) = critique::simple_equality_filter(sql)
+            && let Ok(tables) = select_table_refs(sql)
+            && let [table] = tables.as_slice()
+            && let Some(values) = self.sample_values_best_effort(table, &col).await
+        {
+            let sample = values
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            critique.push(json!({
+                "signal": "zero_rows",
+                "message": format!(
+                    "no rows: {col} = '{val}'; observed values include: {sample}"
+                ),
+            }));
+        }
+
+        if critique.is_empty() {
+            return outcome;
+        }
+        if let Some(obj) = outcome.structured.as_mut().and_then(|v| v.as_object_mut()) {
+            obj.insert("critique".into(), json!(critique));
+        }
+        if let Some(structured) = &outcome.structured
+            && let Ok(text) = serde_json::to_string(structured)
+        {
+            outcome.text = text;
+        }
+        outcome
+    }
+
+    /// Index-backed sample values for the zero-rows critique. `None` on any
+    /// miss (no index, object/column not profiled) — this is advisory only.
+    async fn sample_values_best_effort(
+        &self,
+        table: &nexql_policy::ObjectRef,
+        col: &str,
+    ) -> Option<Vec<String>> {
+        let store = self.index_store()?;
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        store.read_manifest(&base).ok()??;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let ref_ = format!("{}.{}", table.schema, table.name);
+        let filter = self.query_filter();
+        let result = svc.sample_values(&ref_, col, Some(&filter), None).ok()?;
+        if result.values.is_empty() {
+            None
+        } else {
+            Some(result.values)
+        }
     }
 
     async fn explain_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -3138,8 +3226,29 @@ mod tests {
                 constraint: None,
             }
         }
+        // `orders.status` carries a profiled column with common_values, mirroring
+        // the report's fixture — used by the zero-rows critique test below.
+        let mut orders = entry(1);
+        orders.columns.push(nexql_index::ColumnEntry {
+            name: "status".into(),
+            type_name: "text".into(),
+            not_null: true,
+            default_value: None,
+            comment: None,
+            ordinal: 2,
+            is_pk: None,
+            profile: Some(nexql_index::ColumnProfile {
+                n_distinct: 2.0,
+                null_frac: 0.0,
+                common_values: Some(vec!["pending".into(), "paid".into()]),
+                min: None,
+                max: None,
+            }),
+            pii: None,
+        });
+
         let mut shard = HashMap::new();
-        shard.insert("public.orders".into(), entry(1));
+        shard.insert("public.orders".into(), orders);
         shard.insert("public.customers".into(), entry(2));
         shard.insert("public.order_items".into(), entry(3));
         store
@@ -3180,6 +3289,76 @@ mod tests {
             Some(IndexStore::new(store.root())),
         );
         ToolRouter::with_index_store(session, Some(store))
+    }
+
+    /// Issue 6: `LIMIT` without `ORDER BY` should attach a critique even
+    /// when rows came back (it's about determinism, not emptiness).
+    #[tokio::test]
+    async fn attach_critique_flags_limit_without_order_by() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["n"], "rows": [[1]] }));
+        let out = router
+            .attach_critique("SELECT * FROM orders LIMIT 10", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        let critique = structured["critique"].as_array().unwrap();
+        assert!(
+            critique
+                .iter()
+                .any(|c| c["signal"] == "limit_without_order_by")
+        );
+    }
+
+    #[tokio::test]
+    async fn attach_critique_silent_when_nothing_fires() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["n"], "rows": [[1]] }));
+        let out = router
+            .attach_critique("SELECT * FROM orders ORDER BY id LIMIT 10", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(structured.get("critique").is_none());
+    }
+
+    /// Regression test for the report's headline Issue 6 example: zero rows
+    /// from `status = 'complete'` should surface the actually-observed
+    /// values instead of leaving a silent wrong answer.
+    #[tokio::test]
+    async fn attach_critique_zero_rows_suggests_observed_values() {
+        let router = join_path_router();
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["id"], "rows": [] }));
+        let out = router
+            .attach_critique(
+                "SELECT * FROM public.orders WHERE status = 'complete'",
+                outcome,
+            )
+            .await;
+        let structured = out.structured.unwrap();
+        let critique = structured["critique"].as_array().unwrap();
+        let zero_rows = critique
+            .iter()
+            .find(|c| c["signal"] == "zero_rows")
+            .expect("zero_rows critique");
+        let msg = zero_rows["message"].as_str().unwrap();
+        assert!(msg.contains("status = 'complete'"), "{msg}");
+        assert!(msg.contains("pending") && msg.contains("paid"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn attach_critique_zero_rows_silent_without_index() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["id"], "rows": [] }));
+        let out = router
+            .attach_critique(
+                "SELECT * FROM public.orders WHERE status = 'complete'",
+                outcome,
+            )
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(structured.get("critique").is_none());
     }
 
     /// Regression test for Issue 2: unqualified names that are directly
