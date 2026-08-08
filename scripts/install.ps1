@@ -31,7 +31,7 @@ function Resolve-Tag {
 function Ensure-UserPath([string]$Directory) {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($null -eq $userPath) { $userPath = "" }
-  $segments = $userPath -split ";" | Where-Object { $_ -and ($_ -ne $Directory) }
+    $segments = $userPath -split ";" | Where-Object { $_ -and ($_ -ne $Directory) }
     $newPath = (@($Directory) + $segments) -join ";"
     if ($userPath -ne $newPath) {
         [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
@@ -58,7 +58,8 @@ try {
     Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing
 
     tar -xzf $archivePath -C $tempDir
-    $sourceBinary = Join-Path $tempDir $stage "nexql-mcp.exe"
+    # Join-Path takes only two args in Windows PowerShell 5.1 (default on Windows).
+    $sourceBinary = Join-Path (Join-Path $tempDir $stage) "nexql-mcp.exe"
     if (-not (Test-Path $sourceBinary)) {
         throw "archive did not contain $stage/nexql-mcp.exe"
     }
