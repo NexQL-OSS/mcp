@@ -347,6 +347,39 @@ impl ToolRouter {
 
     /// Autonomously resolve which connection/database matches a free-text `hint` and/or
     /// `objectHint`, then switch the session context to it.
+    async fn live_databases_by_connection(
+        &self,
+    ) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+        use std::collections::HashMap;
+        let mut map = HashMap::new();
+        for conn in self.session.connections() {
+            if let Ok(names) = self.list_database_names_for(&conn).await {
+                map.insert(conn.id.clone(), names.into_iter().collect());
+            }
+        }
+        map
+    }
+
+    async fn list_database_names_for(
+        &self,
+        conn: &crate::session::ConnectionInfo,
+    ) -> Result<Vec<String>, ToolError> {
+        let client = if self.session.active_context().await.0 == conn.id {
+            self.session.checkout().await?
+        } else {
+            let pool_opts = self.session.pool_opts();
+            let pool = nexql_conn::create_pool(&conn.params, &pool_opts).await?;
+            nexql_conn::checkout_guarded(&pool, &pool_opts).await?
+        };
+        let rows = client
+            .query(
+                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+                &[],
+            )
+            .await?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
     async fn resolve_target(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         let hint = args
             .get("hint")
@@ -383,6 +416,8 @@ impl ToolRouter {
             .map(|store| store.list_indexed_databases().unwrap_or_default())
             .unwrap_or_default();
 
+        let live_dbs = self.live_databases_by_connection().await;
+
         let mut seen = std::collections::HashSet::new();
         let mut candidates: Vec<Candidate> = Vec::new();
         let mut add_candidate = |connection_id: &str, database: &str| {
@@ -399,11 +434,23 @@ impl ToolRouter {
             });
         };
         for (cid, db) in &indexed {
-            add_candidate(cid, db);
+            if let Some(set) = live_dbs.get(cid) {
+                if set.contains(db) {
+                    add_candidate(cid, db);
+                } else if let Some(store) = self.index_store() {
+                    let _ = store.clear_index(cid, db);
+                }
+            }
         }
         for c in &connections {
-            let db = c.database.clone().unwrap_or_else(|| "postgres".into());
-            add_candidate(&c.id, &db);
+            if let Some(dbs) = live_dbs.get(&c.id) {
+                for db in dbs {
+                    add_candidate(&c.id, db);
+                }
+            } else {
+                let db = c.database.clone().unwrap_or_else(|| "postgres".into());
+                add_candidate(&c.id, &db);
+            }
         }
 
         let mut scored: std::collections::HashMap<String, (Candidate, f64, Vec<String>)> =

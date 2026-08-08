@@ -31,6 +31,52 @@ Layering is one-directional: `policy` + `conn` are leaves → `index` → `tools
 
 Pick whichever fits your workflow — all methods ship the same binary.
 
+### Quick install (Linux / macOS / Windows)
+
+**Linux & macOS** — downloads the latest release, installs to `/usr/local/bin` (or `~/.local/bin` if sudo is unavailable), then prints setup steps:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash
+```
+
+Pin a version:
+
+```bash
+NEXQL_MCP_VERSION=v0.2.1 curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash
+```
+
+**Windows** (PowerShell) — installs to `%LOCALAPPDATA%\Programs\nexql-mcp` and adds it to your user `PATH`:
+
+```powershell
+irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | iex
+```
+
+Pin a version:
+
+```powershell
+$env:NEXQL_MCP_VERSION = "v0.2.1"; irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | iex
+```
+
+Or download and run the scripts locally: [`scripts/install.sh`](scripts/install.sh) · [`scripts/install.ps1`](scripts/install.ps1).
+
+#### After install
+
+```bash
+# 1. Verify
+nexql-mcp --version
+
+# 2. Test a Postgres connection
+nexql-mcp postgres://dev@localhost:5432/appdb doctor
+
+# 3. Wire your MCP client (or run the guided wizard)
+nexql-mcp init cursor          # Cursor
+nexql-mcp init claude-desktop  # Claude Desktop
+nexql-mcp init vscode-copilot  # VS Code Copilot
+nexql-mcp tui                  # interactive profile + client wiring
+```
+
+Per-client config paths and paste blocks: [docs/clients/README.md](docs/clients/README.md).
+
 ### npm / npx
 
 ```bash
@@ -53,25 +99,19 @@ sudo apt install clang libclang-dev   # Debian/Ubuntu
 sudo pacman -S clang                  # Arch
 ```
 
-### curl (prebuilt binary, no npm/cargo)
+### Manual download
 
-```bash
-TAG=$(curl -fsSL https://api.github.com/repos/NexQL-OSS/mcp/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)   TRIPLE=x86_64-unknown-linux-gnu ;;
-  Linux-aarch64)  TRIPLE=aarch64-unknown-linux-gnu ;;
-  Darwin-x86_64)  TRIPLE=x86_64-apple-darwin ;;
-  Darwin-arm64)   TRIPLE=aarch64-apple-darwin ;;
-  *) echo "no prebuilt binary for this platform — see the Releases page" >&2; exit 1 ;;
-esac
-curl -fsSL -o /tmp/nexql-mcp.tar.gz \
-  "https://github.com/NexQL-OSS/mcp/releases/download/${TAG}/nexql-mcp-${TAG}-${TRIPLE}.tar.gz"
-tar -xzf /tmp/nexql-mcp.tar.gz -C /tmp
-sudo install -m 0755 "/tmp/nexql-mcp-${TAG}-${TRIPLE}/nexql-mcp" /usr/local/bin/nexql-mcp
-nexql-mcp --version
-```
+Prefer the [quick install](#quick-install-linux--macos--windows) scripts above. To install by hand, grab the archive for your platform from the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest):
 
-Windows: grab `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` from the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest) and extract manually.
+| Platform | Archive |
+|----------|---------|
+| Linux x64 | `nexql-mcp-<tag>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `nexql-mcp-<tag>-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Intel | `nexql-mcp-<tag>-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | `nexql-mcp-<tag>-aarch64-apple-darwin.tar.gz` |
+| Windows x64 | `nexql-mcp-<tag>-x86_64-pc-windows-msvc.tar.gz` |
+
+Extract and put `nexql-mcp` (or `nexql-mcp.exe`) on your `PATH`, then follow [After install](#after-install) above.
 
 ### Docker
 
@@ -100,7 +140,7 @@ to install into Claude Desktop. Built from [`mcpb/manifest.json`](mcpb/manifest.
 
 No published tap yet — each release renders a formula (`Formula/nexql-mcp.rb`, via
 [`scripts/render-homebrew-formula.sh`](scripts/render-homebrew-formula.sh)) and attaches it as a release
-asset for a future `homebrew-tap` repo to pick up. Until that tap exists, use the curl or cargo methods
+asset for a future `homebrew-tap` repo to pick up. Until that tap exists, use the [quick install](#quick-install-linux--macos--windows) or cargo methods
 above.
 
 ### MCP Registry
