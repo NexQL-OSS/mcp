@@ -37,9 +37,10 @@ publish-pypi:
     fail-fast: false
     matrix:
       include:
-        - runner: ubuntu-latest
+        - runner: ubuntu-22.04
           triple: x86_64-unknown-linux-gnu
         - runner: ubuntu-24.04-arm
+          container: ubuntu:22.04
           triple: aarch64-unknown-linux-gnu
         - runner: macos-14
           triple: x86_64-apple-darwin

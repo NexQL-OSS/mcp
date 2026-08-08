@@ -1,20 +1,22 @@
 {
   "name": "nexql-mcp",
-  "version": "0.2.1",
-  "description": "Standalone Postgres MCP server — npx shim (binaries ship in optionalDependencies)",
+  "version": "0.2.2",
+  "description": "Standalone Postgres MCP server \u2014 npx shim (binaries ship in optionalDependencies)",
   "license": "GPL-3.0-only",
   "repository": "github:NexQL-OSS/mcp",
   "bin": {
     "nexql-mcp": "bin/nexql-mcp.js"
   },
   "optionalDependencies": {
-    "@nexql/mcp-darwin-arm64": "0.2.1",
-    "@nexql/mcp-darwin-x64": "0.2.1",
-    "@nexql/mcp-linux-arm64": "0.2.1",
-    "@nexql/mcp-linux-x64": "0.2.1",
-    "@nexql/mcp-win32-x64": "0.2.1"
+    "@nexql/mcp-darwin-arm64": "0.2.2",
+    "@nexql/mcp-darwin-x64": "0.2.2",
+    "@nexql/mcp-linux-arm64": "0.2.2",
+    "@nexql/mcp-linux-x64": "0.2.2",
+    "@nexql/mcp-win32-x64": "0.2.2"
   },
-  "files": ["bin"],
+  "files": [
+    "bin"
+  ],
   "engines": {
     "node": ">=18"
   }

@@ -31,6 +31,8 @@ Layering is one-directional: `policy` + `conn` are leaves → `index` → `tools
 
 Pick whichever fits your workflow — all methods ship the same binary.
 
+**Linux system requirements:** prebuilt GNU/Linux binaries target **glibc 2.35+** (Ubuntu 22.04, Debian 12, RHEL 9, and newer). Releases from v0.2.1 and earlier were built on Ubuntu 24.04 and require glibc 2.39 — if `npm install nexql-mcp` fails with `GLIBC_2.39 not found`, upgrade to the next release, use [`cargo install`](#cargo-cratesio) (builds from source), or run the [Docker image](#docker). Musl/static Linux builds are not published yet.
+
 ### Quick install (Linux / macOS / Windows)
 
 **Linux & macOS** — downloads the latest release, installs to `/usr/local/bin` (or `~/.local/bin` if sudo is unavailable), then prints setup steps:
@@ -42,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.
 Pin a version:
 
 ```bash
-NEXQL_MCP_VERSION=v0.2.1 curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash
+NEXQL_MCP_VERSION=v0.2.2 curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash
 ```
 
 **Windows** (PowerShell) — installs to `%LOCALAPPDATA%\Programs\nexql-mcp` and adds it to your user `PATH`:
@@ -54,7 +56,7 @@ irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | i
 Pin a version:
 
 ```powershell
-$env:NEXQL_MCP_VERSION = "v0.2.1"; irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | iex
+$env:NEXQL_MCP_VERSION = "v0.2.2"; irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | iex
 ```
 
 Or download and run the scripts locally: [`scripts/install.sh`](scripts/install.sh) · [`scripts/install.ps1`](scripts/install.ps1).
@@ -116,7 +118,7 @@ uvx nexql-mcp postgres://dev@localhost:5432/appdb doctor
 Pin a version:
 
 ```bash
-uv tool install 'nexql-mcp==0.2.1'
+uv tool install 'nexql-mcp==0.2.2'
 ```
 
 Upgrade later:
@@ -161,15 +163,15 @@ Extract and put `nexql-mcp` (or `nexql-mcp.exe`) on your `PATH`, then follow [Af
 Prebuilt, published on every release to [GHCR](https://github.com/NexQL-OSS/mcp/pkgs/container/mcp):
 
 ```bash
-docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.1 postgres://dev@host.docker.internal:5432/appdb
+docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.2 postgres://dev@host.docker.internal:5432/appdb
 # or: ghcr.io/nexql-oss/mcp:latest
 ```
 
 Or build locally from the distroless `Dockerfile`:
 
 ```bash
-docker build -t nexql-mcp:0.2.1 .
-docker run --rm -i nexql-mcp:0.2.1 postgres://dev@host.docker.internal:5432/appdb
+docker build -t nexql-mcp:0.2.2 .
+docker run --rm -i nexql-mcp:0.2.2 postgres://dev@host.docker.internal:5432/appdb
 ```
 
 ### Claude Desktop (MCPB one-click bundle)
@@ -279,7 +281,7 @@ darwin arm64/x64, linux gnu arm64/x64, and windows x64; attaches archives, per-p
 a CycloneDX SBOM, and a rendered Homebrew formula to a GitHub release; publishes the npm packages and
 GHCR image; and publishes the workspace crates to crates.io in dependency order. A follow-up workflow
 ([`publish-mcp-registry.yml`](.github/workflows/publish-mcp-registry.yml)) then lists the release on the
-MCP Registry via GitHub OIDC. Musl targets deferred until a clang-enabled musl builder is validated.
+MCP Registry via GitHub OIDC. Linux GNU binaries are built on Ubuntu 22.04 (glibc 2.35). Musl targets remain deferred until a clang-enabled musl builder is validated.
 
 ## Development
 

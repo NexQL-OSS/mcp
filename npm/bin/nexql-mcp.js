@@ -104,6 +104,19 @@ function main() {
   });
 
   if (result.error) {
+    if (process.platform === 'linux') {
+      const probe = spawnSync(binaryPath, ['--version'], { encoding: 'utf8' });
+      const probeMsg = `${probe.stderr || ''}${probe.stdout || ''}${result.error.message || ''}`;
+      if (/GLIBC_/i.test(probeMsg)) {
+        console.error(
+          'nexql-mcp: prebuilt binary is incompatible with this system glibc.\n' +
+            '  cargo install nexql-mcp\n' +
+            '  docker run --rm -i ghcr.io/nexql-oss/mcp:latest --version\n' +
+            '  # or upgrade to Ubuntu 22.04+ / Debian 12+',
+        );
+        process.exit(1);
+      }
+    }
     console.error(`nexql-mcp: failed to spawn ${binaryPath}: ${result.error.message}`);
     process.exit(1);
   }

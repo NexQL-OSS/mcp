@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.nexql-oss/nexql-mcp",
-  "description": "Standalone Postgres MCP server — schema-aware, read-only by default, installable everywhere.",
+  "description": "Standalone Postgres MCP server \u2014 schema-aware, read-only by default, installable everywhere.",
   "title": "NexQL Postgres MCP",
   "websiteUrl": "https://github.com/NexQL-OSS/mcp",
   "repository": {
     "url": "https://github.com/NexQL-OSS/mcp",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "nexql-mcp",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -45,7 +45,7 @@
       "registryType": "cargo",
       "registryBaseUrl": "https://crates.io",
       "identifier": "nexql-mcp",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "transport": {
         "type": "stdio"
       },
@@ -75,7 +75,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "nexql-mcp",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
@@ -104,7 +104,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/nexql-oss/mcp:0.2.1",
+      "identifier": "ghcr.io/nexql-oss/mcp:0.2.2",
       "transport": {
         "type": "stdio"
       },

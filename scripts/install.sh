@@ -18,6 +18,40 @@ info() { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# Return 0 when $1 > $2 (strictly greater).
+ver_gt() {
+  local a="$1" b="$2"
+  [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -1)" == "$a" && "$a" != "$b" ]]
+}
+
+check_linux_glibc_compat() {
+  local bin="$1"
+  [[ "$(uname -s)" == "Linux" ]] || return 0
+  command -v objdump >/dev/null 2>&1 || return 0
+  command -v ldd >/dev/null 2>&1 || return 0
+
+  local max_required system_glibc
+  max_required="$(
+    objdump -T "$bin" 2>/dev/null \
+      | sed -n 's/.*GLIBC_\([0-9.]*\).*/\1/p' \
+      | sort -V \
+      | tail -1
+  )"
+  [[ -n "$max_required" ]] || return 0
+
+  system_glibc="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  [[ -n "$system_glibc" ]] || return 0
+
+  if ver_gt "$max_required" "$system_glibc"; then
+    die "prebuilt binary requires GLIBC ${max_required} but this system has ${system_glibc}.
+
+Fixes:
+  - cargo install nexql-mcp          # build from source (needs clang)
+  - docker run ghcr.io/nexql-oss/mcp # self-contained image
+  - upgrade to a distro with glibc >= ${max_required} (e.g. Ubuntu 22.04+)"
+  fi
+}
+
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
@@ -91,6 +125,8 @@ install_binary() {
   stage_dir="${tmpdir}/${stage}"
   bin="${stage_dir}/nexql-mcp"
   [[ -f "$bin" ]] || die "archive did not contain ${stage}/nexql-mcp"
+
+  check_linux_glibc_compat "$bin"
 
   mkdir -p "$dest"
   if [[ "$dest" == "/usr/local/bin" ]] && [[ ! -w "$dest" ]]; then

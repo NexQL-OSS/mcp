@@ -27,32 +27,40 @@ jobs:
     needs: verify
     name: build-${{ matrix.vendor }}
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container != '' && matrix.container || null }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Build Linux binaries against glibc 2.35 (Ubuntu 22.04) so prebuilts
+          # run on Debian 12 / Ubuntu 22.04 / RHEL 9 — not only 24.04+ hosts.
           - vendor: linux-x64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
+            container: ""
             triple: x86_64-unknown-linux-gnu
             bin: nexql-mcp
             npm_pkg: mcp-linux-x64
           - vendor: linux-arm64
             runner: ubuntu-24.04-arm
+            container: ubuntu:22.04
             triple: aarch64-unknown-linux-gnu
             bin: nexql-mcp
             npm_pkg: mcp-linux-arm64
           - vendor: darwin-x64
             runner: macos-14
+            container: ""
             triple: x86_64-apple-darwin
             bin: nexql-mcp
             npm_pkg: mcp-darwin-x64
           - vendor: darwin-arm64
             runner: macos-latest
+            container: ""
             triple: aarch64-apple-darwin
             bin: nexql-mcp
             npm_pkg: mcp-darwin-arm64
           - vendor: win32-x64
             runner: windows-latest
+            container: ""
             triple: x86_64-pc-windows-msvc
             bin: nexql-mcp.exe
             npm_pkg: mcp-win32-x64
@@ -67,13 +75,28 @@ jobs:
 
       - name: Install clang (Linux pg_query bindgen)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        run: |
+          set -euo pipefail
+          if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev binutils
+          else
+            apt-get update
+            apt-get install -y clang libclang-dev binutils
+          fi
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary (--locked)
         run: cargo build --release --locked -p nexql-mcp --target ${{ matrix.triple }}
+
+      - name: Verify Linux glibc portability
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/verify-glibc.sh
+          ./scripts/verify-glibc.sh "target/${{ matrix.triple }}/release/${{ matrix.bin }}"
 
       - name: Package dist + vendor archives
         shell: bash

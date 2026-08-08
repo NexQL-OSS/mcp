@@ -123,6 +123,26 @@ jobs:
           DATABASE_URL: postgres://nexql:nexqlpassword@127.0.0.1:5432/postgres
         run: ./scripts/local_mcp_smoke.sh
 
+  linux-portability:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install clang (pg_query bindgen)
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev binutils
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release --locked -p nexql-mcp
+      - name: Verify glibc portability
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/verify-glibc.sh
+          ./scripts/verify-glibc.sh target/release/nexql-mcp
+      - name: Smoke run
+        run: ./target/release/nexql-mcp --version
+
   perf:
     runs-on: ubuntu-latest
     steps:
