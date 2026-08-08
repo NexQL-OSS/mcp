@@ -68,13 +68,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ubuntu:22.04 container image is minimal — no curl/git/clang until bootstrapped.
+      - name: Bootstrap container build deps
+        if: matrix.container != ''
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git pkg-config \
+            build-essential clang libclang-dev binutils
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.triple }}
 
       - name: Install clang (Linux pg_query bindgen)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.container == ''
         run: |
           set -euo pipefail
           if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
