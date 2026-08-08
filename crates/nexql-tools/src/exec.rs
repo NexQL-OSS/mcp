@@ -347,7 +347,58 @@ impl ToolRouter {
             .get("dry_run")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        execute_sql(&self.session, sql, dry_run).await
+        let outcome = execute_sql(&self.session, sql, dry_run).await?;
+        Ok(self.attach_dml_critique(sql, outcome).await)
+    }
+
+    /// Issue 6 (full scope, DML): the same "filter matched nothing, here's
+    /// what the column actually contains" critique as `attach_critique`'s
+    /// zero-rows signal, keyed off `rows_affected` instead of an empty
+    /// `rows` array — `UPDATE orders SET ... WHERE status = 'complete'`
+    /// touching 0 rows is exactly as silently-wrong as the equivalent SELECT.
+    async fn attach_dml_critique(&self, sql: &str, mut outcome: ToolOutcome) -> ToolOutcome {
+        if outcome.is_error {
+            return outcome;
+        }
+        let Some(structured) = outcome.structured.as_ref() else {
+            return outcome;
+        };
+        if structured.get("rows_affected").and_then(Value::as_u64) != Some(0) {
+            return outcome;
+        }
+        let Some((table, col, val)) = critique::dml_equality_filter(sql) else {
+            return outcome;
+        };
+        let Some((schema, name)) = table.split_once('.') else {
+            return outcome;
+        };
+        let table_ref = nexql_policy::ObjectRef::new(schema, name);
+        let Some(values) = self.sample_values_best_effort(&table_ref, &col).await else {
+            return outcome;
+        };
+        let sample = values
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if let Some(obj) = outcome.structured.as_mut().and_then(|v| v.as_object_mut()) {
+            obj.insert(
+                "critique".into(),
+                json!([{
+                    "signal": "zero_rows",
+                    "message": format!(
+                        "0 rows affected: {col} = '{val}'; observed values include: {sample}"
+                    ),
+                }]),
+            );
+        }
+        if let Some(structured) = &outcome.structured
+            && let Ok(text) = serde_json::to_string(structured)
+        {
+            outcome.text = text;
+        }
+        outcome
     }
 
     async fn edit_row_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1869,6 +1920,15 @@ impl ToolRouter {
     /// a self-correcting one. Best-effort only: any failure here (parse
     /// error, no index, ambiguous table) just means no critique, never a
     /// tool error — this must never break a successful query result.
+    /// Fan-out threshold: output rows more than this many times the largest
+    /// referenced table's estimated size reads as a probable missing join
+    /// key rather than a genuine result.
+    const FAN_OUT_MULTIPLIER: f64 = 2.0;
+    /// Seq-scan gate: only pay for the extra EXPLAIN round-trip when a
+    /// referenced table's index row estimate already clears this bar — small
+    /// schemas (the common case) never pay it.
+    const SEQ_SCAN_ROW_THRESHOLD: f64 = 100_000.0;
+
     async fn attach_critique(&self, sql: &str, mut outcome: ToolOutcome) -> ToolOutcome {
         if outcome.is_error {
             return outcome;
@@ -1888,6 +1948,7 @@ impl ToolRouter {
         else {
             return outcome;
         };
+        let tables = select_table_refs(sql).unwrap_or_default();
 
         let mut critique = Vec::new();
         if let Some(item) = critique::limit_without_order_by(sql) {
@@ -1895,7 +1956,6 @@ impl ToolRouter {
         }
         if row_count == 0
             && let Some((col, val)) = critique::simple_equality_filter(sql)
-            && let Ok(tables) = select_table_refs(sql)
             && let [table] = tables.as_slice()
             && let Some(values) = self.sample_values_best_effort(table, &col).await
         {
@@ -1911,6 +1971,47 @@ impl ToolRouter {
                     "no rows: {col} = '{val}'; observed values include: {sample}"
                 ),
             }));
+        }
+        if let Some((func, col)) = critique::null_skipping_aggregate(sql)
+            && let [table] = tables.as_slice()
+            && let Some((null_frac, row_estimate)) =
+                self.column_null_frac_best_effort(table, &col).await
+            && null_frac > 0.0
+        {
+            let skipped = (null_frac * row_estimate).round() as i64;
+            critique.push(json!({
+                "signal": "null_skipping_aggregate",
+                "message": format!(
+                    "{}({col}) skips an estimated {skipped} NULL row(s) (~{:.0}% of {}.{col}) — intended?",
+                    func.to_ascii_uppercase(), null_frac * 100.0, table.name
+                ),
+            }));
+        }
+        let max_table_rows = self.max_table_row_estimate_best_effort(&tables).await;
+        if row_count > 0
+            && let Some(max_rows) = max_table_rows
+            && max_rows > 0.0
+            && (row_count as f64) > Self::FAN_OUT_MULTIPLIER * max_rows
+        {
+            let ratio = row_count as f64 / max_rows;
+            critique.push(json!({
+                "signal": "join_fan_out",
+                "message": format!(
+                    "output rows ({row_count}) are {ratio:.1}x the largest referenced table's estimated size ({max_rows:.0}) — possible missing join key or unintended many-to-many join."
+                ),
+            }));
+        }
+        if let Some(max_rows) = max_table_rows
+            && max_rows > Self::SEQ_SCAN_ROW_THRESHOLD
+        {
+            for (relation, plan_rows) in self.large_seq_scans_best_effort(sql).await {
+                critique.push(json!({
+                    "signal": "seq_scan_large_table",
+                    "message": format!(
+                        "seq scan on {relation} (est. {plan_rows:.0} rows) — consider an index on the filtered/joined column(s)."
+                    ),
+                }));
+            }
         }
 
         if critique.is_empty() {
@@ -1947,6 +2048,75 @@ impl ToolRouter {
         } else {
             Some(result.values)
         }
+    }
+
+    /// Index-backed `(null_frac, row_estimate)` for a single profiled column
+    /// — feeds the null-skipping-aggregate critique. `None` on any miss.
+    async fn column_null_frac_best_effort(
+        &self,
+        table: &nexql_policy::ObjectRef,
+        col: &str,
+    ) -> Option<(f64, f64)> {
+        let store = self.index_store()?;
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        let manifest = store.read_manifest(&base).ok()??;
+        let entry = store
+            .get_object_entry(&base, &manifest, &table.schema, &table.name)
+            .ok()??;
+        let profile = entry
+            .columns
+            .iter()
+            .find(|c| c.name == col)?
+            .profile
+            .as_ref()?;
+        Some((profile.null_frac, entry.row_estimate))
+    }
+
+    /// Largest index row estimate across every table `sql` references — the
+    /// free (no query) check that gates both the fan-out and seq-scan
+    /// critiques. `None` when no index / no profiled tables among the refs.
+    async fn max_table_row_estimate_best_effort(
+        &self,
+        tables: &[nexql_policy::ObjectRef],
+    ) -> Option<f64> {
+        let store = self.index_store()?;
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        let manifest = store.read_manifest(&base).ok()??;
+        tables
+            .iter()
+            .filter_map(|t| {
+                store
+                    .get_object_entry(&base, &manifest, &t.schema, &t.name)
+                    .ok()
+                    .flatten()
+                    .map(|e| e.row_estimate)
+            })
+            .fold(None, |max, v| Some(max.map_or(v, |m: f64| m.max(v))))
+    }
+
+    /// Runs a planner-only `EXPLAIN (FORMAT JSON)` (no `ANALYZE` — never
+    /// executes the query a second time) and returns large `Seq Scan` nodes.
+    /// Only called once the free row-estimate gate has already cleared —
+    /// this is the one critique heuristic with a real extra round-trip cost.
+    async fn large_seq_scans_best_effort(&self, sql: &str) -> Vec<(String, f64)> {
+        let explain = build_explain_sql(sql, false);
+        let Ok(outcome) = self.run_explain_in_transaction(&explain).await else {
+            return Vec::new();
+        };
+        let Some(structured) = outcome.structured else {
+            return Vec::new();
+        };
+        let Some(plan) = structured
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|r| r.get("QUERY PLAN"))
+        else {
+            return Vec::new();
+        };
+        critique::large_seq_scans(plan, Self::SEQ_SCAN_ROW_THRESHOLD)
     }
 
     async fn explain_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -3305,6 +3475,25 @@ mod tests {
             }),
             pii: None,
         });
+        // `orders.amount` is nullable with a profiled null_frac — used by the
+        // null-skipping-aggregate critique test below.
+        orders.columns.push(nexql_index::ColumnEntry {
+            name: "amount".into(),
+            type_name: "numeric".into(),
+            not_null: false,
+            default_value: None,
+            comment: None,
+            ordinal: 3,
+            is_pk: None,
+            profile: Some(nexql_index::ColumnProfile {
+                n_distinct: 8.0,
+                null_frac: 0.25,
+                common_values: None,
+                min: None,
+                max: None,
+            }),
+            pii: None,
+        });
 
         let mut shard = HashMap::new();
         shard.insert("public.orders".into(), orders);
@@ -3471,6 +3660,147 @@ mod tests {
                 "SELECT * FROM public.orders WHERE status = 'complete'",
                 outcome,
             )
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(structured.get("critique").is_none());
+    }
+
+    /// Issue 6 (full scope): output rows far exceeding the largest
+    /// referenced table's estimated size reads as a probable missing join
+    /// key. Fixture's `public.orders` has row_estimate 10.0, so 25 output
+    /// rows is well over the 2x threshold.
+    #[tokio::test]
+    async fn attach_critique_flags_join_fan_out() {
+        let router = join_path_router();
+        let rows: Vec<Value> = (0..25).map(|i| json!([i])).collect();
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["id"], "rows": rows }));
+        let out = router
+            .attach_critique("SELECT id FROM public.orders", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        let critique = structured["critique"].as_array().unwrap();
+        let fan_out = critique
+            .iter()
+            .find(|c| c["signal"] == "join_fan_out")
+            .expect("join_fan_out critique");
+        assert!(
+            fan_out["message"].as_str().unwrap().contains("25"),
+            "{}",
+            fan_out["message"]
+        );
+    }
+
+    #[tokio::test]
+    async fn attach_critique_silent_when_row_count_within_estimate() {
+        let router = join_path_router();
+        let rows: Vec<Value> = (0..5).map(|i| json!([i])).collect();
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["id"], "rows": rows }));
+        let out = router
+            .attach_critique("SELECT id FROM public.orders", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(
+            structured
+                .get("critique")
+                .and_then(|c| c.as_array())
+                .map(|a| !a.iter().any(|c| c["signal"] == "join_fan_out"))
+                .unwrap_or(true)
+        );
+    }
+
+    /// `AVG`/`SUM` over a column with a nonzero profiled null_frac gets a
+    /// critique naming the estimated skipped-row count.
+    #[tokio::test]
+    async fn attach_critique_flags_null_skipping_aggregate() {
+        let router = join_path_router();
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["avg"], "rows": [[42]] }));
+        let out = router
+            .attach_critique("SELECT AVG(amount) FROM public.orders", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        let critique = structured["critique"].as_array().unwrap();
+        let signal = critique
+            .iter()
+            .find(|c| c["signal"] == "null_skipping_aggregate")
+            .expect("null_skipping_aggregate critique");
+        assert!(
+            signal["message"].as_str().unwrap().contains("AVG(amount)"),
+            "{}",
+            signal["message"]
+        );
+    }
+
+    #[tokio::test]
+    async fn attach_critique_silent_for_aggregate_without_nulls() {
+        let router = join_path_router();
+        // `status` is profiled with null_frac 0.0 — no critique expected.
+        let outcome = ToolOutcome::ok_json(json!({ "columns": ["c"], "rows": [[2]] }));
+        let out = router
+            .attach_critique("SELECT COUNT(status) FROM public.orders", outcome)
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(structured.get("critique").is_none());
+    }
+
+    /// Issue 6 (full scope, DML): `UPDATE ... WHERE status = 'complete'`
+    /// touching 0 rows gets the same observed-values critique as the
+    /// equivalent SELECT.
+    #[tokio::test]
+    async fn attach_dml_critique_zero_rows_affected_suggests_observed_values() {
+        let router = join_path_router();
+        let outcome = ToolOutcome::ok_json(json!({
+            "dry_run": false,
+            "rolled_back": false,
+            "rows_affected": 0,
+            "rows": [],
+        }));
+        let out = router
+            .attach_dml_critique(
+                "UPDATE public.orders SET status = 'paid' WHERE status = 'complete'",
+                outcome,
+            )
+            .await;
+        let structured = out.structured.unwrap();
+        let critique = structured["critique"].as_array().unwrap();
+        let zero_rows = critique
+            .iter()
+            .find(|c| c["signal"] == "zero_rows")
+            .expect("zero_rows critique");
+        let msg = zero_rows["message"].as_str().unwrap();
+        assert!(msg.contains("status = 'complete'"), "{msg}");
+        assert!(msg.contains("pending") && msg.contains("paid"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn attach_dml_critique_silent_when_rows_affected() {
+        let router = join_path_router();
+        let outcome = ToolOutcome::ok_json(json!({
+            "dry_run": false,
+            "rolled_back": false,
+            "rows_affected": 3,
+            "rows": [],
+        }));
+        let out = router
+            .attach_dml_critique(
+                "UPDATE public.orders SET status = 'paid' WHERE status = 'complete'",
+                outcome,
+            )
+            .await;
+        let structured = out.structured.unwrap();
+        assert!(structured.get("critique").is_none());
+    }
+
+    #[tokio::test]
+    async fn attach_dml_critique_silent_for_delete_without_filter() {
+        let router = join_path_router();
+        let outcome = ToolOutcome::ok_json(json!({
+            "dry_run": false,
+            "rolled_back": false,
+            "rows_affected": 0,
+            "rows": [],
+        }));
+        let out = router
+            .attach_dml_critique("DELETE FROM public.orders", outcome)
             .await;
         let structured = out.structured.unwrap();
         assert!(structured.get("critique").is_none());
