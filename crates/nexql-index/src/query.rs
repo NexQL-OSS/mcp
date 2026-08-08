@@ -38,6 +38,56 @@ pub struct RankedHit {
     pub kind: String,
 }
 
+/// Outcome of resolving a possibly-unqualified relation reference against the index.
+/// See [`IndexQueryService::resolve_ref`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefResolution {
+    /// Exactly one indexed object matched — the schema-qualified ref to use.
+    Resolved(String),
+    /// The bare name matched more than one schema; candidates, sorted.
+    Ambiguous(Vec<String>),
+    /// Nothing matched; `suggestion` is the closest indexed name by edit distance,
+    /// when one is within a small distance threshold.
+    Unknown { suggestion: Option<String> },
+}
+
+/// Closest known ref to `ref_` by edit distance on the unqualified name part,
+/// capped at distance 2 (typo-range) so it never suggests something unrelated.
+fn closest_ref(ref_: &str, universe: &HashSet<String>) -> Option<String> {
+    let target = ref_.rsplit('.').next().unwrap_or(ref_);
+    universe
+        .iter()
+        .map(|r| {
+            let name = r.rsplit('.').next().unwrap_or(r);
+            (r, edit_distance(target, name))
+        })
+        .filter(|(_, d)| *d <= 2)
+        .min_by_key(|(_, d)| *d)
+        .map(|(r, _)| r.clone())
+}
+
+/// Classic Levenshtein distance (O(n*m), fine for identifier-length strings).
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in dp.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in dp[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[a.len()][b.len()]
+}
+
 /// Index-only (or optional live) sample-values result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SampleValuesResult {
@@ -466,6 +516,68 @@ impl<'a> IndexQueryService<'a> {
         })
     }
 
+    /// Resolve a possibly-unqualified relation reference against the indexed schema.
+    ///
+    /// Precedence: exact qualified match in the index → unique unqualified match
+    /// (bare name found in exactly one schema) → ambiguous (multiple schemas share
+    /// the name — caller should surface the candidate list) → unknown (closest
+    /// indexed name by edit distance, if any, as a "did you mean" hint).
+    ///
+    /// Fixes the false-negative in `get_join_path {"a":"order_items","b":"orders"}`:
+    /// previously an unqualified name that had a unique qualified match anywhere in
+    /// the index would fall straight through to BFS as a literal, unmatched string.
+    pub fn resolve_ref(&self, ref_: &str) -> Result<RefResolution, IndexError> {
+        let universe = self.known_refs()?;
+        if universe.contains(ref_) {
+            return Ok(RefResolution::Resolved(ref_.to_owned()));
+        }
+        if ref_.contains('.') {
+            // Schema-qualified but not present in the index — still offer a suggestion.
+            return Ok(RefResolution::Unknown {
+                suggestion: closest_ref(ref_, &universe),
+            });
+        }
+        let matches: Vec<&String> = universe
+            .iter()
+            .filter(|r| r.rsplit('.').next() == Some(ref_))
+            .collect();
+        match matches.as_slice() {
+            [] => Ok(RefResolution::Unknown {
+                suggestion: closest_ref(ref_, &universe),
+            }),
+            [only] => Ok(RefResolution::Resolved((*only).clone())),
+            many => {
+                let mut candidates: Vec<String> = many.iter().map(|s| (*s).clone()).collect();
+                candidates.sort();
+                Ok(RefResolution::Ambiguous(candidates))
+            }
+        }
+    }
+
+    /// Every `schema.name` ref known to the index: object-shard entries unioned
+    /// with join-graph node names (a table can appear in the join graph — e.g. via
+    /// an inferred edge — before it's been fully profiled into a shard, or vice
+    /// versa for views that never gained join edges).
+    fn known_refs(&self) -> Result<HashSet<String>, IndexError> {
+        let base = self.base_dir();
+        let Some(manifest) = self.store.read_manifest(&base)? else {
+            return Ok(HashSet::new());
+        };
+        let mut refs = HashSet::new();
+        for shard in &manifest.shards {
+            if let Some(entries) = self.store.read_shard_entries(&base, &shard.file)? {
+                refs.extend(entries.into_keys());
+            }
+        }
+        if let Some(graph) = self.store.read_join_graph(&base, &manifest)? {
+            for edge in &graph.edges {
+                refs.insert(edge.from.clone());
+                refs.insert(edge.to.clone());
+            }
+        }
+        Ok(refs)
+    }
+
     fn load_join_graph(&self) -> Result<JoinGraph, IndexError> {
         let base = self.base_dir();
         let Some(manifest) = self.store.read_manifest(&base)? else {
@@ -877,6 +989,100 @@ mod tests {
             .sample_values("public.customers", "status", None, None)
             .unwrap_err();
         assert!(err.to_string().contains("PII"));
+    }
+
+    #[test]
+    fn resolve_ref_exact_qualified() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_fixture(&store);
+        let svc = IndexQueryService::new(&store, CONN, DB);
+
+        assert_eq!(
+            svc.resolve_ref("public.orders").unwrap(),
+            RefResolution::Resolved("public.orders".into())
+        );
+    }
+
+    #[test]
+    fn resolve_ref_unqualified_unique() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_fixture(&store);
+        let svc = IndexQueryService::new(&store, CONN, DB);
+
+        // Regression: get_join_path {"a":"order_items","b":"orders"} used to lie
+        // with "no join path found" because bare names were never resolved.
+        assert_eq!(
+            svc.resolve_ref("orders").unwrap(),
+            RefResolution::Resolved("public.orders".into())
+        );
+        assert_eq!(
+            svc.resolve_ref("customers").unwrap(),
+            RefResolution::Resolved("public.customers".into())
+        );
+    }
+
+    #[test]
+    fn resolve_ref_unqualified_ambiguous() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = write_fixture(&store);
+
+        // Add a second "orders" in another schema via a second shard.
+        let mut shard = HashMap::new();
+        shard.insert(
+            "staging.orders".into(),
+            table_entry(99, vec![col("id", None)]),
+        );
+        store
+            .write_shard_entries(&base, "objects-staging-0.json", &shard)
+            .unwrap();
+        let mut manifest = sample_manifest(10);
+        manifest.shards.push(ObjectShard {
+            file: "objects-staging-0.json".into(),
+            schema: "staging".into(),
+            objects: 1,
+            bytes: 128,
+            hash: "def".into(),
+        });
+        store.write_manifest(&base, &manifest).unwrap();
+
+        let svc = IndexQueryService::new(&store, CONN, DB);
+        match svc.resolve_ref("orders").unwrap() {
+            RefResolution::Ambiguous(candidates) => {
+                assert_eq!(candidates, vec!["public.orders", "staging.orders"]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_ref_unknown_suggests_closest() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_fixture(&store);
+        let svc = IndexQueryService::new(&store, CONN, DB);
+
+        match svc.resolve_ref("ordrs").unwrap() {
+            RefResolution::Unknown { suggestion } => {
+                assert_eq!(suggestion.as_deref(), Some("public.orders"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_ref_unknown_no_suggestion_when_nothing_close() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_fixture(&store);
+        let svc = IndexQueryService::new(&store, CONN, DB);
+
+        match svc.resolve_ref("zzzzzzzzzz").unwrap() {
+            RefResolution::Unknown { suggestion } => assert_eq!(suggestion, None),
+            other => panic!("expected Unknown, got {other:?}"),
+        }
     }
 
     #[test]
