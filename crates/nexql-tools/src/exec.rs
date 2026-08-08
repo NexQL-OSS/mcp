@@ -15,7 +15,7 @@ use nexql_policy::{
 };
 use serde_json::{Value, json};
 
-use crate::cell_json::{redact_pii_in_payload, rows_to_json_array};
+use crate::cell_json::{columnarize_read_payload, redact_pii_in_payload, rows_to_json_array};
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
 use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
@@ -1813,10 +1813,10 @@ impl ToolRouter {
         enforce_read_table_policy(&self.session.filter(), sql)?;
         let trimmed = sql.trim().to_ascii_lowercase();
         if trimmed.starts_with("explain") {
-            return self.run_select_internal(sql, None).await;
+            return self.run_select_internal(sql, None, true).await;
         }
         let max_rows = self.session.caps().max_rows;
-        self.run_select_internal(sql, Some(max_rows)).await
+        self.run_select_internal(sql, Some(max_rows), true).await
     }
 
     async fn explain_query(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1845,7 +1845,7 @@ impl ToolRouter {
                 "Security Error: EXPLAIN target is not read-only.".into(),
             ));
         }
-        self.run_select_internal(&clean, None).await
+        self.run_select_internal(&clean, None, false).await
     }
 
     async fn get_ddl(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -2462,7 +2462,9 @@ impl ToolRouter {
         }
 
         let max_rows = self.session.caps().max_rows;
-        let outcome = self.run_select_internal(sql, Some(max_rows)).await?;
+        // Not columnar: export_query needs row-objects to derive `columns` /
+        // build CSV / sqlinsert output below.
+        let outcome = self.run_select_internal(sql, Some(max_rows), false).await?;
         if outcome.is_error {
             return Ok(outcome);
         }
@@ -2663,18 +2665,34 @@ impl ToolRouter {
         })))
     }
 
+    /// `columnar`: reshape the result from per-row objects to
+    /// `{"columns": [...], "rows": [[...]]}` before serializing, and skip
+    /// pretty-printing (Issue 5 — 3–5x fewer tokens at higher row/column
+    /// counts; pretty JSON is for humans, no MCP client needs it). Only the
+    /// `run_select` tool itself passes `true` — `explain_query` and
+    /// `export_query` reuse this function and need the row-object shape
+    /// (export in particular derives `columns` and builds CSV/sqlinsert from
+    /// it), so they stay on the original shape.
     async fn run_select_internal(
         &self,
         sql: &str,
         max_rows: Option<u32>,
+        columnar: bool,
     ) -> Result<ToolOutcome, ToolError> {
         let client = self.session.checkout().await?;
         let Some(max_rows) = max_rows else {
             let rows = client.query(sql, &[]).await?;
             let values = rows_to_json(&rows);
-            let payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
-            let text = serde_json::to_string_pretty(&payload)
-                .map_err(|e| ToolError::Execution(e.to_string()))?;
+            let mut payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
+            if columnar {
+                payload = columnarize_read_payload(payload);
+            }
+            let text = if columnar {
+                serde_json::to_string(&payload)
+            } else {
+                serde_json::to_string_pretty(&payload)
+            }
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
             let caps = self.session.caps();
             let (trunc, text) = caps.truncate_chars(&text);
             let structured = if trunc {
@@ -2713,8 +2731,15 @@ impl ToolRouter {
             obj.insert("truncated".into(), json!(true));
             obj.insert("maxRows".into(), json!(max_rows));
         }
-        let text = serde_json::to_string_pretty(&payload)
-            .map_err(|e| ToolError::Execution(e.to_string()))?;
+        if columnar {
+            payload = columnarize_read_payload(payload);
+        }
+        let text = if columnar {
+            serde_json::to_string(&payload)
+        } else {
+            serde_json::to_string_pretty(&payload)
+        }
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
         let caps = self.session.caps();
         let (char_trunc, text) = caps.truncate_chars(&text);
         let structured = if char_trunc {

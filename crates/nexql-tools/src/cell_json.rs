@@ -3,9 +3,9 @@
 
 //! Typed Postgres cell → JSON conversion shared by read and write tools.
 
-use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use tokio_postgres::types::{FromSql, Kind, Type};
@@ -28,6 +28,69 @@ pub fn rows_to_json_vec(rows: &[tokio_postgres::Row]) -> Vec<Value> {
 /// Convert query rows to a JSON array value (read-tool shape).
 pub fn rows_to_json_array(rows: &[tokio_postgres::Row]) -> Value {
     Value::Array(rows_to_json_vec(rows))
+}
+
+/// Reshape a `{"rows": [{...}, ...], ...}` read-tool payload (already
+/// PII-redacted — this is a pure reshape, it knows nothing about policy) from
+/// per-row objects into columnar form: `{"columns": [...], "rows": [[...],
+/// ...], ...}`. Typically 3–5x fewer tokens at higher row/column counts,
+/// since column names aren't repeated per row. All-null columns are dropped
+/// from the row arrays and listed once under `allNullColumns` instead of
+/// repeating null in every row. Sibling keys on the payload object (e.g.
+/// `truncated`, `maxRows`) are left untouched. A no-op on anything that
+/// isn't `{"rows": [{...}]}` shaped.
+pub fn columnarize_read_payload(mut payload: Value) -> Value {
+    let Some(obj) = payload.as_object_mut() else {
+        return payload;
+    };
+    let Some(Value::Array(rows)) = obj.remove("rows") else {
+        return payload;
+    };
+    let Some(first) = rows.first().and_then(|r| r.as_object()) else {
+        // Empty result set or already non-object rows — put back untouched.
+        obj.insert("columns".into(), json!([]));
+        obj.insert("rows".into(), Value::Array(rows));
+        return payload;
+    };
+    let column_names: Vec<String> = first.keys().cloned().collect();
+
+    let mut all_null = vec![true; column_names.len()];
+    let mut grid: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let as_obj = row.as_object();
+        let mut r = Vec::with_capacity(column_names.len());
+        for (i, name) in column_names.iter().enumerate() {
+            let v = as_obj
+                .and_then(|m| m.get(name))
+                .cloned()
+                .unwrap_or(Value::Null);
+            if !v.is_null() {
+                all_null[i] = false;
+            }
+            r.push(v);
+        }
+        grid.push(r);
+    }
+
+    let kept: Vec<usize> = (0..column_names.len()).filter(|&i| !all_null[i]).collect();
+    let dropped_names: Vec<&String> = (0..column_names.len())
+        .filter(|&i| all_null[i])
+        .map(|i| &column_names[i])
+        .collect();
+    let kept_names: Vec<&String> = kept.iter().map(|&i| &column_names[i]).collect();
+    if kept.len() != column_names.len() {
+        grid = grid
+            .into_iter()
+            .map(|row| kept.iter().map(|&i| row[i].clone()).collect())
+            .collect();
+    }
+
+    obj.insert("columns".into(), json!(kept_names));
+    obj.insert("rows".into(), json!(grid));
+    if !dropped_names.is_empty() {
+        obj.insert("allNullColumns".into(), json!(dropped_names));
+    }
+    payload
 }
 
 /// Redact configured PII columns in row objects. Returns redacted JSON and column names touched.
@@ -320,6 +383,33 @@ fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn columnarize_read_payload_reshapes_rows_and_drops_all_null_columns() {
+        let payload = json!({
+            "rows": [
+                { "id": 1, "name": "a", "note": null },
+                { "id": 2, "name": "b", "note": null },
+            ],
+            "truncated": true,
+            "maxRows": 500,
+        });
+        let out = columnarize_read_payload(payload);
+        assert_eq!(out["columns"], json!(["id", "name"]));
+        assert_eq!(out["rows"], json!([[1, "a"], [2, "b"]]));
+        assert_eq!(out["allNullColumns"], json!(["note"]));
+        // Sibling keys survive the reshape untouched.
+        assert_eq!(out["truncated"], json!(true));
+        assert_eq!(out["maxRows"], json!(500));
+    }
+
+    #[test]
+    fn columnarize_read_payload_empty_rows_is_noop_shape() {
+        let payload = json!({ "rows": [] });
+        let out = columnarize_read_payload(payload);
+        assert_eq!(out["columns"], json!([]));
+        assert_eq!(out["rows"], json!([]));
+    }
 
     #[test]
     fn redact_pii_replaces_matching_columns() {
