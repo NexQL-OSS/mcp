@@ -66,8 +66,6 @@ jobs:
             npm_pkg: mcp-win32-x64
 
     steps:
-      - uses: actions/checkout@v4
-
       # ubuntu:22.04 container image is minimal — no curl/git/clang until bootstrapped.
       - name: Bootstrap container build deps
         if: matrix.container != ''
@@ -77,6 +75,8 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates curl git pkg-config \
             build-essential clang libclang-dev binutils
+
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
