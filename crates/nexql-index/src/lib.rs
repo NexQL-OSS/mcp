@@ -54,8 +54,8 @@ pub use model::{
 };
 pub use object_hash::{compute_definition_hash, compute_object_hash};
 pub use query::{
-    IndexQueryService, QueryPolicyFilter, RankedHit, SampleValuesResult, SearchOptions,
-    missing_object_message, no_samples_message, search_schema_lexical,
+    IndexQueryService, QueryPolicyFilter, RankedHit, RefResolution, SampleValuesResult,
+    SearchOptions, missing_object_message, no_samples_message, search_schema_lexical,
 };
 pub use rrf::{RRF_K, RRF_MISSING_RANK, cosine_similarity, fuse_rrf};
 pub use store::{

@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
-    IndexStore, PgCatalogDb, QueryPolicyFilter, SearchOptions, build_index,
+    IndexStore, PgCatalogDb, QueryPolicyFilter, RefResolution, SearchOptions, build_index,
 };
-use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql};
+use nexql_policy::{
+    PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
+};
 use serde_json::{Value, json};
 
 use crate::cell_json::{redact_pii_in_payload, rows_to_json_array};
@@ -817,8 +819,7 @@ impl ToolRouter {
         let manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
             .await
             .map_err(|e| ToolError::Execution(format!("Index build failed: {e}")))?;
-        self.session
-            .clear_index_stale(&connection_id, &database);
+        self.session.clear_index_stale(&connection_id, &database);
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "completed",
@@ -857,8 +858,7 @@ impl ToolRouter {
         let new_manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
             .await
             .map_err(|e| ToolError::Execution(format!("Index refresh failed: {e}")))?;
-        self.session
-            .clear_index_stale(&connection_id, &database);
+        self.session.clear_index_stale(&connection_id, &database);
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "refreshed",
@@ -1259,6 +1259,80 @@ impl ToolRouter {
         Ok((store, connection_id, database))
     }
 
+    /// Turn a non-`Resolved` [`RefResolution`] into the actionable error an agent
+    /// needs to self-correct (Issue 2): ambiguous names list every candidate,
+    /// unknown names carry a "did you mean" when one is close enough.
+    fn ref_resolution_error(ref_: &str, resolution: &RefResolution) -> Option<ToolError> {
+        match resolution {
+            RefResolution::Resolved(_) => None,
+            RefResolution::Ambiguous(candidates) => Some(ToolError::InvalidArgs(format!(
+                "ambiguous relation \"{ref_}\": {}",
+                candidates.join(", ")
+            ))),
+            RefResolution::Unknown {
+                suggestion: Some(s),
+            } => Some(ToolError::InvalidArgs(format!(
+                "unknown relation \"{ref_}\" — did you mean \"{s}\"?"
+            ))),
+            RefResolution::Unknown { suggestion: None } => Some(ToolError::InvalidArgs(format!(
+                "unknown relation \"{ref_}\" — call search_schema to find valid refs."
+            ))),
+        }
+    }
+
+    /// Strictly resolve `ref_` through the schema index: errors loudly on
+    /// ambiguous/unknown names instead of letting a literal unresolved string
+    /// flow into pathfinding or lookup (the false-negative this issue fixes).
+    fn resolve_indexed_ref_strict(
+        svc: &IndexQueryService<'_>,
+        ref_: &str,
+    ) -> Result<String, ToolError> {
+        let resolution = svc.resolve_ref(ref_)?;
+        if let Some(err) = Self::ref_resolution_error(ref_, &resolution) {
+            return Err(err);
+        }
+        match resolution {
+            RefResolution::Resolved(r) => Ok(r),
+            _ => unreachable!("ref_resolution_error covers every non-Resolved case"),
+        }
+    }
+
+    /// Best-effort resolution for tools that also work without an index
+    /// (`get_ddl`, `table_stats`): upgrade a unique unqualified match, error
+    /// loudly on ambiguity, but pass an unknown name through unchanged so the
+    /// caller's own live-catalog lookup produces its own error.
+    fn resolve_indexed_ref_soft(
+        svc: &IndexQueryService<'_>,
+        ref_: &str,
+    ) -> Result<String, ToolError> {
+        match svc.resolve_ref(ref_)? {
+            RefResolution::Resolved(r) => Ok(r),
+            RefResolution::Ambiguous(candidates) => Err(ToolError::InvalidArgs(format!(
+                "ambiguous relation \"{ref_}\": {}",
+                candidates.join(", ")
+            ))),
+            RefResolution::Unknown { .. } => Ok(ref_.to_owned()),
+        }
+    }
+
+    /// Best-effort resolution for live-catalog tools that work with or without
+    /// an index (`get_ddl`, `table_stats`): if an index is present, upgrade a
+    /// unique unqualified match and error on ambiguity; otherwise (or on an
+    /// unknown name) pass the ref through unchanged so `parse_ref` and the live
+    /// catalog query produce their own error.
+    async fn resolve_ref_best_effort(&self, ref_: &str) -> Result<String, ToolError> {
+        let Some(store) = self.index_store() else {
+            return Ok(ref_.to_owned());
+        };
+        let (connection_id, database) = self.session.active_context().await;
+        let base = store.base_dir(&connection_id, &database);
+        if store.read_manifest(&base)?.is_none() {
+            return Ok(ref_.to_owned());
+        }
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        Self::resolve_indexed_ref_soft(&svc, ref_)
+    }
+
     async fn search_schema(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         let query = args
             .get("query")
@@ -1300,8 +1374,9 @@ impl ToolRouter {
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
+        let resolved = Self::resolve_indexed_ref_soft(&svc, ref_)?;
         let filter = self.query_filter();
-        let entry = svc.describe_object(ref_, Some(&filter))?;
+        let entry = svc.describe_object(&resolved, Some(&filter))?;
         let value = serde_json::to_value(entry).map_err(|e| ToolError::Execution(e.to_string()))?;
         Ok(ToolOutcome::ok_json(value))
     }
@@ -1317,9 +1392,20 @@ impl ToolRouter {
             .ok_or_else(|| ToolError::InvalidArgs("b is required".into()))?;
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
-        let path = svc.get_join_path(a, b)?;
-        let value = serde_json::to_value(path).map_err(|e| ToolError::Execution(e.to_string()))?;
-        Ok(ToolOutcome::ok_json(value))
+        // Resolve both endpoints before pathfinding — an unresolved literal here
+        // is exactly what produced the false-negative "no join path found" for
+        // unqualified names (Issue 2). Only genuine BFS exhaustion reaches
+        // svc.get_join_path below.
+        let resolved_a = Self::resolve_indexed_ref_strict(&svc, a)?;
+        let resolved_b = Self::resolve_indexed_ref_strict(&svc, b)?;
+        let path = svc.get_join_path(&resolved_a, &resolved_b)?;
+        let path_value =
+            serde_json::to_value(path).map_err(|e| ToolError::Execution(e.to_string()))?;
+        Ok(ToolOutcome::ok_json(json!({
+            "path": path_value,
+            "resolved_a": resolved_a,
+            "resolved_b": resolved_b,
+        })))
     }
 
     async fn sample_values(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1333,6 +1419,8 @@ impl ToolRouter {
             .ok_or_else(|| ToolError::InvalidArgs("col is required".into()))?;
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
+        let resolved = Self::resolve_indexed_ref_soft(&svc, ref_)?;
+        let ref_ = resolved.as_str();
         let filter = self.query_filter();
         let result = svc.sample_values(ref_, col, Some(&filter), None)?;
 
@@ -1611,7 +1699,8 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let resolved = self.resolve_ref_best_effort(ref_).await?;
+        let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
         let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("table");
         let reg = sql::regclass_literal(&schema, &name);
         let client = self.session.checkout().await?;
@@ -1679,7 +1768,8 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
+        let resolved = self.resolve_ref_best_effort(ref_).await?;
+        let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
         let client = self.session.checkout().await?;
         let stats = client.query(&sql::table_stats(&schema, &name), &[]).await?;
         let activity = client
@@ -1913,10 +2003,7 @@ impl ToolRouter {
         let client = self.session.checkout().await?;
         let mut query_errors = serde_json::Map::new();
 
-        let high_seq_json = match client
-            .query(&sql::high_seq_scan_tables(limit), &[])
-            .await
-        {
+        let high_seq_json = match client.query(&sql::high_seq_scan_tables(limit), &[]).await {
             Ok(rows) => rows_to_json(&rows),
             Err(e) => {
                 query_errors.insert(
@@ -1927,10 +2014,7 @@ impl ToolRouter {
             }
         };
 
-        let unindexed_json = match client
-            .query(&sql::unindexed_fk_columns(limit), &[])
-            .await
-        {
+        let unindexed_json = match client.query(&sql::unindexed_fk_columns(limit), &[]).await {
             Ok(rows) => rows_to_json(&rows),
             Err(e) => {
                 query_errors.insert(
@@ -2452,9 +2536,7 @@ impl ToolRouter {
         let values = rows_to_json(keep);
         // Always `{ "rows": [...] }` — truncation flags are extra fields on the object.
         let mut payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
-        if truncated
-            && let Some(obj) = payload.as_object_mut()
-        {
+        if truncated && let Some(obj) = payload.as_object_mut() {
             obj.insert("truncated".into(), json!(true));
             obj.insert("maxRows".into(), json!(max_rows));
         }
@@ -2765,6 +2847,186 @@ mod tests {
         assert!(
             out.text.contains("rebuild_index"),
             "expected actionable hint, got: {}",
+            out.text
+        );
+    }
+
+    /// Minimal index fixture for `get_join_path` resolution tests: `orders`,
+    /// `customers`, `order_items` in `public`, with `order_items -> orders ->
+    /// customers` FK edges — mirrors the report's repro schema.
+    fn write_join_path_fixture(store: &IndexStore) {
+        use nexql_index::{
+            BuildDepth, BuildMode, ColumnEntry, DbObjectKind, IndexCounts, IndexDerived,
+            IndexManifest, IndexScope, IndexStats, JOIN_GRAPH_FILE, JoinEdge, JoinGraph,
+            ObjectEntry, ObjectShard, TOKENS_FILE,
+        };
+        use std::collections::HashMap;
+
+        let base = store.base_dir("conn-1", "appdb");
+        let manifest = IndexManifest {
+            format_version: 1,
+            connection_id: "conn-1".into(),
+            database: "appdb".into(),
+            indexed_at: "2026-08-08T00:00:00.000Z".into(),
+            build_mode: BuildMode::Auto,
+            build_depth: BuildDepth::Structure,
+            schema_fingerprint: "fp".into(),
+            pg_version: "18.4".into(),
+            environment: "development".into(),
+            scope: IndexScope {
+                included_schemas: vec!["public".into()],
+                excluded_objects: vec![],
+                pii_excluded_columns: vec![],
+            },
+            counts: IndexCounts {
+                tables: 3,
+                views: 0,
+                functions: 0,
+                enums: 0,
+            },
+            shards: vec![ObjectShard {
+                file: "objects-public-0.json".into(),
+                schema: "public".into(),
+                objects: 3,
+                bytes: 512,
+                hash: "abc".into(),
+            }],
+            derived: IndexDerived {
+                tokens: TOKENS_FILE.into(),
+                join_graph: JOIN_GRAPH_FILE.into(),
+                values: None,
+                embeddings: None,
+                embeddings_meta: None,
+            },
+            stats: IndexStats {
+                build_ms: 1,
+                queries_run: 1,
+                warnings: vec![],
+            },
+        };
+        store.write_manifest(&base, &manifest).unwrap();
+
+        fn entry(oid: u32) -> ObjectEntry {
+            ObjectEntry {
+                kind: DbObjectKind::Table,
+                oid,
+                object_hash: format!("hash{oid}"),
+                comment: None,
+                row_estimate: 10.0,
+                size_bytes: 8192,
+                columns: vec![ColumnEntry {
+                    name: "id".into(),
+                    type_name: "integer".into(),
+                    not_null: true,
+                    default_value: None,
+                    comment: None,
+                    ordinal: 1,
+                    is_pk: Some(true),
+                    profile: None,
+                    pii: None,
+                }],
+                primary_key: Some(vec!["id".into()]),
+                foreign_keys: None,
+                indexes: None,
+                checks: None,
+                excluded: None,
+                definition: None,
+                signature: None,
+                language: None,
+                volatility: None,
+                body: None,
+                values: None,
+                base_type: None,
+                constraint: None,
+            }
+        }
+        let mut shard = HashMap::new();
+        shard.insert("public.orders".into(), entry(1));
+        shard.insert("public.customers".into(), entry(2));
+        shard.insert("public.order_items".into(), entry(3));
+        store
+            .write_shard_entries(&base, "objects-public-0.json", &shard)
+            .unwrap();
+
+        let graph = JoinGraph {
+            edges: vec![
+                JoinEdge {
+                    from: "public.order_items".into(),
+                    to: "public.orders".into(),
+                    via: "order_items_order_id_fkey".into(),
+                    cols: vec![("order_id".into(), "id".into())],
+                    inferred: None,
+                    disabled: None,
+                },
+                JoinEdge {
+                    from: "public.orders".into(),
+                    to: "public.customers".into(),
+                    via: "orders_customer_id_fkey".into(),
+                    cols: vec![("customer_id".into(), "id".into())],
+                    inferred: None,
+                    disabled: None,
+                },
+            ],
+        };
+        store.write_join_graph(&base, &graph).unwrap();
+    }
+
+    fn join_path_router() -> ToolRouter {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_join_path_fixture(&store);
+        std::mem::forget(tmp); // keep the temp dir alive for the router's lifetime
+        let session = ToolSession::for_tests(
+            vec![test_conn()],
+            PolicyFilter::default(),
+            Some(IndexStore::new(store.root())),
+        );
+        ToolRouter::with_index_store(session, Some(store))
+    }
+
+    /// Regression test for Issue 2: unqualified names that are directly
+    /// FK-linked used to return a false-negative "no join path found" because
+    /// `a`/`b` were never resolved against the index before BFS.
+    #[tokio::test]
+    async fn get_join_path_resolves_unqualified_names() {
+        let router = join_path_router();
+        let out = router
+            .call(
+                "get_join_path",
+                json!({ "a": "order_items", "b": "orders" }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["resolved_a"], "public.order_items");
+        assert_eq!(structured["resolved_b"], "public.orders");
+        assert_eq!(structured["path"][0]["via"], "order_items_order_id_fkey");
+    }
+
+    #[tokio::test]
+    async fn get_join_path_qualified_still_works() {
+        let router = join_path_router();
+        let out = router
+            .call(
+                "get_join_path",
+                json!({ "a": "public.order_items", "b": "public.customers" }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["path"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_join_path_unknown_name_errors_with_suggestion() {
+        let router = join_path_router();
+        let out = router
+            .call("get_join_path", json!({ "a": "ordrs", "b": "customers" }))
+            .await;
+        assert!(out.is_error, "{}", out.text);
+        assert!(
+            out.text.contains("did you mean") && out.text.contains("public.orders"),
+            "expected a did-you-mean suggestion, got: {}",
             out.text
         );
     }
