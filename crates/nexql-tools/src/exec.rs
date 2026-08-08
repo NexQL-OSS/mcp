@@ -1944,13 +1944,31 @@ impl ToolRouter {
         }
     }
 
+    /// Status tool: absence of an index is a normal state, not a failure.
+    /// Unlike `search_schema` / `get_join_path` (which correctly fail loudly
+    /// with remediation, since they can't do their job without one),
+    /// `get_index_status` is the tool an agent calls specifically to find out
+    /// whether an index exists — so it must return that fact rather than
+    /// throw (Issue 3). Reserve real errors for actual failures (corrupt or
+    /// unreadable index data), not "not built yet".
     async fn get_index_status(&self) -> Result<ToolOutcome, ToolError> {
-        let (store, connection_id, database) = self.index_service().await?;
+        let (connection_id, database) = self.session.active_context().await;
+        let Some(store) = self.index_store() else {
+            return Ok(ToolOutcome::ok_json(json!({
+                "status": "missing",
+                "connectionId": connection_id,
+                "database": database,
+                "remediation": "rebuild_index",
+            })));
+        };
         let base = store.base_dir(&connection_id, &database);
         let Some(manifest) = store.read_manifest(&base)? else {
-            return Err(ToolError::Execution(format!(
-                "No schema index for database \"{database}\" — run `nexql-mcp index build`."
-            )));
+            return Ok(ToolOutcome::ok_json(json!({
+                "status": "missing",
+                "connectionId": connection_id,
+                "database": database,
+                "remediation": "rebuild_index",
+            })));
         };
 
         let mut live_fingerprint: Option<String> = None;
@@ -1964,6 +1982,7 @@ impl ToolRouter {
         }
 
         Ok(ToolOutcome::ok_json(json!({
+            "status": "ok",
             "connectionId": manifest.connection_id,
             "database": manifest.database,
             "indexedAt": manifest.indexed_at,
@@ -3029,6 +3048,48 @@ mod tests {
             "expected a did-you-mean suggestion, got: {}",
             out.text
         );
+    }
+
+    /// Regression test for Issue 3: `get_index_status` is the tool an agent
+    /// calls to *find out* whether an index exists, so absence must be a
+    /// normal non-error result, not a thrown error.
+    #[tokio::test]
+    async fn get_index_status_reports_missing_without_erroring_no_store() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let out = router.call("get_index_status", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["status"], "missing");
+        assert_eq!(structured["remediation"], "rebuild_index");
+        assert_eq!(structured["database"], "appdb");
+    }
+
+    #[tokio::test]
+    async fn get_index_status_reports_missing_without_erroring_empty_manifest() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let session = ToolSession::for_tests(
+            vec![test_conn()],
+            PolicyFilter::default(),
+            Some(IndexStore::new(tmp.path())),
+        );
+        let router = ToolRouter::with_index_store(session, Some(store));
+        let out = router.call("get_index_status", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["status"], "missing");
+        assert_eq!(structured["remediation"], "rebuild_index");
+    }
+
+    #[tokio::test]
+    async fn get_index_status_reports_ok_when_indexed() {
+        let router = join_path_router();
+        let out = router.call("get_index_status", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        assert_eq!(structured["status"], "ok");
+        assert_eq!(structured["database"], "appdb");
     }
 
     #[tokio::test]
