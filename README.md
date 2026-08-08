@@ -86,6 +86,49 @@ npm install -g nexql-mcp                                # or install it once
 
 [`nexql-mcp`](https://www.npmjs.com/package/nexql-mcp) is a shim ([`npm/bin/nexql-mcp.js`](npm/bin/nexql-mcp.js)) that resolves the right prebuilt binary from a per-platform `optionalDependency` (`@nexql/mcp-<os>-<arch>`) — no Rust toolchain needed.
 
+### uv (PyPI)
+
+[uv](https://docs.astral.sh/uv/) installs CLI tools from PyPI into isolated environments — same prebuilt binary, no Rust toolchain.
+
+Install uv itself (if needed):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+```
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex        # Windows
+```
+
+Install nexql-mcp:
+
+```bash
+uv tool install nexql-mcp
+uv tool update-shell    # once, if uv warns the tool bin dir is not on PATH
+```
+
+One-off without installing:
+
+```bash
+uvx nexql-mcp postgres://dev@localhost:5432/appdb doctor
+```
+
+Pin a version:
+
+```bash
+uv tool install 'nexql-mcp==0.2.1'
+```
+
+Upgrade later:
+
+```bash
+uv tool upgrade nexql-mcp
+```
+
+Then follow [After install](#after-install) above.
+
+> **PyPI status:** wheels are not published yet. Until the first PyPI release lands, use [quick install](#quick-install-linux--macos--windows) or npm. Maintainer steps: [docs/publish-pypi-uv.md](docs/publish-pypi-uv.md).
+
 ### cargo (crates.io)
 
 ```bash

@@ -72,6 +72,37 @@
       ]
     },
     {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "nexql-mcp",
+      "version": "0.2.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "connection_string",
+          "description": "Postgres connection string (postgres://user:pass@host:5432/dbname). Omit to use a saved --profile or DATABASE_URL.",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "Postgres connection string, used when no positional URL or --profile is given.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "NEXQL_MCP_CONFIG",
+          "description": "Path to config.toml (default: ~/.config/nexql-mcp/config.toml).",
+          "isRequired": false
+        }
+      ]
+    },
+    {
       "registryType": "oci",
       "identifier": "ghcr.io/nexql-oss/mcp:0.2.1",
       "transport": {

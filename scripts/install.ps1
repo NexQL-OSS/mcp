@@ -85,6 +85,8 @@ try {
     Write-Host "     Or run the guided setup wizard:"
     Write-Host "       nexql-mcp tui"
     Write-Host ""
+    Write-Host "     Installed via uv? Same commands after 'uv tool install nexql-mcp'."
+    Write-Host ""
     Write-Host "  Docs: https://github.com/NexQL-OSS/mcp/blob/main/docs/clients/README.md"
 }
 finally {

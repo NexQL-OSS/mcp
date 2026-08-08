@@ -147,6 +147,8 @@ Next steps:
      Or run the guided setup wizard:
        nexql-mcp tui
 
+     Installed via uv? Same commands after `uv tool install nexql-mcp`.
+
   Docs: https://github.com/NexQL-OSS/mcp/blob/main/docs/clients/README.md
 EOF
 }
