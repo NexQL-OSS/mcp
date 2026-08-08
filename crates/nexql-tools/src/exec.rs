@@ -1321,6 +1321,28 @@ impl ToolRouter {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("name parameter is required".into()))?;
 
+        // Privilege-escalation gate: access_mode is a plain string arg the LLM controls,
+        // applied to the live session with zero confirmation otherwise (Issue: found in
+        // the second review). Mirrors the existing --i-know-what-im-doing precedent
+        // (nexql_policy::check_superuser_guard) — an explicit second argument, not
+        // elicitation (no protocol plumbing exists for that today).
+        if let Some(mode_str) = args.get("access_mode").and_then(|v| v.as_str()) {
+            let mode: nexql_policy::AccessMode = mode_str.parse().map_err(|_| {
+                ToolError::InvalidArgs(format!(
+                    "invalid access_mode \"{mode_str}\" — expected read, write, or admin"
+                ))
+            })?;
+            let confirmed = args
+                .get("confirm_elevated_access")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if mode.allows_writes() && !confirmed {
+                return Err(ToolError::InvalidArgs(format!(
+                    "refusing to save profile \"{name}\" with access_mode \"{mode_str}\" — pass confirm_elevated_access: true to override"
+                )));
+            }
+        }
+
         let p_config = nexql_conn::ProfileConfig {
             url: args.get("url").and_then(|v| v.as_str()).map(String::from),
             host: args.get("host").and_then(|v| v.as_str()).map(String::from),
@@ -4037,6 +4059,86 @@ mod tests {
             structured.get("profile").and_then(|v| v.as_str()),
             Some("staging")
         );
+    }
+
+    /// Second-review finding: access_mode was a plain string arg applied to
+    /// the live session with zero confirmation — a short prompt-injection
+    /// hop from read to admin. Requires an explicit confirm_elevated_access
+    /// arg, mirroring nexql_policy::check_superuser_guard's
+    /// --i-know-what-im-doing precedent.
+    #[tokio::test]
+    async fn save_profile_rejects_elevated_access_without_confirmation() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "prod",
+                    "host": "127.0.0.1",
+                    "access_mode": "admin",
+                }),
+            )
+            .await;
+        assert!(out.is_error, "{}", out.text);
+        assert!(out.text.contains("confirm_elevated_access"), "{}", out.text);
+        assert!(
+            !cfg_path.exists(),
+            "rejected escalation must not touch the config file"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_profile_allows_elevated_access_with_confirmation() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "prod",
+                    "host": "127.0.0.1",
+                    "access_mode": "admin",
+                    "confirm_elevated_access": true,
+                }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.text);
+    }
+
+    #[tokio::test]
+    async fn save_profile_read_access_mode_needs_no_confirmation() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "readonly",
+                    "host": "127.0.0.1",
+                    "access_mode": "read",
+                }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.text);
     }
 
     #[tokio::test]

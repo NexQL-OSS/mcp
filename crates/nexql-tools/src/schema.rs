@@ -255,7 +255,13 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "access_mode",
                     "string",
                     false,
-                    "Session access mode: \"read\", \"write\", or \"admin\".",
+                    "Session access mode: \"read\", \"write\", or \"admin\". Setting \"write\" or \"admin\" requires confirm_elevated_access: true, or the call is rejected.",
+                ),
+                (
+                    "confirm_elevated_access",
+                    "boolean",
+                    false,
+                    "Required (must be true) when access_mode is \"write\" or \"admin\" — explicit opt-in for a privilege escalation. No effect when access_mode is omitted or \"read\".",
                 ),
                 (
                     "max_rows",
