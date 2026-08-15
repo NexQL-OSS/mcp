@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-15
+
+### Added
+- **OS keyring for secrets**: Connection passwords stored in the OS keyring instead of plaintext config, with migration of legacy plaintext credentials on load.
+- **Statement timeout config**: Per-connection statement timeout setting.
+- **`orient` tool**: One-call schema bootstrap for new sessions.
+- **Post-execution critique heuristics**: `run_select`/`execute_sql` flag zero-row results and `LIMIT` without `ORDER BY`.
+- **Columnar output**: Extended to every row-returning tool (previously `run_select` only).
+
+### Fixed
+- **`access_mode` elevation**: `save_profile` now requires explicit confirmation to elevate access mode.
+- **Discoverability**: Keyword-rich tool metadata and `serverInfo` title.
+- **`get_index_status`**: Reports missing index instead of erroring.
+- **Join-path resolution**: Unqualified relation refs resolved before join-path BFS.
+- **Tool schemas**: Per-parameter descriptions and `additionalProperties: false` added across tool specs.
+
+### Changed
+- **EXPLAIN-family tools consolidated**: 54 → 52 tools.
+
 ## [0.2.2] - 2026-08-08
 
 ### Fixed
