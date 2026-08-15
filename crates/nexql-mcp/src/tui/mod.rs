@@ -8,7 +8,7 @@ mod onboarding;
 mod ui;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
@@ -16,7 +16,43 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use nexql_conn::ConfigFile;
+use nexql_conn::{ConfigFile, SecretMigrationReport};
+
+/// User-visible status after auto-migrating legacy plaintext credentials on load.
+pub(crate) fn secret_migration_status(report: &SecretMigrationReport) -> Option<String> {
+    if report.migrated.is_empty() && report.failed.is_empty() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if !report.migrated.is_empty() {
+        parts.push(format!(
+            "migrated {} profile(s) to OS keyring",
+            report.migrated.len()
+        ));
+    }
+    if !report.failed.is_empty() {
+        parts.push(format!(
+            "{} profile(s) still have plaintext passwords (keyring unavailable)",
+            report.failed.len()
+        ));
+    }
+    Some(parts.join("; "))
+}
+
+pub(crate) fn load_config_migrated(
+    config_path: &Path,
+) -> (ConfigFile, Option<String>) {
+    if !config_path.exists() {
+        return (ConfigFile::default(), None);
+    }
+    match ConfigFile::load_path_migrated(config_path) {
+        Ok((config, report)) => (config, secret_migration_status(&report)),
+        Err(e) => (
+            ConfigFile::default(),
+            Some(format!("failed to load config: {e}")),
+        ),
+    }
+}
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 

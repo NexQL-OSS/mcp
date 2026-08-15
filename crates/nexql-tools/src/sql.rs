@@ -721,6 +721,120 @@ LIMIT {capped}
     .to_owned()
 }
 
+/// Enrich a Postgres error with schema-index hints (qualified ref, did-you-mean).
+pub fn enhance_sql_error(pg_message: &str, index_refs: &[String]) -> String {
+    let mut suggestions: Vec<String> = Vec::new();
+    if let Some(rel) = extract_pg_relation_name(pg_message) {
+        if !rel.contains('.') {
+            let matches: Vec<&String> = index_refs
+                .iter()
+                .filter(|r| r.rsplit('.').next() == Some(rel.as_str()))
+                .collect();
+            match matches.as_slice() {
+                [] => {
+                    if let Some(close) = closest_index_ref(&rel, index_refs) {
+                        suggestions.push(format!("Did you mean '{close}'?"));
+                    }
+                }
+                [only] => {
+                    suggestions.push(format!(
+                        "Table '{rel}' not found in search_path. Did you mean '{only}'?"
+                    ));
+                }
+                many => {
+                    let list: Vec<&str> = many.iter().map(|s| s.as_str()).collect();
+                    suggestions.push(format!(
+                        "Table '{rel}' is ambiguous across schemas: {}",
+                        list.join(", ")
+                    ));
+                }
+            }
+        } else if !index_refs.iter().any(|r| r == &rel)
+            && let Some(close) = closest_index_ref(&rel, index_refs)
+        {
+            suggestions.push(format!("Did you mean '{close}'?"));
+        }
+    }
+    if let Some(col) = extract_pg_column_name(pg_message) {
+        if let Some(rel) = extract_pg_relation_name(pg_message)
+            && let Some(entry_ref) = resolve_ref_for_column_hint(&rel, index_refs)
+        {
+            suggestions.push(format!(
+                "Column '{col}' not found on '{entry_ref}' — call describe_object or inspect_or_search for valid columns."
+            ));
+        } else {
+            suggestions.push(format!(
+                "Column '{col}' not found — verify spelling and schema qualification."
+            ));
+        }
+    }
+    if suggestions.is_empty() {
+        pg_message.to_string()
+    } else {
+        format!("{pg_message}\nfix_hint: {}", suggestions.join("; "))
+    }
+}
+
+fn resolve_ref_for_column_hint(rel: &str, index_refs: &[String]) -> Option<String> {
+    if index_refs.iter().any(|r| r == rel) {
+        return Some(rel.to_string());
+    }
+    if !rel.contains('.') {
+        let matches: Vec<&String> = index_refs
+            .iter()
+            .filter(|r| r.rsplit('.').next() == Some(rel))
+            .collect();
+        if matches.len() == 1 {
+            return Some(matches[0].clone());
+        }
+    }
+    None
+}
+
+fn extract_pg_relation_name(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    let needle = "relation \"";
+    let start = lower.find(needle)? + needle.len();
+    let rest = &message[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn extract_pg_column_name(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    let needle = "column \"";
+    let start = lower.find(needle)? + needle.len();
+    let rest = &message[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn closest_index_ref(ref_: &str, universe: &[String]) -> Option<String> {
+    let mut best: Option<(String, usize)> = None;
+    for candidate in universe {
+        let dist = levenshtein(ref_.to_ascii_lowercase(), candidate.to_ascii_lowercase());
+        if dist > 0 && dist <= 3 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+            best = Some((candidate.clone(), dist));
+        }
+    }
+    best.map(|(s, _)| s)
+}
+
+fn levenshtein(a: String, b: String) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            cur.push((prev[j] + cost).min(cur[j] + 1).min(prev[j + 1] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
 /// Map tokio-postgres errors from `pg_stat_statements` queries to actionable guidance.
 pub fn map_stat_statements_error(e: &tokio_postgres::Error) -> Option<String> {
     let message = nexql_conn::format_postgres_error(e);

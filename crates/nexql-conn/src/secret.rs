@@ -78,6 +78,22 @@ pub fn store_keyring_password(profile_name: &str, password: &str) -> Result<(), 
         .map_err(|e| ConnError::PasswordCommand(format!("keyring store failed: {e}")))
 }
 
+/// Route an inline password to the OS keyring instead of persisting it in TOML.
+///
+/// On success returns `(None, Some("keyring"))` for `ProfileConfig::{password,
+/// credential_provider}`. On keyring failure, returns an error — never falls
+/// back to plaintext on disk.
+pub fn route_password_to_keyring(
+    profile_name: &str,
+    password: Option<&str>,
+) -> Result<(Option<String>, Option<String>), ConnError> {
+    let Some(password) = password else {
+        return Ok((None, None));
+    };
+    store_keyring_password(profile_name, password)?;
+    Ok((None, Some("keyring".into())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

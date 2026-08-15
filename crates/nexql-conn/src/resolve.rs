@@ -443,7 +443,7 @@ fn load_config(inputs: &ResolveInputs) -> Result<Option<ConfigFile>, ConnError> 
     if let Some(path) = path
         && path.exists()
     {
-        return Ok(Some(ConfigFile::load_path(&path)?));
+        return Ok(Some(ConfigFile::load_path_migrated(&path)?.0));
     }
     Ok(None)
 }

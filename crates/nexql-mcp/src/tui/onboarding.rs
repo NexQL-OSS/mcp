@@ -138,11 +138,7 @@ pub struct OnboardingApp {
 
 impl OnboardingApp {
     pub fn new(config_path: PathBuf) -> Self {
-        let config = if config_path.exists() {
-            ConfigFile::load_path(&config_path).unwrap_or_default()
-        } else {
-            ConfigFile::default()
-        };
+        let (config, migration_status) = crate::tui::load_config_migrated(&config_path);
 
         let mut profile_names: Vec<String> = config.profiles.keys().cloned().collect();
         profile_names.sort();
@@ -200,7 +196,7 @@ impl OnboardingApp {
             diffs: Vec::new(),
             diff_idx: 0,
             summary: Vec::new(),
-            status: None,
+            status: migration_status,
             should_quit: false,
         }
     }

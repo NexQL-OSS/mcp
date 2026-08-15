@@ -321,6 +321,8 @@ enum ProfileAction {
         /// File path to import.
         path: PathBuf,
     },
+    /// Migrate legacy plaintext passwords to the OS keyring (also runs automatically on load).
+    MigrateSecrets,
 }
 
 struct RouterBackend {
@@ -661,7 +663,17 @@ fn resolve_inputs(cli: &Cli) -> ResolveInputs {
     }
 }
 
+fn migrate_legacy_secrets(cli: &Cli) {
+    if let Ok(path) = profile_config_path(cli)
+        && let Ok((_, report)) = ConfigFile::load_path_migrated(&path)
+        && report.any_changes()
+    {
+        emit_secret_migration_report(&report);
+    }
+}
+
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
+    migrate_legacy_secrets(cli);
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
     let active_resolved = resolved_list.first();
 
@@ -775,7 +787,9 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
 
     let tools = Arc::new(RouterBackend { router });
 
-    let mut handler = McpHandler::new(tools).with_prompts(Arc::new(StaticPromptBackend));
+    let mut handler = McpHandler::new(tools)
+        .with_prompts(Arc::new(StaticPromptBackend))
+        .with_server_title("NexQL Postgres MCP");
 
     if let Some(store) = session.index_store.clone() {
         handler = handler
@@ -1060,13 +1074,30 @@ fn profile_config_path(cli: &Cli) -> Result<PathBuf, Box<dyn std::error::Error>>
         .ok_or_else(|| "could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG".into())
 }
 
+fn emit_secret_migration_report(report: &nexql_conn::SecretMigrationReport) {
+    for name in &report.migrated {
+        eprintln!("✓ migrated plaintext credentials for profile '{name}' to OS keyring");
+    }
+    for (name, err) in &report.failed {
+        eprintln!(
+            "warning: could not migrate profile '{name}' ({err}) — plaintext password retained; \
+             use password_command or password_file if keyring is unavailable"
+        );
+    }
+    if let Some(ref backup) = report.backup {
+        eprintln!(
+            "  (previous config backed up to {})",
+            backup.display()
+        );
+    }
+}
+
 fn load_profile_config(cli: &Cli) -> Result<(PathBuf, ConfigFile), Box<dyn std::error::Error>> {
     let path = profile_config_path(cli)?;
-    let config = if path.exists() {
-        ConfigFile::load_path(&path)?
-    } else {
-        ConfigFile::default()
-    };
+    let (config, report) = ConfigFile::load_path_migrated(&path)?;
+    if report.any_changes() {
+        emit_secret_migration_report(&report);
+    }
     Ok((path, config))
 }
 
@@ -1134,7 +1165,7 @@ async fn run_profile_action(
             if *set_default {
                 config.default_profile = Some(name.clone());
             }
-            config.upsert_profile(name, profile);
+            config.upsert_profile_prepared(name.clone(), profile)?;
             let backup = config.save(&config_path)?;
             println!("✓ Profile '{name}' saved to {}", config_path.display());
             if let Some(b) = backup {
@@ -1154,10 +1185,13 @@ async fn run_profile_action(
             std::io::stderr().flush()?;
             let mut line = String::new();
             std::io::stdin().read_line(&mut line)?;
-            profile.password = Some(line.trim_end_matches(['\r', '\n']).to_string());
+            let password = line.trim_end_matches(['\r', '\n']).to_string();
+            nexql_conn::store_keyring_password(name, &password)?;
+            profile.password = None;
+            profile.credential_provider = Some("keyring".into());
             config.upsert_profile(name.clone(), profile);
             config.save(&path)?;
-            println!("password updated for '{name}'");
+            println!("password updated for '{name}' (stored in OS keyring)");
             Ok(())
         }
         ProfileAction::Test { name } => {
@@ -1211,7 +1245,8 @@ async fn run_profile_action(
             })?;
             let mut count = 0;
             for (name, prof) in imported.profiles {
-                config.upsert_profile(name, prof);
+                let prepared = nexql_conn::prepare_profile_for_persist(&name, prof)?;
+                config.upsert_profile(name, prepared);
                 count += 1;
             }
             if imported.default_profile.is_some() {
@@ -1221,6 +1256,29 @@ async fn run_profile_action(
             println!("✓ Imported {count} profile(s) into {}", dest_path.display());
             if let Some(b) = backup {
                 println!("  (previous config backed up to {})", b.display());
+            }
+            Ok(())
+        }
+        ProfileAction::MigrateSecrets => {
+            let path = profile_config_path(cli)?;
+            if !path.exists() {
+                println!("no config at {} — nothing to migrate", path.display());
+                return Ok(());
+            }
+            let mut config = ConfigFile::load_path(&path)?;
+            let report = nexql_conn::migrate_plaintext_secrets(&mut config);
+            if !report.migrated.is_empty() {
+                let backup = config.save(&path)?;
+                let mut report = report;
+                report.backup = backup;
+                emit_secret_migration_report(&report);
+                println!("✓ secret migration complete for {}", path.display());
+            } else if report.failed.is_empty() {
+                println!("no plaintext credentials found in {}", path.display());
+            } else {
+                emit_secret_migration_report(&report);
+                eprintln!("secret migration failed — see warnings above");
+                std::process::exit(1);
             }
             Ok(())
         }
@@ -1315,11 +1373,19 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => eprintln!("warning: index manifest read failed ({e})"),
     }
 
+    // Warn about plaintext credentials in saved profiles (non-fatal).
+    if let Ok((_, config)) = load_profile_config(cli) {
+        for warning in nexql_conn::config_plaintext_secret_warnings(&config) {
+            eprintln!("warning: {warning}");
+        }
+    }
+
     println!("doctor: ok");
     Ok(())
 }
 
 async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error::Error>> {
+    migrate_legacy_secrets(cli);
     let cli_mode: AccessMode = if cli.access.managed_extension {
         AccessMode::Read
     } else {

@@ -1,7 +1,11 @@
-Active catalog (53 tools across Schema, Query, Context, Perf, Write, Admin, and Meta):
+Active catalog (54 tools across Schema, Query, Context, Perf, Write, Admin, and Meta):
 
-- **Schema:** `search_schema`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`, `schema_diff`, `generate_migration`, `resolve_target`
-- **Query:** `run_select`, `explain_query`, `explain_analyze`, `analyze_query_plan`, `export_query`, `deep_plan_analysis`, `auto_tune_query`
+nexql-mcp is a standalone Postgres MCP server: schema-aware SQL exploration, query
+tuning, index/DDL safety, and live database diagnostics for an LLM agent talking to
+PostgreSQL over stdio.
+
+- **Schema:** `search_schema`, `inspect_or_search`, `search_all_databases`, `describe_object`, `get_join_path`, `sample_values`, `get_ddl`, `list_schemas`, `list_objects`, `list_databases`, `list_extensions`, `find_missing_fks`, `list_roles`, `schema_diff`, `generate_migration`, `resolve_target`, `orient`
+- **Query:** `run_select`, `explain_query`, `export_query`, `deep_plan_analysis`, `auto_tune_query`
 - **Context:** `list_connections`, `get_current_context`, `switch_connection`, `get_index_status`, `server_settings`, `db_dashboard`
 - **Perf:** `table_stats`, `index_usage`, `list_running_queries`, `find_blocking_locks`, `slow_queries`, `db_health_check`, `suggest_indexes`, `find_unused_indexes`, `bloat_report`
 - **Write (Write+):** `execute_sql`, `edit_row`, `import_data`, `check_ddl_safety`

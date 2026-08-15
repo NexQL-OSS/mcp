@@ -28,3 +28,4 @@ config.local.toml
 .env
 .env.*
 graphify-out/
+mcp-publisher

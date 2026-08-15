@@ -25,12 +25,14 @@ use crate::session::ToolSession;
 use crate::sql::{is_safe_ident, parse_ref, quote_ident, quote_ref};
 
 const IMPORT_BATCH_SIZE: usize = 100;
+const MUTATION_DIFF_ROW_CAP: i64 = 100;
 
 /// Run validated SQL inside an explicit transaction; roll back on error or `dry_run`.
 pub async fn execute_sql(
     session: &Arc<ToolSession>,
     sql: &str,
     dry_run: bool,
+    include_diff: bool,
 ) -> Result<ToolOutcome, ToolError> {
     let mode = session.access_mode();
     match validate_write_sql(mode, sql)? {
@@ -64,15 +66,36 @@ pub async fn execute_sql(
     match outcome {
         Ok((rows, rows_affected)) => {
             let rows = redact_row_results(session, Some(sql), None, None, rows);
-            Ok(ToolOutcome::ok_json(json!({
+            let mut payload = json!({
                 "dry_run": dry_run,
                 "rolled_back": rolled_back,
                 "rows_affected": rows_affected,
                 "rows": rows,
-            })))
+            });
+            if include_diff && !rows.is_empty() {
+                payload["after"] = json!(rows.clone());
+            }
+            Ok(ToolOutcome::ok_json(payload))
         }
-        Err(e) => Err(e),
+        Err(e) => Err(append_constraint_hint(e)),
     }
+}
+
+fn append_constraint_hint(err: ToolError) -> ToolError {
+    if let ToolError::Execution(ref msg) = err
+        && let Some(name) = extract_constraint_name(msg)
+    {
+        return ToolError::Execution(format!("{msg} (constraint: {name})"));
+    }
+    err
+}
+
+fn extract_constraint_name(message: &str) -> Option<String> {
+    message
+        .split("constraint \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .map(str::to_owned)
 }
 
 /// Structured insert/update/delete by primary key (parameterized).
@@ -84,6 +107,14 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
     let action = args.get("action").and_then(|v| v.as_str()).ok_or_else(|| {
         ToolError::InvalidArgs("action is required (insert|update|delete)".into())
     })?;
+    let dry_run = args
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_diff = args
+        .get("include_diff")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(dry_run);
 
     let (schema, table) = parse_ref(table_ref).map_err(ToolError::InvalidArgs)?;
     if !session.filter().allows_table(&schema, &table) {
@@ -97,9 +128,15 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
 
     let result = async {
         match action.to_ascii_lowercase().as_str() {
-            "insert" => edit_row_insert(session, &client, &schema, &table, args).await,
-            "update" => edit_row_update(session, &client, &schema, &table, args).await,
-            "delete" => edit_row_delete(session, &client, &schema, &table, args).await,
+            "insert" => {
+                edit_row_insert(session, &client, &schema, &table, args, include_diff).await
+            }
+            "update" => {
+                edit_row_update(session, &client, &schema, &table, args, include_diff).await
+            }
+            "delete" => {
+                edit_row_delete(session, &client, &schema, &table, args, include_diff).await
+            }
             other => Err(ToolError::InvalidArgs(format!(
                 "Unsupported action \"{other}\". Use insert, update, or delete."
             ))),
@@ -107,15 +144,25 @@ pub async fn edit_row(session: &Arc<ToolSession>, args: &Value) -> Result<ToolOu
     }
     .await;
 
-    match &result {
-        Ok(_) => {
-            let _ = client.batch_execute("COMMIT").await;
-        }
-        Err(_) => {
-            let _ = client.batch_execute("ROLLBACK").await;
-        }
+    let rolled_back = dry_run || result.is_err();
+    if rolled_back {
+        let _ = client.batch_execute("ROLLBACK").await;
+    } else {
+        let _ = client.batch_execute("COMMIT").await;
+        let (connection_id, database) = session.active_context().await;
+        session.mark_index_stale(&connection_id, &database);
     }
-    result
+
+    match result {
+        Ok(mut outcome) => {
+            if let Some(obj) = outcome.structured.as_mut().and_then(|v| v.as_object_mut()) {
+                obj.insert("dry_run".into(), json!(dry_run));
+                obj.insert("rolled_back".into(), json!(rolled_back));
+            }
+            Ok(outcome)
+        }
+        Err(e) => Err(append_constraint_hint(e)),
+    }
 }
 
 async fn edit_row_insert(
@@ -124,6 +171,7 @@ async fn edit_row_insert(
     schema: &str,
     table: &str,
     args: &Value,
+    include_diff: bool,
 ) -> Result<ToolOutcome, ToolError> {
     let values = args
         .get("values")
@@ -158,11 +206,16 @@ async fn edit_row_insert(
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
     let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
-    Ok(ToolOutcome::ok_json(json!({
+    let mut payload = json!({
         "action": "insert",
         "table": format!("{schema}.{table}"),
+        "rows_affected": rows.len(),
         "rows": rows,
-    })))
+    });
+    if include_diff {
+        payload["after"] = json!(rows);
+    }
+    Ok(ToolOutcome::ok_json(payload))
 }
 
 async fn edit_row_update(
@@ -171,6 +224,7 @@ async fn edit_row_update(
     schema: &str,
     table: &str,
     args: &Value,
+    include_diff: bool,
 ) -> Result<ToolOutcome, ToolError> {
     let pk = args
         .get("pk")
@@ -192,6 +246,16 @@ async fn edit_row_update(
     }
 
     let column_types = load_column_types(client, schema, table).await?;
+    let (where_sql, pk_params) = pk_where_clause(pk, &column_types)?;
+    if include_diff {
+        ensure_pk_row_cap(client, schema, table, &where_sql, &pk_params).await?;
+    }
+    let before = if include_diff {
+        snapshot_rows(client, schema, table, &where_sql, &pk_params).await?
+    } else {
+        Vec::new()
+    };
+
     let mut set_cols = Vec::new();
     let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
     for (col, val) in values {
@@ -203,6 +267,7 @@ async fn edit_row_update(
             val,
         )?);
     }
+    let pk_offset = params.len();
     let mut where_cols = Vec::new();
     for (col, val) in pk {
         validate_column_name(col)?;
@@ -213,6 +278,7 @@ async fn edit_row_update(
             val,
         )?);
     }
+    let _ = pk_offset;
     let sql = format!(
         "UPDATE {} SET {} WHERE {} RETURNING *",
         quote_ref(schema, table),
@@ -224,12 +290,20 @@ async fn edit_row_update(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
-    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
-    Ok(ToolOutcome::ok_json(json!({
+    let after =
+        redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
+    let mut payload = json!({
         "action": "update",
         "table": format!("{schema}.{table}"),
-        "rows": rows,
-    })))
+        "rows_affected": after.len(),
+        "rows": after,
+    });
+    if include_diff {
+        payload["before"] = json!(before);
+        payload["after"] = json!(after);
+        payload["diff"] = json!(compute_row_diff(&before, &after));
+    }
+    Ok(ToolOutcome::ok_json(payload))
 }
 
 async fn edit_row_delete(
@@ -238,6 +312,7 @@ async fn edit_row_delete(
     schema: &str,
     table: &str,
     args: &Value,
+    include_diff: bool,
 ) -> Result<ToolOutcome, ToolError> {
     let pk = args
         .get("pk")
@@ -249,33 +324,39 @@ async fn edit_row_delete(
         ));
     }
     let column_types = load_column_types(client, schema, table).await?;
-    let mut where_cols = Vec::new();
-    let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
-    for (col, val) in pk {
-        validate_column_name(col)?;
-        let idx = params.len() + 1;
-        where_cols.push(format!("{} = ${idx}", quote_ident(col)));
-        params.push(json_to_sql_param(
-            column_types.get(col).map(String::as_str),
-            val,
-        )?);
+    let (where_sql, params) = pk_where_clause(pk, &column_types)?;
+    if include_diff {
+        ensure_pk_row_cap(client, schema, table, &where_sql, &params).await?;
     }
+    let before = if include_diff {
+        snapshot_rows(client, schema, table, &where_sql, &params).await?
+    } else {
+        Vec::new()
+    };
     let sql = format!(
         "DELETE FROM {} WHERE {} RETURNING *",
         quote_ref(schema, table),
-        where_cols.join(" AND ")
+        where_sql
     );
     let param_refs: Vec<&(dyn ToSql + Sync)> = params
         .iter()
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
-    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
-    Ok(ToolOutcome::ok_json(json!({
+    let after =
+        redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
+    let mut payload = json!({
         "action": "delete",
         "table": format!("{schema}.{table}"),
-        "rows": rows,
-    })))
+        "rows_affected": after.len(),
+        "rows": after,
+    });
+    if include_diff {
+        payload["before"] = json!(before);
+        payload["after"] = json!(after);
+        payload["diff"] = json!(compute_row_diff(&before, &after));
+    }
+    Ok(ToolOutcome::ok_json(payload))
 }
 
 /// Batched INSERT from a JSON rows array.
@@ -629,6 +710,90 @@ fn assert_ddl_statement(sql: &str) -> Result<(), ToolError> {
         ));
     }
     Ok(())
+}
+
+fn pk_where_clause(
+    pk: &Map<String, Value>,
+    column_types: &HashMap<String, String>,
+) -> Result<(String, Vec<Box<dyn ToSql + Sync + Send>>), ToolError> {
+    let mut where_cols = Vec::new();
+    let mut params: Vec<Box<dyn ToSql + Sync + Send>> = Vec::new();
+    for (col, val) in pk {
+        validate_column_name(col)?;
+        let idx = params.len() + 1;
+        where_cols.push(format!("{} = ${idx}", quote_ident(col)));
+        params.push(json_to_sql_param(
+            column_types.get(col).map(String::as_str),
+            val,
+        )?);
+    }
+    Ok((where_cols.join(" AND "), params))
+}
+
+async fn ensure_pk_row_cap(
+    client: &Object,
+    schema: &str,
+    table: &str,
+    where_sql: &str,
+    params: &[Box<dyn ToSql + Sync + Send>],
+) -> Result<(), ToolError> {
+    let sql = format!(
+        "SELECT COUNT(*)::bigint FROM {} WHERE {where_sql}",
+        quote_ref(schema, table)
+    );
+    let param_refs: Vec<&(dyn ToSql + Sync)> = params
+        .iter()
+        .map(|p| p.as_ref() as &(dyn ToSql + Sync))
+        .collect();
+    let row = client.query_one(&sql, &param_refs[..]).await?;
+    let count: i64 = row.get(0);
+    if count > MUTATION_DIFF_ROW_CAP {
+        return Err(ToolError::Execution(format!(
+            "Mutation would affect {count} rows — diff capture is capped at {MUTATION_DIFF_ROW_CAP}. Narrow the primary key predicate."
+        )));
+    }
+    Ok(())
+}
+
+async fn snapshot_rows(
+    client: &Object,
+    schema: &str,
+    table: &str,
+    where_sql: &str,
+    params: &[Box<dyn ToSql + Sync + Send>],
+) -> Result<Vec<Value>, ToolError> {
+    let sql = format!(
+        "SELECT * FROM {} WHERE {where_sql}",
+        quote_ref(schema, table)
+    );
+    let param_refs: Vec<&(dyn ToSql + Sync)> = params
+        .iter()
+        .map(|p| p.as_ref() as &(dyn ToSql + Sync))
+        .collect();
+    let rows = client.query(&sql, &param_refs[..]).await?;
+    Ok(simple_rows_to_json(&rows))
+}
+
+fn compute_row_diff(before: &[Value], after: &[Value]) -> Vec<Value> {
+    let mut diffs = Vec::new();
+    let pairs = before.len().min(after.len());
+    for idx in 0..pairs {
+        let (Some(b_obj), Some(a_obj)) = (before[idx].as_object(), after[idx].as_object()) else {
+            continue;
+        };
+        for (col, before_val) in b_obj {
+            let after_val = a_obj.get(col).unwrap_or(&Value::Null);
+            if before_val != after_val {
+                diffs.push(json!({
+                    "row": idx,
+                    "column": col,
+                    "before": before_val,
+                    "after": after_val,
+                }));
+            }
+        }
+    }
+    diffs
 }
 
 fn validate_column_name(col: &str) -> Result<(), ToolError> {

@@ -119,14 +119,25 @@ async fn router_for(url: &str) -> ToolRouter {
     ToolRouter::new(session)
 }
 
+/// `run_select` returns columnar output (Issue 5): `{"columns": [...],
+/// "rows": [[...], ...]}`. Look up `column` by name and index into the first
+/// row.
 fn row_value<'a>(out: &'a nexql_tools::ToolOutcome, column: &str) -> &'a serde_json::Value {
     let structured = out.structured.as_ref().expect("structured content");
+    let columns = structured
+        .get("columns")
+        .and_then(|v| v.as_array())
+        .expect("columns array");
+    let idx = columns
+        .iter()
+        .position(|c| c.as_str() == Some(column))
+        .unwrap_or_else(|| panic!("column {column} not present (all-null columns are omitted)"));
     let rows = structured
         .get("rows")
         .and_then(|v| v.as_array())
         .expect("rows array");
     rows[0]
-        .get(column)
+        .get(idx)
         .unwrap_or_else(|| panic!("column {column}"))
 }
 

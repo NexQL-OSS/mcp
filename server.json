@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.NexQL-OSS/nexql-mcp",
-  "description": "Standalone Postgres MCP server \u2014 schema-aware, read-only by default, installable everywhere.",
+  "description": "Standalone Postgres MCP server for SQL schema exploration, query tuning, and database diagnostics \u2014 schema-aware, read-only by default.",
   "title": "NexQL Postgres MCP",
   "websiteUrl": "https://github.com/NexQL-OSS/mcp",
   "repository": {
     "url": "https://github.com/NexQL-OSS/mcp",
     "source": "github"
   },
-  "version": "0.2.4",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "nexql-mcp",
-      "version": "0.2.4",
+      "version": "0.3.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -45,7 +45,7 @@
       "registryType": "cargo",
       "registryBaseUrl": "https://crates.io",
       "identifier": "nexql-mcp",
-      "version": "0.2.4",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },

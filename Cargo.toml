@@ -18,13 +18,13 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.4"
+version = "0.3.0"
 edition = "2024"
 license = "GPL-3.0-only"
 repository = "https://github.com/NexQL-OSS/mcp"
 homepage = "https://github.com/NexQL-OSS/mcp"
 readme = "README.md"
-keywords = ["postgres", "mcp", "ai", "llm", "database"]
+keywords = ["postgres", "mcp", "sql", "llm", "database"]
 categories = ["database", "command-line-utilities"]
 rust-version = "1.88"
 
@@ -65,8 +65,8 @@ keyring = "3"
 
 # `version` is required for `cargo publish` (path-only deps are rejected on crates.io).
 # Keep these in sync with [workspace.package] version above on every release bump.
-nexql-conn = { path = "crates/nexql-conn", version = "0.2.4" }
-nexql-index = { path = "crates/nexql-index", version = "0.2.4" }
-nexql-policy = { path = "crates/nexql-policy", version = "0.2.4" }
-nexql-proto = { path = "crates/nexql-proto", version = "0.2.4" }
-nexql-tools = { path = "crates/nexql-tools", version = "0.2.4" }
+nexql-conn = { path = "crates/nexql-conn", version = "0.3.0" }
+nexql-index = { path = "crates/nexql-index", version = "0.3.0" }
+nexql-policy = { path = "crates/nexql-policy", version = "0.3.0" }
+nexql-proto = { path = "crates/nexql-proto", version = "0.3.0" }
+nexql-tools = { path = "crates/nexql-tools", version = "0.3.0" }

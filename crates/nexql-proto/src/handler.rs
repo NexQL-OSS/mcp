@@ -26,6 +26,10 @@ pub struct McpHandler {
     completions: Option<Arc<dyn CompletionBackend>>,
     server_name: String,
     server_version: String,
+    /// Human-readable name for `serverInfo.title` (MCP `Implementation` object) — the
+    /// field a client's session/discovery UI actually shows, distinct from `server_name`
+    /// (a stable machine identifier). `None` omits the field entirely.
+    server_title: Option<String>,
     client_capabilities: Arc<RwLock<ClientCapabilities>>,
     outbound_tx: Arc<RwLock<Option<mpsc::Sender<String>>>>,
     pending_responses: Arc<Mutex<HashMap<Value, oneshot::Sender<JsonRpcResponse>>>>,
@@ -41,6 +45,7 @@ impl McpHandler {
             completions: None,
             server_name: "nexql-mcp".into(),
             server_version: env!("CARGO_PKG_VERSION").into(),
+            server_title: None,
             client_capabilities: Arc::new(RwLock::new(ClientCapabilities::default())),
             outbound_tx: Arc::new(RwLock::new(None)),
             pending_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -55,6 +60,13 @@ impl McpHandler {
 
     pub fn with_prompts(mut self, backend: Arc<dyn PromptBackend>) -> Self {
         self.prompts = Some(backend);
+        self
+    }
+
+    /// Set `serverInfo.title` (MCP `Implementation` object) — a human-readable name for
+    /// discovery/session UI, distinct from the stable `server_name` identifier.
+    pub fn with_server_title(mut self, title: impl Into<String>) -> Self {
+        self.server_title = Some(title.into());
         self
     }
 
@@ -185,15 +197,20 @@ impl McpHandler {
             capabilities["completions"] = json!({});
         }
 
+        let mut server_info = json!({
+            "name": self.server_name,
+            "version": self.server_version
+        });
+        if let Some(title) = &self.server_title {
+            server_info["title"] = json!(title);
+        }
+
         JsonRpcResponse::ok(
             id,
             json!({
                 "protocolVersion": version,
                 "capabilities": capabilities,
-                "serverInfo": {
-                    "name": self.server_name,
-                    "version": self.server_version
-                },
+                "serverInfo": server_info,
                 "instructions": MCP_SERVER_INSTRUCTIONS
             }),
         )
@@ -585,6 +602,25 @@ mod tests {
         assert!(caps.get("resources").is_some());
         assert!(caps.get("prompts").is_some());
         assert!(caps.get("completions").is_none());
+    }
+
+    #[tokio::test]
+    async fn initialize_omits_server_title_by_default() {
+        let handler = McpHandler::new(Arc::new(FakeTools));
+        let req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}"#;
+        let resp = handler.handle_json(req).await.unwrap();
+        let server_info = resp.result.unwrap()["serverInfo"].clone();
+        assert_eq!(server_info["name"], "nexql-mcp");
+        assert!(server_info.get("title").is_none());
+    }
+
+    #[tokio::test]
+    async fn initialize_includes_server_title_when_set() {
+        let handler = McpHandler::new(Arc::new(FakeTools)).with_server_title("NexQL Postgres MCP");
+        let req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}"#;
+        let resp = handler.handle_json(req).await.unwrap();
+        let server_info = resp.result.unwrap()["serverInfo"].clone();
+        assert_eq!(server_info["title"], "NexQL Postgres MCP");
     }
 
     #[tokio::test]

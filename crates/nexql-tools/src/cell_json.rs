@@ -3,9 +3,9 @@
 
 //! Typed Postgres cell → JSON conversion shared by read and write tools.
 
-use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use tokio_postgres::types::{FromSql, Kind, Type};
@@ -28,6 +28,187 @@ pub fn rows_to_json_vec(rows: &[tokio_postgres::Row]) -> Vec<Value> {
 /// Convert query rows to a JSON array value (read-tool shape).
 pub fn rows_to_json_array(rows: &[tokio_postgres::Row]) -> Value {
     Value::Array(rows_to_json_vec(rows))
+}
+
+/// Like [`rows_to_json_array`] but strips the pagination helper column and returns total count.
+pub fn rows_to_json_array_with_total(
+    rows: &[tokio_postgres::Row],
+    total_col: &str,
+) -> (Option<i64>, Value) {
+    let total = rows.first().and_then(|row| {
+        row.columns()
+            .iter()
+            .enumerate()
+            .find_map(|(i, col)| {
+                if col.name() == total_col {
+                    row.try_get::<_, Option<i64>>(i).ok().flatten()
+                } else {
+                    None
+                }
+            })
+    });
+    let values: Vec<Value> = rows
+        .iter()
+        .map(|row| row_to_json_excluding(row, total_col))
+        .collect();
+    (total, Value::Array(values))
+}
+
+fn row_to_json_excluding(row: &tokio_postgres::Row, skip: &str) -> Value {
+    let mut map = serde_json::Map::new();
+    for (i, col) in row.columns().iter().enumerate() {
+        if col.name() == skip {
+            continue;
+        }
+        map.insert(col.name().to_string(), cell_to_json(row, i));
+    }
+    Value::Object(map)
+}
+
+/// Build the columnar envelope `{"columns": [...], "rows": [[...], ...],
+/// "allNullColumns": [...]}` from a homogeneous array of row objects (all
+/// same key set — caller guarantees this). All-null columns are dropped from
+/// the row arrays and listed once instead of repeating null per row.
+fn columnar_from_object_array(rows: Vec<Value>) -> Value {
+    let Some(first) = rows.first().and_then(|r| r.as_object()) else {
+        return json!({ "columns": [], "rows": rows });
+    };
+    let column_names: Vec<String> = first.keys().cloned().collect();
+
+    let mut all_null = vec![true; column_names.len()];
+    let mut grid: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let as_obj = row.as_object();
+        let mut r = Vec::with_capacity(column_names.len());
+        for (i, name) in column_names.iter().enumerate() {
+            let v = as_obj
+                .and_then(|m| m.get(name))
+                .cloned()
+                .unwrap_or(Value::Null);
+            if !v.is_null() {
+                all_null[i] = false;
+            }
+            r.push(v);
+        }
+        grid.push(r);
+    }
+
+    let kept: Vec<usize> = (0..column_names.len()).filter(|&i| !all_null[i]).collect();
+    let dropped_names: Vec<&String> = (0..column_names.len())
+        .filter(|&i| all_null[i])
+        .map(|i| &column_names[i])
+        .collect();
+    let kept_names: Vec<&String> = kept.iter().map(|&i| &column_names[i]).collect();
+    if kept.len() != column_names.len() {
+        grid = grid
+            .into_iter()
+            .map(|row| kept.iter().map(|&i| row[i].clone()).collect())
+            .collect();
+    }
+
+    let mut out = json!({ "columns": kept_names, "rows": grid });
+    if !dropped_names.is_empty() {
+        out["allNullColumns"] = json!(dropped_names);
+    }
+    out
+}
+
+/// Reshape a `{"rows": [{...}, ...], ...}` read-tool payload (already
+/// PII-redacted — this is a pure reshape, it knows nothing about policy) from
+/// per-row objects into columnar form: `{"columns": [...], "rows": [[...],
+/// ...], ...}`. Typically 3–5x fewer tokens at higher row/column counts,
+/// since column names aren't repeated per row. Sibling keys on the payload
+/// object (e.g. `truncated`, `maxRows`) are left untouched. A no-op on
+/// anything that isn't `{"rows": [{...}]}` shaped.
+pub fn columnarize_read_payload(mut payload: Value) -> Value {
+    let Some(obj) = payload.as_object_mut() else {
+        return payload;
+    };
+    let Some(Value::Array(rows)) = obj.remove("rows") else {
+        return payload;
+    };
+    if rows.first().and_then(|r| r.as_object()).is_none() {
+        // Empty result set or already non-object rows — put back untouched.
+        obj.insert("columns".into(), json!([]));
+        obj.insert("rows".into(), Value::Array(rows));
+        return payload;
+    }
+    let columnar = columnar_from_object_array(rows);
+    if let Some(cobj) = columnar.as_object() {
+        for (k, v) in cobj {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    payload
+}
+
+/// Every object in `items` has the exact same key set (order-insensitive) —
+/// the "these are genuinely rows of one result set" check. An empty slice or
+/// any non-object element fails this.
+fn is_uniform_object_array(items: &[Value]) -> bool {
+    let Some(first) = items.first().and_then(|v| v.as_object()) else {
+        return false;
+    };
+    let first_keys: std::collections::BTreeSet<&str> = first.keys().map(String::as_str).collect();
+    items.iter().all(|item| {
+        item.as_object().is_some_and(|obj| {
+            let keys: std::collections::BTreeSet<&str> = obj.keys().map(String::as_str).collect();
+            keys == first_keys
+        })
+    })
+}
+
+/// Recursively reshape every non-empty, uniform (identical key set) array of
+/// objects found anywhere in `value` into the columnar envelope — the
+/// global-default half of Issue 5. Arrays of non-objects, empty arrays, and
+/// arrays of objects with differing key sets (heterogeneous data — nothing
+/// downstream should assume they're "rows") are left exactly as they are.
+///
+/// This is intentionally more aggressive than [`columnarize_read_payload`]
+/// (which only ever looks at the top-level `"rows"` key): call sites that
+/// build genuinely non-tabular arrays of uniform-shaped objects (a hand
+/// -curated summary list, a route/path) should exclude themselves at the
+/// caller rather than rely on this function to know the difference — see
+/// `ToolRouter::call`'s exclusion list for `orient` / `get_join_path`.
+pub fn columnarize_row_arrays(value: Value) -> Value {
+    match value {
+        Value::Array(items) => {
+            if is_uniform_object_array(&items) {
+                columnar_from_object_array(items)
+            } else {
+                Value::Array(items.into_iter().map(columnarize_row_arrays).collect())
+            }
+        }
+        Value::Object(mut map) => {
+            // A `"rows"` key holding a uniform array-of-objects is the
+            // common bare-{"rows": [...]}-payload case (list_extensions,
+            // list_running_queries, ...) — flatten its columnar envelope
+            // into this object directly (top-level "columns"/"rows"),
+            // matching columnarize_read_payload's shape for run_select,
+            // instead of nesting under "rows.rows". Must happen *before*
+            // the generic per-value recursion below, which would otherwise
+            // already have turned it into a plain object by the time this
+            // check runs.
+            if let Some(Value::Array(rows)) = map.get("rows")
+                && is_uniform_object_array(rows)
+            {
+                let Some(Value::Array(rows)) = map.remove("rows") else {
+                    unreachable!("just matched Value::Array above")
+                };
+                if let Some(cobj) = columnar_from_object_array(rows).as_object() {
+                    for (k, v) in cobj {
+                        map.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, columnarize_row_arrays(v)))
+                    .collect(),
+            )
+        }
+        other => other,
+    }
 }
 
 /// Redact configured PII columns in row objects. Returns redacted JSON and column names touched.
@@ -320,6 +501,87 @@ fn cell_to_json_untyped(row: &tokio_postgres::Row, idx: usize, pg_type: &Type) -
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn columnarize_read_payload_reshapes_rows_and_drops_all_null_columns() {
+        let payload = json!({
+            "rows": [
+                { "id": 1, "name": "a", "note": null },
+                { "id": 2, "name": "b", "note": null },
+            ],
+            "truncated": true,
+            "maxRows": 500,
+        });
+        let out = columnarize_read_payload(payload);
+        assert_eq!(out["columns"], json!(["id", "name"]));
+        assert_eq!(out["rows"], json!([[1, "a"], [2, "b"]]));
+        assert_eq!(out["allNullColumns"], json!(["note"]));
+        // Sibling keys survive the reshape untouched.
+        assert_eq!(out["truncated"], json!(true));
+        assert_eq!(out["maxRows"], json!(500));
+    }
+
+    #[test]
+    fn columnarize_read_payload_empty_rows_is_noop_shape() {
+        let payload = json!({ "rows": [] });
+        let out = columnarize_read_payload(payload);
+        assert_eq!(out["columns"], json!([]));
+        assert_eq!(out["rows"], json!([]));
+    }
+
+    #[test]
+    fn columnarize_row_arrays_reshapes_nested_uniform_arrays() {
+        // Mirrors get_ddl's "table" branch shape: a top-level object with
+        // several independent nested row arrays.
+        let value = json!({
+            "table": "public.orders",
+            "columns": [
+                { "column_name": "id", "data_type": "integer" },
+                { "column_name": "status", "data_type": "text" },
+            ],
+            "constraints": [
+                { "name": "orders_pkey", "definition": "PRIMARY KEY (id)" },
+            ],
+        });
+        let out = columnarize_row_arrays(value);
+        assert_eq!(
+            out["columns"]["columns"],
+            json!(["column_name", "data_type"])
+        );
+        assert_eq!(
+            out["columns"]["rows"],
+            json!([["id", "integer"], ["status", "text"]])
+        );
+        assert_eq!(out["constraints"]["columns"], json!(["definition", "name"]));
+    }
+
+    #[test]
+    fn columnarize_row_arrays_leaves_heterogeneous_arrays_alone() {
+        // Different key sets per element — not a result set, must not be
+        // grid-ified (would silently drop/misalign fields).
+        let value = json!({
+            "items": [
+                { "a": 1, "b": 2 },
+                { "a": 1, "c": 3 },
+            ]
+        });
+        let out = columnarize_row_arrays(value.clone());
+        assert_eq!(out, value);
+    }
+
+    #[test]
+    fn columnarize_row_arrays_leaves_primitive_and_empty_arrays_alone() {
+        let value = json!({ "warnings": ["a", "b"], "empty": [] });
+        let out = columnarize_row_arrays(value.clone());
+        assert_eq!(out, value);
+    }
+
+    #[test]
+    fn columnarize_row_arrays_is_idempotent_on_already_columnar_shape() {
+        let value = json!({ "columns": ["n"], "rows": [[1], [2]] });
+        let out = columnarize_row_arrays(value.clone());
+        assert_eq!(out, value);
+    }
 
     #[test]
     fn redact_pii_replaces_matching_columns() {

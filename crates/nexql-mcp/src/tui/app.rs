@@ -57,7 +57,7 @@ pub const FIELD_DESCRIPTIONS: [&str; 10] = [
     "Port: PostgreSQL server port number. Default: 5432.",
     "Database Name: Target database name to connect to.",
     "User: Username for database authentication.",
-    "Password: User password for database authentication (stored securely in local config).",
+    "Password: Stored in the OS keyring when saved — never written to config.toml.",
     "Password Command: Shell command outputting password dynamically (e.g. 'aws secretsmanager ...').",
     "SSL Mode: Security level: disable (local dev) | prefer | require (cloud DB) | verify-full.",
     "Access Mode: MCP permissions policy: read (read-only queries) | write (queries + DML) | admin (full DDL).",
@@ -179,11 +179,7 @@ pub struct App {
 
 impl App {
     pub fn new(config_path: PathBuf) -> Self {
-        let config = if config_path.exists() {
-            ConfigFile::load_path(&config_path).unwrap_or_default()
-        } else {
-            ConfigFile::default()
-        };
+        let (config, migration_status) = super::load_config_migrated(&config_path);
         let mut profile_names: Vec<String> = config.profiles.keys().cloned().collect();
         profile_names.sort();
         Self {
@@ -192,7 +188,7 @@ impl App {
             profile_names,
             selected: 0,
             screen: Screen::ProfileList,
-            status: None,
+            status: migration_status,
             form: ProfileForm::empty(),
             test_outcome: TestOutcome::Idle,
             test_rx: None,
@@ -589,6 +585,14 @@ impl App {
                     return;
                 };
                 let name = self.form.name.clone();
+                let profile = match nexql_conn::prepare_profile_for_persist(&name, profile) {
+                    Ok(profile) => profile,
+                    Err(e) => {
+                        self.status = Some(format!("failed to secure credentials: {e}"));
+                        self.screen = Screen::ProfileList;
+                        return;
+                    }
+                };
                 self.config.upsert_profile(name, profile);
                 match self.config.save(&self.config_path) {
                     Ok(_backup) => {

@@ -8,14 +8,17 @@
 
 pub mod cell_json;
 pub mod completions;
+pub mod critique;
 pub mod dba_guard;
 pub mod detect;
 pub mod error;
 pub mod exec;
 pub mod export;
+pub mod format;
 pub mod plan;
 pub mod prompts;
 pub mod registry;
+pub mod resolve;
 pub mod resources;
 pub mod schema;
 pub mod schema_diff;
@@ -39,5 +42,6 @@ pub use schema::{
     tools_for_profile,
 };
 pub use session::{
-    ConnectionInfo, ConnectionPolicy, ToolSession, default_index_root, policy_from_profile,
+    CheckoutTarget, ConnectionInfo, ConnectionPolicy, ScopedContext, ToolSession,
+    default_index_root, policy_from_profile,
 };

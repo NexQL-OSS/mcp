@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f0e8" />
+    <title>NexQL MCP — Postgres context for AI agents</title>
+    <meta
+      name="description"
+      content="Install and configure NexQL MCP, a schema-aware Postgres MCP server for Claude, Cursor, VS Code, and other AI clients."
+    />
+    <meta property="og:title" content="NexQL MCP — Postgres context for AI agents" />
+    <meta
+      property="og:description"
+      content="A standalone, schema-aware Postgres MCP server. Read-only by default, installable everywhere."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="canonical" href="https://nexql-mcp.astrx.dev/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#top" aria-label="NexQL MCP home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="presentation"><path d="M7 6.5h5.2l7.6 10.7V6.5H25v19h-5.1L12.2 14.8v10.7H7z" /><path class="brand-mark-cut" d="M16 6.5h2.5l6.5 9.2v3.7z" /></svg>
+          </span>
+          <span class="brand-word">NexQL</span>
+          <span class="brand-product">MCP</span>
+          <span class="version-pill">v0.2.4</span>
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-nav">Menu</button>
+        <nav class="topnav" aria-label="Primary">
+          <a href="#install">Install</a>
+          <a href="#configure">Configure</a>
+          <a href="#clients">Clients</a>
+          <a href="#tools">Tools</a>
+          <a href="https://github.com/NexQL-OSS/mcp" target="_blank" rel="noreferrer">GitHub ↗</a>
+        </nav>
+      </div>
+      <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation">
+        <a href="#install">Install</a>
+        <a href="#configure">Configure</a>
+        <a href="#clients">Clients</a>
+        <a href="#tools">Tools</a>
+        <a href="https://github.com/NexQL-OSS/mcp" target="_blank" rel="noreferrer">GitHub ↗</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero page-width">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-dot"></span> Standalone Postgres MCP server</p>
+          <h1>Give your AI<br /><em>better database context.</em></h1>
+          <p class="hero-lead">
+            NexQL MCP connects your agent to PostgreSQL with an offline schema index, guarded SQL tools, and production-aware diagnostics.
+            It starts read-only. You decide what it can change.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#install">Get started <span>↓</span></a>
+            <a class="button button-quiet" href="https://github.com/NexQL-OSS/mcp" target="_blank" rel="noreferrer">Read the source <span>↗</span></a>
+          </div>
+          <div class="hero-meta">
+            <span><i class="status-dot"></i> read-only by default</span>
+            <span>·</span>
+            <span>stdio + HTTP</span>
+            <span>·</span>
+            <span>Postgres 12–17</span>
+          </div>
+        </div>
+        <div class="hero-console" aria-label="Example NexQL MCP session">
+          <div class="console-topline">
+            <span><i class="traffic traffic-red"></i><i class="traffic traffic-yellow"></i><i class="traffic traffic-green"></i></span>
+            <span class="console-label">nexql-mcp / session</span>
+            <span class="console-state">● connected</span>
+          </div>
+          <div class="console-body">
+            <p class="console-comment">// ask about the database, not just SQL</p>
+            <p><span class="console-prompt">agent</span><span class="console-muted">›</span> Find the slowest queries from the last hour.</p>
+            <div class="console-response">
+              <span class="response-mark">↳</span>
+              <span>Checking <strong>pg_stat_statements</strong> and active locks…</span>
+            </div>
+            <div class="console-result">
+              <div><span>01</span><b>checkout_total</b><em>2.8s avg</em></div>
+              <div><span>02</span><b>orders_by_customer</b><em>1.4s avg</em></div>
+              <div><span>03</span><b>inventory_snapshot</b><em>0.9s avg</em></div>
+            </div>
+            <p class="console-comment console-comment-bottom">// schema-aware. query-grounded. explainable.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="signal-strip page-width" aria-label="NexQL MCP capabilities">
+        <div><span class="signal-number">01</span><strong>Schema-aware</strong><small>indexes tables, joins, and value profiles</small></div>
+        <div><span class="signal-number">02</span><strong>Guarded</strong><small>read / write / admin access modes</small></div>
+        <div><span class="signal-number">03</span><strong>Everywhere</strong><small>Claude, Cursor, VS Code, Zed, and more</small></div>
+      </section>
+
+      <div class="docs-shell page-width">
+        <aside class="docs-sidebar" aria-label="On this page">
+          <p class="sidebar-label">Documentation</p>
+          <a class="sidebar-link is-active" href="#install">Quickstart</a>
+          <a class="sidebar-link" href="#configure">Configuration</a>
+          <a class="sidebar-link" href="#clients">Connect a client</a>
+          <a class="sidebar-link" href="#tools">Tool surface</a>
+          <a class="sidebar-link" href="#safety">Safety model</a>
+          <a class="sidebar-link" href="#http">HTTP transport</a>
+          <a class="sidebar-link" href="#troubleshooting">Troubleshooting</a>
+          <div class="sidebar-note">
+            <span class="sidebar-note-mark">N</span>
+            <p>Built for agents that need to understand the shape of your data before they touch it.</p>
+          </div>
+        </aside>
+
+        <div class="docs-content">
+          <section class="doc-section" id="install">
+            <div class="section-kicker"><span>01</span> Start here</div>
+            <h2>Install in under a minute.</h2>
+            <p class="section-intro">Choose the path that fits your machine. Every installer ships the same server and the same guardrails.</p>
+
+            <div class="install-grid">
+              <article class="install-card install-card-featured">
+                <div class="card-heading"><span class="card-icon">⌁</span><div><h3>Quick install</h3><p>macOS + Linux</p></div></div>
+                <div class="code-block compact"><button class="copy-button" data-copy="curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash" aria-label="Copy quick install command">copy</button><code><span class="code-muted">$</span> curl -fsSL https://raw.githubusercontent.com/<br />&nbsp;&nbsp;NexQL-OSS/mcp/main/scripts/install.sh | bash</code></div>
+                <p class="card-footnote">Installs to <code>/usr/local/bin</code>, or <code>~/.local/bin</code> without sudo.</p>
+              </article>
+              <article class="install-card">
+                <div class="card-heading"><span class="card-icon">⌘</span><div><h3>npm / npx</h3><p>Node.js environments</p></div></div>
+                <div class="code-block compact"><button class="copy-button" data-copy="npx -y nexql-mcp postgres://dev@localhost:5432/appdb" aria-label="Copy npx command">copy</button><code><span class="code-muted">$</span> npx -y nexql-mcp<br /><span class="code-muted">&nbsp;&nbsp;postgres://dev@localhost:5432/appdb</span></code></div>
+                <p class="card-footnote">Platform binary resolved automatically. No Rust toolchain.</p>
+              </article>
+              <article class="install-card">
+                <div class="card-heading"><span class="card-icon">◈</span><div><h3>Docker</h3><p>Isolated runtime</p></div></div>
+                <div class="code-block compact"><button class="copy-button" data-copy="docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.4 postgres://dev@host.docker.internal:5432/appdb" aria-label="Copy Docker command">copy</button><code><span class="code-muted">$</span> docker run --rm -i ghcr.io/nexql-oss/<br />&nbsp;&nbsp;mcp:0.2.4 postgres://dev@host.docker.internal:5432/appdb</code></div>
+                <p class="card-footnote">Published to GHCR on every release.</p>
+              </article>
+            </div>
+
+            <div class="quick-check">
+              <div class="quick-check-copy"><span class="check-mark">✓</span><div><strong>Verify the connection</strong><p>Run this before wiring the server into an agent.</p></div></div>
+              <div class="code-line"><code>nexql-mcp postgres://dev@localhost:5432/appdb doctor</code><button class="copy-button" data-copy="nexql-mcp postgres://dev@localhost:5432/appdb doctor">copy</button></div>
+            </div>
+            <p class="install-alt"><span>Windows:</span> <code>irm https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.ps1 | iex</code> · <a href="https://github.com/NexQL-OSS/mcp/releases/latest" target="_blank" rel="noreferrer">manual releases ↗</a></p>
+          </section>
+
+          <section class="doc-section" id="configure">
+            <div class="section-kicker"><span>02</span> Connection setup</div>
+            <h2>One connection string.<br /><em>Or a profile you can trust.</em></h2>
+            <p class="section-intro">Use a positional URL for a quick session. For teams and repeatable environments, keep named profiles in <code>~/.config/nexql-mcp/config.toml</code>.</p>
+
+            <div class="split-example">
+              <div class="split-copy"><span class="mini-label">Fastest path</span><h3>One-off connection</h3><p>Nothing is written to disk. Great for a local database or a temporary investigation.</p></div>
+              <div class="code-block"><button class="copy-button" data-copy="nexql-mcp postgres://dev@localhost:5432/appdb">copy</button><code><span class="code-muted">$</span> nexql-mcp postgres://dev@localhost:5432/appdb</code></div>
+            </div>
+
+            <div class="config-example">
+              <div class="example-heading"><div><span class="mini-label">Recommended for shared workflows</span><h3>Profiles keep intent visible</h3></div><button class="copy-button" data-copy='default_profile = "local"\n\n[profiles.local]\nurl = "postgres://dev@localhost:5432/appdb"\naccess_mode = "read"\n\n[profiles.prod]\nhost = "prod.example.com"\ndbname = "app"\nuser = "readonly_agent"\npassword_command = "op read op://vault/pg/password"\nsslmode = "verify-full"\naccess_mode = "read"\nschemas = ["public", "billing"]\ndeny_tables = ["auth.*"]\npii_columns = ["public.users.ssn", "public.users.email"]\nmax_rows = 200'>copy config</button></div>
+              <pre><code><span class="toml-key">default_profile</span> = <span class="toml-string">"local"</span>
+
+[<span class="toml-section">profiles.local</span>]
+<span class="toml-key">url</span> = <span class="toml-string">"postgres://dev@localhost:5432/appdb"</span>
+<span class="toml-key">access_mode</span> = <span class="toml-string">"read"</span>
+
+[<span class="toml-section">profiles.prod</span>]
+<span class="toml-key">host</span> = <span class="toml-string">"prod.example.com"</span>
+<span class="toml-key">dbname</span> = <span class="toml-string">"app"</span>
+<span class="toml-key">user</span> = <span class="toml-string">"readonly_agent"</span>
+<span class="toml-key">password_command</span> = <span class="toml-string">"op read op://vault/pg/password"</span>
+<span class="toml-key">sslmode</span> = <span class="toml-string">"verify-full"</span>
+<span class="toml-key">access_mode</span> = <span class="toml-string">"read"</span>
+<span class="toml-key">schemas</span> = [<span class="toml-string">"public"</span>, <span class="toml-string">"billing"</span>]
+<span class="toml-key">deny_tables</span> = [<span class="toml-string">"auth.*"</span>]
+<span class="toml-key">pii_columns</span> = [<span class="toml-string">"public.users.ssn"</span>, <span class="toml-string">"public.users.email"</span>]
+<span class="toml-key">max_rows</span> = <span class="toml-number">200</span></code></pre>
+            </div>
+            <p class="security-note"><span>◎</span> Never store plaintext secrets in config. Use <code>password_command</code>, the OS keyring, or <code>DATABASE_URL</code>. Set <code>NEXQL_MCP_CONFIG</code> to override the config path.</p>
+          </section>
+
+          <section class="doc-section" id="clients">
+            <div class="section-kicker"><span>03</span> Client wiring</div>
+            <h2>Connect the agent<br /><em>you already use.</em></h2>
+            <p class="section-intro">The <code>init</code> command prints a paste-ready config for your client. Or run <code>nexql-mcp tui</code> for guided profile setup and multi-client wiring.</p>
+
+            <div class="client-tabs" data-tabs>
+              <div class="tab-list" role="tablist" aria-label="MCP client examples">
+                <button class="tab-button is-selected" type="button" role="tab" aria-selected="true" data-tab="cursor">Cursor</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="claude">Claude</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="vscode">VS Code</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="zed">Zed</button>
+              </div>
+              <div class="tab-panels">
+                <div class="tab-panel is-visible" data-panel="cursor"><div class="panel-heading"><div><span class="mini-label">Project config</span><h3><code>.cursor/mcp.json</code></h3></div><button class="copy-button" data-copy='{"mcpServers":{"nexql-mcp":{"command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}'>copy json</button></div><pre><code>{
+  <span class="json-key">"mcpServers"</span>: {
+    <span class="json-key">"nexql-mcp"</span>: {
+      <span class="json-key">"command"</span>: <span class="json-string">"nexql-mcp"</span>,
+      <span class="json-key">"args"</span>: [<span class="json-string">"postgres://dev@localhost:5432/appdb"</span>]
+    }
+  }
+}</code></pre></div>
+                <div class="tab-panel" data-panel="claude"><div class="panel-heading"><div><span class="mini-label">Claude Desktop</span><h3><code>claude_desktop_config.json</code></h3></div><button class="copy-button" data-copy='{"mcpServers":{"nexql":{"command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}'>copy json</button></div><pre><code>{
+  <span class="json-key">"mcpServers"</span>: {
+    <span class="json-key">"nexql"</span>: {
+      <span class="json-key">"command"</span>: <span class="json-string">"nexql-mcp"</span>,
+      <span class="json-key">"args"</span>: [<span class="json-string">"postgres://dev@localhost:5432/appdb"</span>]
+    }
+  }
+}</code></pre></div>
+                <div class="tab-panel" data-panel="vscode"><div class="panel-heading"><div><span class="mini-label">Workspace config</span><h3><code>.vscode/mcp.json</code></h3></div><button class="copy-button" data-copy='{"servers":{"nexql-mcp":{"type":"stdio","command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}'>copy json</button></div><pre><code>{
+  <span class="json-key">"servers"</span>: {
+    <span class="json-key">"nexql-mcp"</span>: {
+      <span class="json-key">"type"</span>: <span class="json-string">"stdio"</span>,
+      <span class="json-key">"command"</span>: <span class="json-string">"nexql-mcp"</span>,
+      <span class="json-key">"args"</span>: [<span class="json-string">"postgres://dev@localhost:5432/appdb"</span>]
+    }
+  }
+}</code></pre></div>
+                <div class="tab-panel" data-panel="zed"><div class="panel-heading"><div><span class="mini-label">Zed settings</span><h3><code>settings.json</code></h3></div><button class="copy-button" data-copy='{"context_servers":{"nexql-mcp":{"source":"custom","command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}'>copy json</button></div><pre><code>{
+  <span class="json-key">"context_servers"</span>: {
+    <span class="json-key">"nexql-mcp"</span>: {
+      <span class="json-key">"source"</span>: <span class="json-string">"custom"</span>,
+      <span class="json-key">"command"</span>: <span class="json-string">"nexql-mcp"</span>,
+      <span class="json-key">"args"</span>: [<span class="json-string">"postgres://dev@localhost:5432/appdb"</span>]
+    }
+  }
+}</code></pre></div>
+              </div>
+            </div>
+            <div class="client-command"><span class="command-label">or let NexQL print it</span><div class="code-line"><code>nexql-mcp init <span data-client-name>cursor</span> postgres://dev@localhost:5432/appdb</code><button class="copy-button" data-copy="nexql-mcp init cursor postgres://dev@localhost:5432/appdb">copy</button></div></div>
+            <p class="more-clients">Also supported: Claude Code, VS Code Copilot, Windsurf, Continue, JetBrains, OpenAI Agents, Antigravity, DeepSeek, Kimi, Ollama, and Qwen. <a href="https://github.com/NexQL-OSS/mcp/blob/main/docs/clients/README.md" target="_blank" rel="noreferrer">See every client ↗</a></p>
+          </section>
+
+          <section class="doc-section" id="tools">
+            <div class="section-kicker"><span>04</span> What it can do</div>
+            <h2>Useful context, not<br /><em>just a query pipe.</em></h2>
+            <p class="section-intro">The active catalog groups schema discovery, query work, context, performance, write, admin, and connection setup into one MCP server.</p>
+            <div class="tool-grid">
+              <article class="tool-card"><span class="tool-number">01</span><h3>Schema</h3><p>Search objects, describe tables, find join paths, inspect DDL, compare schemas, and surface missing foreign keys.</p><div class="tool-list">search_schema · describe_object · get_join_path · schema_diff</div></article>
+              <article class="tool-card"><span class="tool-number">02</span><h3>Query</h3><p>Run safe selects, explain plans, export results, and analyze or tune expensive queries.</p><div class="tool-list">run_select · explain_query · export_query · auto_tune_query</div></article>
+              <article class="tool-card"><span class="tool-number">03</span><h3>Performance</h3><p>Inspect table stats, index usage, locks, slow queries, health, bloat, and missing index opportunities.</p><div class="tool-list">db_health_check · slow_queries · suggest_indexes</div></article>
+              <article class="tool-card"><span class="tool-number">04</span><h3>Context</h3><p>Keep the agent oriented across connections, server settings, dashboard signals, and index state.</p><div class="tool-list">switch_connection · server_settings · db_dashboard</div></article>
+              <article class="tool-card"><span class="tool-number">05</span><h3>Write + Admin</h3><p>Opt into mutations only when you mean to. Transactions, dry runs, and explicit access modes keep the sharp edges visible.</p><div class="tool-list">execute_sql · apply_ddl · run_maintenance</div></article>
+              <article class="tool-card"><span class="tool-number">06</span><h3>Connection</h3><p>Set up, test, save, export, and import profiles without leaking secrets into project config.</p><div class="tool-list">setup_connection · test_profile · export_profile</div></article>
+            </div>
+            <div class="tool-callout"><span class="callout-icon">⌁</span><p><strong>Schema index is the moat.</strong> NexQL builds a local index with lexical search, inferred join graphs, value profiles, and optional embeddings — so the model can ground its next action in the database that actually exists.</p></div>
+          </section>
+
+          <section class="doc-section" id="safety">
+            <div class="section-kicker"><span>05</span> Safety model</div>
+            <h2>Start narrow.<br /><em>Open up deliberately.</em></h2>
+            <p class="section-intro">All tools are advertised to the MCP client, but access is enforced at call time. A write-capable model should never be an accidental default.</p>
+            <div class="safety-table" role="table" aria-label="NexQL MCP access modes">
+              <div class="safety-row safety-head" role="row"><span>Access mode</span><span>Read tools</span><span>Write tools</span><span>Admin tools</span></div>
+              <div class="safety-row" role="row"><strong><span class="mode-dot mode-read"></span> read <small>default</small></strong><span class="allowed">allowed</span><span class="blocked">refused</span><span class="blocked">refused</span></div>
+              <div class="safety-row" role="row"><strong><span class="mode-dot mode-write"></span> write</strong><span class="allowed">allowed</span><span class="allowed">allowed</span><span class="blocked">refused</span></div>
+              <div class="safety-row" role="row"><strong><span class="mode-dot mode-admin"></span> admin</strong><span class="allowed">allowed</span><span class="allowed">allowed</span><span class="allowed">allowed</span></div>
+            </div>
+            <div class="safety-points"><div><span>01</span><p>Use <code>schemas</code>, <code>deny_tables</code>, <code>pii_columns</code>, and <code>max_rows</code> to scope a profile.</p></div><div><span>02</span><p>Write/admin startup refuses superuser connections unless <code>--i-know-what-im-doing</code> is explicit.</p></div><div><span>03</span><p>Use <code>dry_run=true</code> for transactional write and DDL tools before applying changes.</p></div></div>
+          </section>
+
+          <section class="doc-section" id="http">
+            <div class="section-kicker"><span>06</span> Optional transport</div>
+            <h2>Stdio by default.<br /><em>HTTP when you need it.</em></h2>
+            <p class="section-intro">Local desktop clients usually want stdio. For a service or remote sidecar, enable the built-in HTTP transport and protect any non-loopback bind with a bearer token.</p>
+            <div class="http-example"><div class="http-copy"><span class="mini-label">Streamable HTTP</span><h3>Bind it deliberately</h3><p>Default port is <code>8899</code>. Non-loopback binds are refused without <code>--http-token</code> or <code>NEXQL_MCP_HTTP_TOKEN</code>.</p><a href="https://github.com/NexQL-OSS/mcp/blob/main/docs/CUTOVER.md" target="_blank" rel="noreferrer">Read transport notes ↗</a></div><div class="code-block"><button class="copy-button" data-copy="NEXQL_MCP_HTTP_TOKEN=change-me nexql-mcp --http --bind 0.0.0.0 --http-port 8899">copy</button><code><span class="code-muted">$</span> NEXQL_MCP_HTTP_TOKEN=change-me \
+  nexql-mcp --http \
+  --bind 0.0.0.0 --http-port 8899</code></div></div>
+          </section>
+
+          <section class="doc-section" id="troubleshooting">
+            <div class="section-kicker"><span>07</span> If something is off</div>
+            <h2>Diagnose the path,<br /><em>then the client.</em></h2>
+            <div class="troubleshoot-list">
+              <details open><summary><span>01</span> The client says it cannot spawn the server</summary><p>Run <code>which nexql-mcp</code> (or <code>where nexql-mcp</code> on Windows), then use <code>nexql-mcp init &lt;client&gt;</code> again. If you installed with npm, make sure the package's bin directory is on <code>PATH</code>.</p></details>
+              <details><summary><span>02</span> The connection works, but the agent sees no useful schema</summary><p>Run <code>nexql-mcp postgres://… doctor</code>, then build the index with <code>nexql-mcp postgres://… index build</code>. Check that the profile's <code>schemas</code> list includes the objects you want.</p></details>
+              <details><summary><span>03</span> Linux reports a glibc error</summary><p>Prebuilt GNU/Linux binaries require glibc 2.35+. Upgrade to a current release, build with <code>cargo install nexql-mcp</code>, or use the published Docker image.</p></details>
+              <details><summary><span>04</span> I need guided setup</summary><p>Run <code>nexql-mcp tui</code>. It can create and test profiles, merge client config, show a diff, and keep a timestamped backup before writing.</p></details>
+            </div>
+            <div class="final-cta"><div><span class="mini-label">Ready when you are</span><h3>Let your agent ask better questions.</h3></div><a class="button button-primary" href="#install">Install NexQL MCP <span>↑</span></a></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer page-width">
+      <div class="footer-brand"><span class="brand-mark brand-mark-small" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 6.5h5.2l7.6 10.7V6.5H25v19h-5.1L12.2 14.8v10.7H7z" /></svg></span><span>NexQL MCP</span></div>
+      <div class="footer-links"><a href="https://nexql.astrx.dev/" target="_blank" rel="noreferrer">NexQL ↗</a><a href="https://nexql-themes.astrx.dev/" target="_blank" rel="noreferrer">Themes ↗</a><a href="https://github.com/NexQL-OSS/mcp" target="_blank" rel="noreferrer">GitHub ↗</a><span>GPL-3.0-only</span></div>
+    </footer>
+    <div class="toast" role="status" aria-live="polite">Copied</div>
+    <script src="script.js"></script>
+  </body>
+</html>
