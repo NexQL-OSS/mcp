@@ -7,18 +7,22 @@
    deliberately rather than by overwriting the file.
 
    Dropped in the fork (nothing here renders them):
-     pricing tiers        .nx-pricing-grid / .nx-tier-*   (~132 lines)
-     changelog + releases .nx-changelog / .nx-release-*   (~84 lines)
-     AI banner            .nx-ai-banner-*                 (~49 lines)
-     open-core grid       .nx-open-*                      (~14 lines)
-     topbar buttons       .topbar-github-btn / -install   (~29 lines)
-     hero KPI strip       .hero-kpi-strip                 (~35 lines)
+     pricing tiers        .nx-pricing-grid / .nx-tier-*
+     changelog + releases .nx-changelog / .nx-release-*
+     AI banner            .nx-ai-banner-*
+     open-core grid       .nx-open-*
+     topbar buttons       .topbar-github-btn / -install
+     hero KPI strip       .hero-kpi-strip
+     bar chart            .nx-chart-*
+     result tabs          .nx-pg-tabs
+     CLI copy block       .nx-cli-copy / .nx-cli-dollar / .nx-btn--cli
+     MCP section frame    .nx-mcp / .nx-mcp-glow / .nx-mcp-grid
 
-   Kept deliberately: .nx-playground + .nx-pg-* and .nx-table / .nx-chart.
-   Those are the chassis the AgentHandshake island renders into.
+   Kept deliberately: .nx-playground + .nx-pg-* and .nx-table — that is the
+   chassis the AgentHandshake island renders into.
 
-   .hero-eyebrow and .min-cta moved to chrome.css. All colour comes from the
-   tokens in tokens.css, so this file repaints with the theme picker.
+   .hero-eyebrow moved to chrome.css. All colour comes from the tokens in
+   tokens.css, so this file repaints with the theme picker.
    =========================================================================== */
 
 @keyframes nxGradShift {
@@ -97,26 +101,6 @@
   }
 }
 
-.hero-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f26b3a;
-  display: inline-block;
-  animation: nxPulse 1.8s ease-in-out infinite;
-  flex: none;
-}
-
-.min-cta.nx-copy-install {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  gap: 8px;
-}
-
-.nx-cli-dollar {
-  color: var(--muted);
-}
-
 /* —— Marquee —— */
 .nx-marquee {
   overflow: hidden;
@@ -180,14 +164,6 @@
   margin: 0 0 14px;
 }
 
-.nx-kicker--amber {
-  color: #f26b3a;
-}
-
-.nx-kicker--gold {
-  color: #f5b23a;
-}
-
 .nx-title {
   font-family: var(--font-display);
   font-size: clamp(1.9rem, 3.4vw, 2.9rem);
@@ -223,19 +199,6 @@
   line-height: 1.6;
   color: var(--muted);
   margin: 0;
-}
-
-.nx-faint {
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--nx-faint);
-  margin: 0;
-}
-
-.nx-code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  color: var(--fg);
 }
 
 .nx-inline-link {
@@ -371,31 +334,6 @@
   padding: 2px 8px;
 }
 
-.nx-pg-tabs {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--nx-line);
-  border-radius: 999px;
-}
-
-.nx-pg-tabs button {
-  border: 0;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-}
-
-.nx-pg-tabs button.is-active {
-  background: linear-gradient(105deg, #6c4cd6, #e0388f);
-  color: #fff;
-}
-
 .nx-pg-chat {
   padding: 16px 18px;
   border-bottom: 1px solid var(--nx-line);
@@ -514,49 +452,6 @@
   color: var(--muted);
 }
 
-.nx-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  height: 168px;
-  padding-top: 8px;
-}
-
-.nx-chart-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
-}
-
-.nx-chart-bar {
-  width: 100%;
-  border-radius: 7px 7px 3px 3px;
-  background: var(--nex-grad);
-  opacity: 0.85;
-  transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-  min-height: 4px;
-}
-
-.nx-chart-v {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--muted);
-}
-
-.nx-chart-l {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--nx-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
 /* —— Features —— */
 .nx-feature-grid {
   display: grid;
@@ -630,44 +525,6 @@
 }
 
 /* —— MCP —— */
-.nx-mcp {
-  border: 1px solid var(--nx-line2);
-  border-radius: 24px;
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, #6c4cd6 12%, var(--panel)),
-    var(--panel) 60%
-  );
-  padding: clamp(28px, 4vw, 52px);
-  position: relative;
-  overflow: hidden;
-}
-
-.nx-mcp-glow {
-  position: absolute;
-  top: -40%;
-  right: -10%;
-  width: 520px;
-  height: 520px;
-  border-radius: 50%;
-  background: var(--nex-grad);
-  filter: blur(120px);
-  opacity: 0.16;
-  pointer-events: none;
-}
-
-.nx-mcp-grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: clamp(28px, 4vw, 56px);
-  align-items: center;
-}
-
-.nx-mcp .nx-lede {
-  margin-bottom: 22px;
-}
-
 .nx-agent-chips {
   display: flex;
   flex-wrap: wrap;
@@ -682,6 +539,30 @@
   font-size: 13px;
   color: var(--muted);
   background: color-mix(in srgb, var(--bg) 50%, transparent);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.nx-agent-chip:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Selected filter — used by the KB category chips. */
+.nx-agent-chip.is-active {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  font-weight: 600;
+}
+
+.nx-agent-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .nx-mcp-tools {
@@ -857,20 +738,6 @@
   box-shadow: 0 14px 40px -14px rgba(108, 76, 214, 0.9);
 }
 
-.nx-btn--cli {
-  min-height: 52px;
-  padding: 0 22px;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 500;
-  background: var(--nx-bg2);
-}
-
-.nx-cli-copy {
-  color: #f26b3a;
-  font-weight: 700;
-}
 /* —— FAQ —— */
 .nx-faq {
   display: flex;

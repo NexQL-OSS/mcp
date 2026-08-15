@@ -154,8 +154,7 @@ body {
   }
 }
 
-.brand-gradient,
-.grad-text {
+.brand-gradient {
   background: var(--nex-grad);
   -webkit-background-clip: text;
   background-clip: text;
@@ -163,12 +162,8 @@ body {
   color: transparent;
 }
 
-.hero-serif-em {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-}
-
+/* Kept deliberately: standard a11y utility, available to any page that
+   needs a visually-hidden label. */
 .sr-only {
   position: absolute;
   width: 1px;

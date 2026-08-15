@@ -1,14 +1,15 @@
 /* ===========================================================================
    NexQL MCP — site chrome
    ---------------------------------------------------------------------------
-   Header, nav, and the hero eyebrow/CTA primitives. Forked from
+   Header, nav, and the hero eyebrow. Forked from
    website/public/styles/landing-sections.css (header block) and base-theme.css
-   (.hero-eyebrow / .min-cta), so nexql-mcp.astrx.dev wears the same topbar as
+   (.hero-eyebrow), so nexql-mcp.astrx.dev wears the same topbar as
    nexql.astrx.dev.
 
    Dropped from the fork: .release-banner (no release banner here),
-   .features-grid (superseded by .nx-feature-grid), .play-tour-btn, and every
-   rule scoped to the main site's workbench demo modes.
+   .features-grid (superseded by .nx-feature-grid), .min-cta (superseded by
+   .nx-btn), .play-tour-btn, and every rule scoped to the main site's workbench
+   demo modes.
    =========================================================================== */
 
 .site-header.landing-topbar {
@@ -304,56 +305,4 @@
 
 .hero-eyebrow-sep {
   opacity: 0.45;
-}
-
-/* ── Compact CTA primitives ───────────────────────────────────────────────
-   Used where a full .nx-btn row is too heavy (docs page headers). */
-
-.min-cta {
-  border-radius: 8px;
-  cursor: pointer;
-  display: inline-flex;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 10px 16px;
-  text-decoration: none;
-  transition:
-    transform 0.16s ease,
-    filter 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.min-cta.primary {
-  background: var(--accent);
-  border: 0;
-  color: #fff;
-}
-
-.min-cta.secondary {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--fg);
-}
-
-.min-cta.tertiary {
-  background: transparent;
-  border: 1px dashed var(--border);
-  color: var(--muted);
-}
-
-.min-cta.tertiary:hover {
-  border-color: var(--accent);
-  color: var(--fg);
-}
-
-.min-cta:hover {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .min-cta:hover {
-    transform: none;
-  }
 }

@@ -123,8 +123,11 @@ function prefersReducedMotion(): boolean {
 
 export function AgentHandshake() {
   const [index, setIndex] = useState(0);
-  const [typed, setTyped] = useState("");
-  const [done, setDone] = useState(false);
+  // Seeded with the finished text so the server-rendered HTML shows a complete
+  // tool call. The typing effect clears it on mount and replays it; without JS
+  // the panel still reads as a finished exchange rather than an empty box.
+  const [typed, setTyped] = useState(SCENARIOS[0].call);
+  const [done, setDone] = useState(true);
   /** Set once the visitor clicks a scenario — stops the auto-advance. */
   const [pinned, setPinned] = useState(false);
 
