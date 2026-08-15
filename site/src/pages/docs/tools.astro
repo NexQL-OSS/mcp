@@ -1,42 +1,58 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import DocShell from "../../components/DocShell.astro";
-import DocsSidebar from "../../components/DocsSidebar.astro";
+import PageHeader from "../../components/PageHeader.astro";
+import Section from "../../components/Section.astro";
+import DocsNav from "../../components/DocsNav.astro";
+import { docsNav } from "../../data/docs-nav";
 import { toolGroups, toolCount } from "../../data/tools";
-
-const docsNav = [
-  { href: "/docs", label: "Overview" },
-  { href: "/docs/configuration", label: "Configuration" },
-  { href: "/docs/tools", label: "Tools" },
-  { href: "/docs/commands", label: "CLI commands" },
-  { href: "/docs/clients", label: "Clients" },
-  { href: "/docs/transport", label: "Transport" },
-];
 ---
 
-<BaseLayout title="Tools reference — NexQL MCP" description={`${toolCount} MCP tools`} canonical="https://nexql-mcp.astrx.dev/docs/tools">
-  <DocShell kicker="Reference" title="Tools" titleEm={`${toolCount} MCP tools`} lede="All tools appear in tools/list; access_mode enforced at call time.">
-    <div class="docs-layout">
-      <DocsSidebar items={docsNav} label="Docs" />
-      <div>
-        {toolGroups.map((group) => (
-          <section style="margin-bottom: 40px" id={group.id}>
-            <h2 class="nx-title nx-title--sm">{group.title}</h2>
-            <p class="nx-lede">{group.summary}</p>
-            <div class="tool-ref-list">
-              {group.tools.map((tool) => (
-                <div class="tool-ref-row">
-                  <div>
-                    <code>{tool.name}</code>
-                    {tool.access && tool.access !== "read" && <span class="access-badge access-badge--write">{tool.access}</span>}
-                  </div>
-                  <span>{tool.description}</span>
+<BaseLayout
+  title="Tool reference — NexQL MCP"
+  description={`All ${toolCount} NexQL MCP tools by category, with the access mode each one requires.`}
+  canonical="https://nexql-mcp.astrx.dev/docs/tools"
+>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker="Reference"
+      title={`${toolCount} tools,`}
+      titleEm="named for the job."
+      lede="Every tool is listed to the client regardless of access mode — the mode is enforced when the call arrives, so an agent gets a refusal it can explain rather than a tool that is mysteriously absent."
+    />
+
+    <Section>
+      <div class="docs-layout">
+        <DocsNav items={docsNav} />
+
+        <div>
+          {
+            toolGroups.map((group) => (
+              <div class="tool-group" id={group.id}>
+                <div class="tool-group-head">
+                  <h2 class="tool-group-title">{group.title}</h2>
+                  <span class="tool-group-count">{group.tools.length} tools</span>
+                  <p class="tool-group-summary">{group.summary}</p>
                 </div>
-              ))}
-            </div>
-          </section>
-        ))}
+
+                {group.tools.map((tool) => (
+                  <div class="tool-row">
+                    <div class="tool-row-name">
+                      <code>{tool.name}</code>
+                      {tool.access === "write" && (
+                        <span class="access-badge access-badge--write">write</span>
+                      )}
+                      {tool.access === "admin" && (
+                        <span class="access-badge access-badge--admin">admin</span>
+                      )}
+                    </div>
+                    <span class="tool-row-desc">{tool.description}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          }
+        </div>
       </div>
-    </div>
-  </DocShell>
+    </Section>
+  </main>
 </BaseLayout>

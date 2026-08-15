@@ -1,32 +1,146 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import DocShell from "../../components/DocShell.astro";
-import DocsSidebar from "../../components/DocsSidebar.astro";
-import { CopyButton } from "../../islands/CopyButton";
-
-const docsNav = [
-  { href: "/docs", label: "Overview" },
-  { href: "/docs/configuration", label: "Configuration" },
-  { href: "/docs/tools", label: "Tools" },
-  { href: "/docs/commands", label: "CLI commands" },
-  { href: "/docs/clients", label: "Clients" },
-  { href: "/docs/transport", label: "Transport" },
-];
+import PageHeader from "../../components/PageHeader.astro";
+import Section from "../../components/Section.astro";
+import DocsNav from "../../components/DocsNav.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import { docsNav } from "../../data/docs-nav";
+import { FACTS } from "../../data/site";
 ---
 
-<BaseLayout title="HTTP transport — NexQL MCP" description="Stdio vs HTTP transport." canonical="https://nexql-mcp.astrx.dev/docs/transport">
-  <DocShell kicker="Docs" title="Transport" lede="Stdio for desktop clients. HTTP for services and remote sidecars.">
-    <div class="docs-layout">
-      <DocsSidebar items={docsNav} label="Docs" />
-      <div class="legal-prose">
-        <h2>Stdio (default)</h2>
-        <p>Cursor, Claude Desktop, VS Code spawn nexql-mcp as a child process.</p>
-        <h2>HTTP</h2>
-        <div class="code-block">
-          <CopyButton client:load text="NEXQL_MCP_HTTP_TOKEN=change-me nexql-mcp --http --bind 0.0.0.0 --http-port 8899" />
-          <pre>NEXQL_MCP_HTTP_TOKEN=change-me nexql-mcp --http --bind 0.0.0.0 --http-port 8899</pre>
+<BaseLayout
+  title="Transport — NexQL MCP"
+  description={`Stdio for desktop clients, streamable HTTP on port ${FACTS.httpPort} for services — with bearer auth and rate limiting.`}
+  canonical="https://nexql-mcp.astrx.dev/docs/transport"
+>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker="Reference"
+      title="Stdio by default."
+      titleEm="HTTP when you must."
+      lede="A local agent should spawn the binary and talk over a pipe — no port, no daemon, no auth to get wrong. HTTP exists for the cases where the client is somewhere else."
+    />
+
+    <Section>
+      <div class="docs-layout">
+        <DocsNav items={docsNav} />
+
+        <div>
+          <div class="mcp-prose">
+            <h3>Stdio</h3>
+            <p>
+              The default, and what every desktop client uses. The client spawns
+              <code>nexql-mcp</code> as a child process and speaks MCP over its stdin and stdout.
+              Nothing listens on a port, so there is nothing to authenticate and nothing to expose.
+              You do not need to pass <code>--stdio</code>; it is implied.
+            </p>
+          </div>
+
+          <div class="mcp-prose">
+            <h3>Streamable HTTP</h3>
+            <p>
+              Use this when the client cannot spawn a process — a hosted agent, a shared sidecar, a
+              container in another network namespace.
+            </p>
+          </div>
+
+          <CodeBlock
+            label="Loopback — no token required"
+            copyLabel="command"
+            code={`nexql-mcp --http postgres://dev@localhost:5432/appdb`}
+          />
+
+          <CodeBlock
+            label="Reachable from elsewhere — token required"
+            copyLabel="command"
+            code={`NEXQL_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \\
+  nexql-mcp --http --bind 0.0.0.0 --http-port ${FACTS.httpPort} \\
+  postgres://dev@localhost:5432/appdb`}
+          />
+
+          <p class="mcp-note">
+            <strong>Binding off loopback without a token is refused at startup</strong>, not warned
+            about. An MCP server holding database credentials on an open port is itself a
+            credential — that is not a decision to leave in a config comment.
+          </p>
+
+          <h2 class="nx-title nx-title--sm">HTTP options</h2>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead>
+                <tr>
+                  <th>Flag</th>
+                  <th>Default</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>--http</code></td>
+                  <td>off</td>
+                  <td>Enables the streamable HTTP transport.</td>
+                </tr>
+                <tr>
+                  <td><code>--http-port</code></td>
+                  <td>{FACTS.httpPort}</td>
+                  <td>Listening port.</td>
+                </tr>
+                <tr>
+                  <td><code>--bind</code></td>
+                  <td>{FACTS.httpBind}</td>
+                  <td>Anything other than loopback requires a bearer token.</td>
+                </tr>
+                <tr>
+                  <td><code>--http-token</code></td>
+                  <td>unset</td>
+                  <td>
+                    Bearer token. Also <code>NEXQL_MCP_HTTP_TOKEN</code>, which keeps it out of your
+                    shell history and process list.
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>--http-rate-limit</code></td>
+                  <td>{FACTS.rateLimit}</td>
+                  <td>
+                    Requests per 60 seconds, per token — or per client IP when no token is set.
+                    <code>0</code> disables the limit.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 class="nx-title nx-title--sm">Which one do I want?</h2>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead>
+                <tr>
+                  <th>Situation</th>
+                  <th>Transport</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cursor, Claude Desktop, VS Code, Zed on your machine</td>
+                  <td>stdio</td>
+                </tr>
+                <tr>
+                  <td>The NexQL VS Code extension</td>
+                  <td>stdio — it spawns the binary as a subprocess</td>
+                </tr>
+                <tr>
+                  <td>A hosted agent that cannot spawn processes</td>
+                  <td>HTTP, with a token</td>
+                </tr>
+                <tr>
+                  <td>One shared server for a team</td>
+                  <td>HTTP, with a token per consumer so rate limits apply per client</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  </DocShell>
+    </Section>
+  </main>
 </BaseLayout>

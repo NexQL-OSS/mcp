@@ -284,13 +284,13 @@ const teaserGroups = toolGroups.slice(0, 4);
       <CodeBlock
         label="macOS / Linux"
         copyLabel="command"
-        code="curl -fsSL https://nexql-mcp.astrx.dev/install.sh | sh"
+        code="curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash"
       />
       <CodeBlock
-        label="Verify the setup"
-        copyLabel="command"
-        code={`nexql-mcp doctor
-nexql-mcp init claude`}
+        label="Then point it at a database and wire up a client"
+        copyLabel="commands"
+        code={`nexql-mcp postgres://dev@localhost:5432/appdb doctor
+nexql-mcp init claude postgres://dev@localhost:5432/appdb`}
       />
       <p class="mcp-note">
         <strong>Prefer a package manager?</strong> npm, cargo, Docker and an MCPB bundle for Claude

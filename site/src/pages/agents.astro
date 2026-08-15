@@ -1,48 +1,218 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import DocShell from "../components/DocShell.astro";
+import PageHeader from "../components/PageHeader.astro";
+import Section from "../components/Section.astro";
+import CodeBlock from "../components/CodeBlock.astro";
+import { FACTS } from "../data/site";
+
+const workflows = [
+  {
+    mark: "01",
+    title: "Exploring an unfamiliar schema",
+    body: "The order matters. Orient first so the agent knows which database it is in, search before describing, and confirm the join before writing SQL against it.",
+    steps: [
+      "orient — which profile, database and access mode am I in?",
+      "search_schema — find candidate objects by intent",
+      "describe_object — columns, types, keys, constraints",
+      "get_join_path — confirm how they actually connect",
+      "sample_values — learn what a column contains",
+      "run_select — bounded read, now that the shape is known",
+    ],
+  },
+  {
+    mark: "02",
+    title: "Diagnosing something slow",
+    body: "Start wide and narrow down. A health check often makes the next step obvious, and lock chains explain more hangs than plans do.",
+    steps: [
+      "db_health_check — one-call snapshot",
+      "slow_queries — worst offenders from pg_stat_statements",
+      "list_running_queries and find_blocking_locks — what is stuck right now",
+      "explain_query then deep_plan_analysis — why this one is slow",
+      "suggest_indexes or auto_tune_query — what to do about it",
+    ],
+  },
+  {
+    mark: "03",
+    title: "Preparing a migration",
+    body: "Check the lock before you take it. Most migration incidents are a statement that needed a stronger lock than anyone expected on a table that was busy.",
+    steps: [
+      "schema_diff — what differs between environments",
+      "generate_migration — SQL from that diff",
+      "check_ddl_safety — lock level and risk for each statement",
+      "apply_ddl with dry_run: true — run it and roll back",
+      "apply_ddl — for real, in admin mode",
+    ],
+  },
+];
+
+const prompts = [
+  {
+    role: "Backend engineer",
+    ask: "Which tables do I need to compute monthly active users, and how do they join?",
+    why: "Exercises the index and the join graph, and returns a shape you can write SQL against.",
+  },
+  {
+    role: "On-call",
+    ask: "Something is hanging on the orders table. What is blocking it?",
+    why: "find_blocking_locks resolves the whole chain, not just the immediate blocker.",
+  },
+  {
+    role: "Data analyst",
+    ask: "What values can subscription.status take, and how common is each?",
+    why: "Answered from the value profiles — no SELECT DISTINCT against production.",
+  },
+  {
+    role: "DBA",
+    ask: "Which indexes have never been scanned, and how much space would dropping them free?",
+    why: "find_unused_indexes already excludes constraint-backed indexes, so the list is actionable.",
+  },
+  {
+    role: "Reviewer",
+    ask: "Is this migration safe to run at peak traffic?",
+    why: "check_ddl_safety parses the DDL and reports the lock level it will need.",
+  },
+];
 ---
 
 <BaseLayout
   title="For agents — NexQL MCP"
-  description="How AI agents use NexQL MCP: exploration workflows, performance diagnosis, and example prompts."
+  description="Workflows, prompts and tool-profile guidance for AI agents working against Postgres through NexQL MCP."
   canonical="https://nexql-mcp.astrx.dev/agents"
 >
-  <DocShell
-    kicker="Agent workflows"
-    title="Teach agents to ask"
-    titleEm="better questions."
-    lede="Structured tools — not raw SQL — so models orient in schema, bound reads, and diagnose before touching production."
-  >
-    <div class="legal-prose">
-      <h2>Exploration workflow</h2>
-      <ol>
-        <li><code>get_current_context</code> / <code>orient</code></li>
-        <li><code>search_schema(query="…")</code></li>
-        <li><code>describe_object</code></li>
-        <li><code>get_join_path</code></li>
-        <li><code>sample_values</code></li>
-        <li><code>run_select</code></li>
-      </ol>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker="Agent workflows"
+      title="Better questions"
+      titleEm="beat bigger prompts."
+      lede="An agent with database access still has to work out which table, which join, and which column. These are the call sequences that get there without guessing — and without pasting a schema into the context window."
+    />
 
-      <blockquote style="margin: 24px 0; padding: 16px 20px; border-left: 3px solid var(--nex-magenta); font-family: var(--font-serif); font-size: 1.15rem">
-        "Find how users relate to subscriptions and show active counts by plan tier."
-      </blockquote>
-
-      <h2>Performance workflow</h2>
-      <ol>
-        <li><code>db_health_check</code></li>
-        <li><code>slow_queries</code></li>
-        <li><code>list_running_queries</code> + <code>find_blocking_locks</code></li>
-        <li><code>explain_query</code> → <code>deep_plan_analysis</code></li>
-        <li><code>suggest_indexes</code> / <code>auto_tune_query</code></li>
-      </ol>
-
-      <div class="features-grid" style="margin-top: 32px">
-        <a class="feature-card" href="/kb"><h3>Knowledge base</h3><p>Searchable articles.</p></a>
-        <a class="feature-card" href="/docs/clients"><h3>Connect a client</h3><p>MCP JSON configs.</p></a>
-        <a class="feature-card" href="/docs/tools"><h3>Tools reference</h3><p>Full catalog.</p></a>
+    <Section title="Three sequences worth learning.">
+      <div class="nx-feature-grid">
+        {
+          workflows.map((w) => (
+            <article class="nx-feature-card">
+              <div class="nx-feature-mark">{w.mark}</div>
+              <h3>{w.title}</h3>
+              <p>{w.body}</p>
+              <ul>
+                {w.steps.map((s) => (
+                  <li>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))
+        }
       </div>
-    </div>
-  </DocShell>
+    </Section>
+
+    <Section
+      kicker="Prompts"
+      title="Things worth asking it."
+      lede="Each of these maps onto a tool the server exposes by name, which is why the model picks the right one."
+      small
+    >
+      <div class="nx-mcp-tools">
+        {
+          prompts.map((p) => (
+            <div class="nx-mcp-tool">
+              <code>{p.role}</code>
+              <span>
+                “{p.ask}” — {p.why}
+              </span>
+            </div>
+          ))
+        }
+      </div>
+    </Section>
+
+    <Section
+      kicker="Context budget"
+      title="Don't pay for tools you won't call."
+      lede={`All ${FACTS.toolCount} tools in the list costs context on every single turn. Profiles trim the surface to the job at hand.`}
+      small
+    >
+      <div class="ref-table-wrap">
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>Profile</th>
+              <th>Tools</th>
+              <th>Use it when</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>meta</code></td>
+              <td>13</td>
+              <td>
+                Tightest context budget. Ships a <code>discover_tools</code> call so the agent can
+                activate more on demand.
+              </td>
+            </tr>
+            <tr>
+              <td><code>query</code></td>
+              <td>21</td>
+              <td>Schema exploration and reads. The default choice for a coding agent.</td>
+            </tr>
+            <tr>
+              <td><code>dba</code></td>
+              <td>26</td>
+              <td>Monitoring, tuning, maintenance. No schema-search tools.</td>
+            </tr>
+            <tr>
+              <td><code>full</code></td>
+              <td>{FACTS.toolCount}</td>
+              <td>Everything. The default when you do not pass <code>--tools</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <CodeBlock
+        label="Set the profile"
+        copyLabel="command"
+        code={`nexql-mcp --tools query postgres://dev@localhost:5432/appdb
+
+# or via the environment
+NEXQL_MCP_TOOLS=query nexql-mcp postgres://dev@localhost:5432/appdb`}
+      />
+    </Section>
+
+    <Section title="What it will refuse." small>
+      <div class="mcp-prose">
+        <p>
+          In the default read mode the write and admin tools still appear in <code>tools/list</code>, but
+          calling one returns a refusal naming the access mode it needs. That is deliberate: a tool
+          that silently vanishes is ambiguous, and an agent will retry or invent a workaround. A
+          refusal that says <em>this needs write mode</em> is something it can report back to you.
+        </p>
+        <p>
+          Underneath, the connection itself is opened with
+          <code>default_transaction_read_only = ON</code>, so a bug in the dispatcher still cannot
+          become a write. Statements are parsed with <code>pg_query</code> rather than prefix-matched,
+          so a mutation hidden in a CTE is caught too.
+        </p>
+      </div>
+    </Section>
+
+    <Section title="Keep reading" small>
+      <div class="nx-feature-grid">
+        <a class="nx-feature-card" href="/docs/tools">
+          <h3>Tool reference</h3>
+          <p>All {FACTS.toolCount} tools by category, with the access mode each one needs.</p>
+        </a>
+        <a class="nx-feature-card" href="/docs/clients">
+          <h3>Client setup</h3>
+          <p>Config blocks for Claude, Cursor, VS Code, Zed and Windsurf.</p>
+        </a>
+        <a class="nx-feature-card" href="/kb">
+          <h3>Knowledge base</h3>
+          <p>Short answers to the questions that come up once you are running.</p>
+        </a>
+      </div>
+    </Section>
+  </main>
 </BaseLayout>

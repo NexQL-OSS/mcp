@@ -163,15 +163,15 @@ Extract and put `nexql-mcp` (or `nexql-mcp.exe`) on your `PATH`, then follow [Af
 Prebuilt, published on every release to [GHCR](https://github.com/NexQL-OSS/mcp/pkgs/container/mcp):
 
 ```bash
-docker run --rm -i ghcr.io/nexql-oss/mcp:0.2.2 postgres://dev@host.docker.internal:5432/appdb
+docker run --rm -i ghcr.io/nexql-oss/mcp:0.3.1 postgres://dev@host.docker.internal:5432/appdb
 # or: ghcr.io/nexql-oss/mcp:latest
 ```
 
 Or build locally from the distroless `Dockerfile`:
 
 ```bash
-docker build -t nexql-mcp:0.2.2 .
-docker run --rm -i nexql-mcp:0.2.2 postgres://dev@host.docker.internal:5432/appdb
+docker build -t nexql-mcp:0.3.1 .
+docker run --rm -i nexql-mcp:0.3.1 postgres://dev@host.docker.internal:5432/appdb
 ```
 
 ### Claude Desktop (MCPB one-click bundle)

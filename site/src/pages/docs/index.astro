@@ -1,17 +1,67 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import DocShell from "../../components/DocShell.astro";
+import PageHeader from "../../components/PageHeader.astro";
+import Section from "../../components/Section.astro";
+import { FACTS } from "../../data/site";
+
+const cards = [
+  {
+    href: "/docs/configuration",
+    title: "Configuration",
+    body: "Profiles in config.toml — connection details, access mode, schema allowlists, denied tables, PII masking and row caps.",
+  },
+  {
+    href: "/docs/tools",
+    title: "Tool reference",
+    body: `All ${FACTS.toolCount} tools grouped by category, each with the access mode it needs.`,
+  },
+  {
+    href: "/docs/commands",
+    title: "CLI commands",
+    body: "Every subcommand and flag, with the NEXQL_MCP_* environment variable that matches it.",
+  },
+  {
+    href: "/docs/clients",
+    title: "Client setup",
+    body: "Config blocks for Claude, Cursor, VS Code, Zed and Windsurf — or one init command that writes them for you.",
+  },
+  {
+    href: "/docs/transport",
+    title: "Transport",
+    body: "Stdio for desktop clients, streamable HTTP for everything else, and the auth rules that go with it.",
+  },
+  {
+    href: "/kb",
+    title: "Knowledge base",
+    body: "Short answers to the questions that come up after you are running.",
+  },
+];
 ---
 
-<BaseLayout title="Documentation — NexQL MCP" description="NexQL MCP docs hub." canonical="https://nexql-mcp.astrx.dev/docs">
-  <DocShell kicker="Documentation" title="Docs" lede="Configuration, tools, CLI commands, clients, and transport.">
-    <div class="features-grid">
-      <a class="feature-card" href="/docs/configuration"><h3>Configuration</h3><p>Profiles & config.toml</p><span class="feature-card-cta">Read →</span></a>
-      <a class="feature-card" href="/docs/tools"><h3>Tools reference</h3><p>50+ MCP tools</p><span class="feature-card-cta">Browse →</span></a>
-      <a class="feature-card" href="/docs/commands"><h3>CLI commands</h3><p>Every subcommand</p><span class="feature-card-cta">CLI →</span></a>
-      <a class="feature-card" href="/docs/clients"><h3>Client setup</h3><p>MCP JSON</p><span class="feature-card-cta">Setup →</span></a>
-      <a class="feature-card" href="/docs/transport"><h3>HTTP transport</h3><p>Stdio vs HTTP</p><span class="feature-card-cta">Transport →</span></a>
-      <a class="feature-card" href="/kb"><h3>Knowledge base</h3><p>Searchable articles</p><span class="feature-card-cta">Search →</span></a>
-    </div>
-  </DocShell>
+<BaseLayout
+  title="Documentation — NexQL MCP"
+  description={`Reference documentation for nexql-mcp: configuration, all ${FACTS.toolCount} tools, CLI commands, client setup and transport.`}
+  canonical="https://nexql-mcp.astrx.dev/docs"
+>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker="Documentation"
+      title="Everything the binary does,"
+      titleEm="written down."
+      lede="Reference material, not a tutorial. If you are setting up for the first time, start at the install page instead."
+    />
+
+    <Section>
+      <div class="nx-feature-grid">
+        {
+          cards.map((c) => (
+            <a class="nx-feature-card" href={c.href}>
+              <h3>{c.title}</h3>
+              <p>{c.body}</p>
+            </a>
+          ))
+        }
+      </div>
+    </Section>
+  </main>
 </BaseLayout>

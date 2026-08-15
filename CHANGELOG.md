@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-16
+
+### Fixed
+- **JSON Schema for array parameters**: Enhanced generation so array-typed tool parameters carry correct `items` schemas.
+- **Lint**: Resolved clippy `-D warnings` in `nexql-tools`/`nexql-mcp`.
+
 ## [0.3.0] - 2026-08-15
 
 ### Added

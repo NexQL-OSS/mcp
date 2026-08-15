@@ -1,58 +1,132 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import DocShell from "../../components/DocShell.astro";
-import DocsSidebar from "../../components/DocsSidebar.astro";
+import PageHeader from "../../components/PageHeader.astro";
+import Section from "../../components/Section.astro";
+import DocsNav from "../../components/DocsNav.astro";
+import { docsNav } from "../../data/docs-nav";
 import { cliCommands, globalFlags, initClients } from "../../data/commands";
 
-const docsNav = [
-  { href: "/docs", label: "Overview" },
-  { href: "/docs/configuration", label: "Configuration" },
-  { href: "/docs/tools", label: "Tools" },
-  { href: "/docs/commands", label: "CLI commands" },
-  { href: "/docs/clients", label: "Clients" },
-  { href: "/docs/transport", label: "Transport" },
-];
+const root = cliCommands[0];
 ---
 
-<BaseLayout title="CLI commands — NexQL MCP" description="nexql-mcp CLI reference." canonical="https://nexql-mcp.astrx.dev/docs/commands">
-  <DocShell kicker="Reference" title="CLI commands" lede="Every flag has a NEXQL_MCP_* environment equivalent.">
-    <div class="docs-layout">
-      <DocsSidebar items={docsNav} label="Docs" />
-      <div class="legal-prose">
-        <h2>Global flags</h2>
-        <table class="data-table">
-          <thead><tr><th>Flag</th><th>Env</th><th>Description</th></tr></thead>
-          <tbody>
-            {globalFlags.map((f) => (
-              <tr><td><code>{f.flag}</code></td><td>{f.env ? <code>{f.env}</code> : "—"}</td><td>{f.description}</td></tr>
-            ))}
-          </tbody>
-        </table>
+<BaseLayout
+  title="CLI reference — NexQL MCP"
+  description="Every nexql-mcp subcommand and flag, with the NEXQL_MCP_* environment variable that matches it."
+  canonical="https://nexql-mcp.astrx.dev/docs/commands"
+>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker="Reference"
+      title="Every flag,"
+      titleEm="and its env var."
+      lede="Anything you can pass on the command line can also be set through the environment as NEXQL_MCP_<UPPER_SNAKE>. Precedence runs connection string, then flags, then environment, then config file."
+    />
 
-        {cliCommands.map((cmd) => (
-          <section style="margin-top: 32px">
-            <h2><code>{cmd.name}</code></h2>
-            {cmd.usage && <p><code>{cmd.usage}</code></p>}
-            <p>{cmd.description}</p>
-            {cmd.subcommands?.map((sub) => (
-              <div style="margin-top: 16px">
-                <h3><code>{cmd.name} {sub.name}</code></h3>
-                {sub.usage && <p><code>{sub.usage}</code></p>}
-                <p>{sub.description}</p>
+    <Section>
+      <div class="docs-layout">
+        <DocsNav items={docsNav} />
+
+        <div>
+          <div class="mcp-prose">
+            <p>
+              <code>{root.usage}</code>
+            </p>
+            <p>{root.description}</p>
+          </div>
+
+          <h2 class="nx-title nx-title--sm">Global flags</h2>
+          <div class="ref-table-wrap">
+            <table class="ref-table">
+              <thead>
+                <tr>
+                  <th>Flag</th>
+                  <th>Environment</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  globalFlags.map((f) => (
+                    <tr>
+                      <td>
+                        <code>{f.flag}</code>
+                      </td>
+                      <td>{f.env ? <code>{f.env}</code> : "—"}</td>
+                      <td>{f.description}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <h2 class="nx-title nx-title--sm">Subcommands</h2>
+          {
+            root.subcommands?.map((sub) => (
+              <div class="tool-group">
+                <div class="tool-group-head">
+                  <h3 class="tool-group-title">
+                    <code>nexql-mcp {sub.name}</code>
+                  </h3>
+                  {sub.usage && <span class="tool-group-count">{sub.usage}</span>}
+                  <p class="tool-group-summary">{sub.description}</p>
+                </div>
+
+                {sub.flags?.map((f) => (
+                  <div class="tool-row">
+                    <div class="tool-row-name">
+                      <code>{f.flag}</code>
+                      {f.env && <span class="access-badge">{f.env}</span>}
+                    </div>
+                    <span class="tool-row-desc">{f.description}</span>
+                  </div>
+                ))}
+
                 {sub.subcommands?.map((nested) => (
-                  <div style="margin-left: 16px; border-left: 1px solid var(--landing-border); padding-left: 12px; margin-top: 8px">
-                    <strong><code>{nested.name}</code></strong>
-                    <p>{nested.description}</p>
+                  <div class="tool-row">
+                    <div class="tool-row-name">
+                      <code>
+                        {sub.name} {nested.name}
+                      </code>
+                    </div>
+                    <span class="tool-row-desc">
+                      {nested.description}
+                      {nested.flags && (
+                        <>
+                          {" "}
+                          {nested.flags.map((f) => (
+                            <>
+                              <code>{f.flag}</code>{" "}
+                            </>
+                          ))}
+                        </>
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
-            ))}
-          </section>
-        ))}
+            ))
+          }
 
-        <h2>init clients</h2>
-        <p>{initClients.map((c) => <code style="margin-right: 8px">{c}</code>)}</p>
+          <h2 class="nx-title nx-title--sm">Clients init knows about</h2>
+          <div class="mcp-prose">
+            <p>
+              <code>nexql-mcp init &lt;client&gt;</code> writes the right config file for any of these.
+              Run it with no argument to open the wizard instead.
+            </p>
+          </div>
+          <div class="nx-mcp-tools">
+            {
+              initClients.map((c) => (
+                <div class="nx-mcp-tool">
+                  <code>{c}</code>
+                  <span>nexql-mcp init {c}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
       </div>
-    </div>
-  </DocShell>
+    </Section>
+  </main>
 </BaseLayout>
