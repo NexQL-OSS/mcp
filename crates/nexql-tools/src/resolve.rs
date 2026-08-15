@@ -163,7 +163,7 @@ pub async fn resolve_fks_on_payload(
                     .flatten();
                 let label = ref_entry
                     .as_ref()
-                    .and_then(|e| pick_label_column(e))
+                    .and_then(pick_label_column)
                     .unwrap_or(ref_col.clone());
                 fk_columns.push((col.clone(), fk.clone(), idx, label));
             }
@@ -176,12 +176,10 @@ pub async fn resolve_fks_on_payload(
     let col_names: Vec<String> = obj
         .get("columns")
         .and_then(|v| v.as_array())
-        .and_then(|cols| {
-            Some(
-                cols.iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect(),
-            )
+        .map(|cols| {
+            cols.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
         })
         .unwrap_or_default();
     let mut rows = obj

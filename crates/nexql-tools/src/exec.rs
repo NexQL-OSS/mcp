@@ -856,16 +856,16 @@ impl ToolRouter {
             })));
         };
         let base = store.base_dir(&connection_id, &database);
-        if store.read_manifest(&base)?.is_none() {
-            if let Err(e) = self.ensure_index_warm().await {
-                return Ok(ToolOutcome::ok_json(json!({
-                    "database": database,
-                    "tables": [],
-                    "joins": [],
-                    "enums": {},
-                    "notes": [e.to_string()],
-                })));
-            }
+        if store.read_manifest(&base)?.is_none()
+            && let Err(e) = self.ensure_index_warm().await
+        {
+            return Ok(ToolOutcome::ok_json(json!({
+                "database": database,
+                "tables": [],
+                "joins": [],
+                "enums": {},
+                "notes": [e.to_string()],
+            })));
         }
         let Some(manifest) = store.read_manifest(&base)? else {
             return Ok(ToolOutcome::ok_json(json!({
@@ -2277,10 +2277,10 @@ impl ToolRouter {
                     "kind": r.get::<_, String>("kind"),
                     "comment": r.get::<_, Option<String>>("comment"),
                 });
-                if let Some(count) = r.get::<_, Option<i32>>("partition_count") {
-                    if let Some(obj_map) = obj.as_object_mut() {
-                        obj_map.insert("partition_count".into(), json!(count));
-                    }
+                if let Some(count) = r.get::<_, Option<i32>>("partition_count")
+                    && let Some(obj_map) = obj.as_object_mut()
+                {
+                    obj_map.insert("partition_count".into(), json!(count));
                 }
                 obj
             })
@@ -3458,6 +3458,7 @@ impl ToolRouter {
         })))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn finalize_run_select_payload(
         &self,
         sql: &str,
@@ -3536,6 +3537,7 @@ impl ToolRouter {
     /// `export_query` reuse this function and need the row-object shape
     /// (export in particular derives `columns` and builds CSV/sqlinsert from
     /// it), so they stay on the original shape.
+    #[allow(clippy::too_many_arguments)]
     async fn run_select_internal(
         &self,
         sql: &str,

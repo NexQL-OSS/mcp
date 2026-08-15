@@ -8,7 +8,7 @@ mod onboarding;
 mod ui;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
@@ -40,7 +40,7 @@ pub(crate) fn secret_migration_status(report: &SecretMigrationReport) -> Option<
 }
 
 pub(crate) fn load_config_migrated(
-    config_path: &PathBuf,
+    config_path: &Path,
 ) -> (ConfigFile, Option<String>) {
     if !config_path.exists() {
         return (ConfigFile::default(), None);

@@ -749,10 +749,10 @@ pub fn enhance_sql_error(pg_message: &str, index_refs: &[String]) -> String {
                     ));
                 }
             }
-        } else if !index_refs.iter().any(|r| r == &rel) {
-            if let Some(close) = closest_index_ref(&rel, index_refs) {
-                suggestions.push(format!("Did you mean '{close}'?"));
-            }
+        } else if !index_refs.iter().any(|r| r == &rel)
+            && let Some(close) = closest_index_ref(&rel, index_refs)
+        {
+            suggestions.push(format!("Did you mean '{close}'?"));
         }
     }
     if let Some(col) = extract_pg_column_name(pg_message) {
@@ -813,10 +813,8 @@ fn closest_index_ref(ref_: &str, universe: &[String]) -> Option<String> {
     let mut best: Option<(String, usize)> = None;
     for candidate in universe {
         let dist = levenshtein(ref_.to_ascii_lowercase(), candidate.to_ascii_lowercase());
-        if dist > 0 && dist <= 3 {
-            if best.as_ref().is_none_or(|(_, d)| dist < *d) {
-                best = Some((candidate.clone(), dist));
-            }
+        if dist > 0 && dist <= 3 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+            best = Some((candidate.clone(), dist));
         }
     }
     best.map(|(s, _)| s)

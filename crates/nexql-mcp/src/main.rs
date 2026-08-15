@@ -664,12 +664,11 @@ fn resolve_inputs(cli: &Cli) -> ResolveInputs {
 }
 
 fn migrate_legacy_secrets(cli: &Cli) {
-    if let Ok(path) = profile_config_path(cli) {
-        if let Ok((_, report)) = ConfigFile::load_path_migrated(&path) {
-            if report.any_changes() {
-                emit_secret_migration_report(&report);
-            }
-        }
+    if let Ok(path) = profile_config_path(cli)
+        && let Ok((_, report)) = ConfigFile::load_path_migrated(&path)
+        && report.any_changes()
+    {
+        emit_secret_migration_report(&report);
     }
 }
 
