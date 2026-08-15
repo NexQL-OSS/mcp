@@ -1,0 +1,96 @@
+---
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { SITE_URL, SITE_VERSION, REPO_URL, NEXQL_URL, REGISTRY_URL, FACTS } from "../data/site";
+
+interface Props {
+  title: string;
+  description: string;
+  canonical?: string;
+  ogImage?: string;
+  /** Extra class on .nx-root, for the rare page that needs a layout hook. */
+  rootClass?: string;
+}
+
+const {
+  title,
+  description,
+  canonical,
+  ogImage = `${SITE_URL}/assets/NexQL.png`,
+  rootClass,
+} = Astro.props;
+
+const site = Astro.site?.href?.replace(/\/$/, "") ?? SITE_URL;
+const pageUrl = canonical ?? new URL(Astro.url.pathname, site).href;
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "NexQL MCP",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Windows, macOS, Linux",
+  description:
+    `Standalone Postgres MCP server with an offline schema index, ${FACTS.toolCount} guarded tools, ` +
+    "and production-aware diagnostics for AI agents.",
+  url: site,
+  downloadUrl: `${REPO_URL}/releases/latest`,
+  softwareVersion: SITE_VERSION,
+  keywords: "postgres mcp server, schema index, ai agents, cursor mcp, claude mcp",
+  license: "https://www.gnu.org/licenses/gpl-3.0.html",
+  sameAs: [REPO_URL, NEXQL_URL, REGISTRY_URL],
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href={pageUrl} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="NexQL MCP" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <link rel="icon" type="image/png" href="/assets/NexQL.png" />
+    <meta name="theme-color" content="#07080E" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+
+    <link rel="stylesheet" href="/mcp-site.css" />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    <script src="/js/theme-loader.mjs" type="module"></script>
+    <script src="/js/site-chrome.js" defer></script>
+  </head>
+  <body class="pg-anim">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader />
+    <div class:list={["nx-root", rootClass]}>
+      <slot />
+      <SiteFooter />
+    </div>
+  </body>
+</html>

@@ -1,0 +1,62 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import DocShell from "../components/DocShell.astro";
+import DocsSidebar from "../components/DocsSidebar.astro";
+import { CopyButton } from "../islands/CopyButton";
+
+const installNav = [
+  { href: "/install", label: "Overview" },
+  { href: "/docs/clients", label: "Wire a client" },
+  { href: "/docs/commands", label: "CLI reference" },
+];
+---
+
+<BaseLayout
+  title="Install NexQL MCP"
+  description="Install nexql-mcp via curl, npm, cargo, or Docker. Verify with doctor and wire into your MCP client."
+  canonical="https://nexql-mcp.astrx.dev/install"
+>
+  <DocShell kicker="Installation" title="Install in under" titleEm="a minute." lede="Every path ships the same binary and guardrails.">
+    <div class="docs-layout">
+      <DocsSidebar items={installNav} label="Install" />
+      <div class="legal-prose">
+        <h2>Quick install</h2>
+        <p>macOS / Linux — <code>/usr/local/bin</code> or <code>~/.local/bin</code></p>
+        <div class="code-block">
+          <CopyButton client:load text="curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash" />
+          <pre>curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash</pre>
+        </div>
+
+        <h2>npm / npx</h2>
+        <div class="code-block">
+          <CopyButton client:load text="npx -y nexql-mcp postgres://dev@localhost:5432/appdb" />
+          <pre>npx -y nexql-mcp postgres://dev@localhost:5432/appdb
+npm install -g nexql-mcp</pre>
+        </div>
+
+        <h2>cargo</h2>
+        <div class="code-block">
+          <CopyButton client:load text="cargo install nexql-mcp" />
+          <pre>cargo install nexql-mcp</pre>
+        </div>
+        <p>Requires clang/libclang for pg_query bindgen.</p>
+
+        <h2>Docker</h2>
+        <div class="code-block">
+          <CopyButton client:load text="docker run --rm -i ghcr.io/nexql-oss/mcp:0.3.0 postgres://dev@host.docker.internal:5432/appdb" />
+          <pre>docker run --rm -i ghcr.io/nexql-oss/mcp:0.3.0 \
+  postgres://dev@host.docker.internal:5432/appdb</pre>
+        </div>
+
+        <h2>Verify</h2>
+        <div class="code-block">
+          <CopyButton client:load text="nexql-mcp postgres://dev@localhost:5432/appdb doctor" />
+          <pre>nexql-mcp postgres://dev@localhost:5432/appdb doctor
+nexql-mcp init cursor postgres://dev@localhost:5432/appdb</pre>
+        </div>
+
+        <p class="nx-faint">Linux: glibc 2.35+ · Windows: <code>irm …/install.ps1 | iex</code></p>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

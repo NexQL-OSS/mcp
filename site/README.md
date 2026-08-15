@@ -1,23 +1,59 @@
 # NexQL MCP site
 
-Static documentation and landing page for [NexQL MCP](https://github.com/NexQL-OSS/mcp), intended for deployment at `nexql-mcp.astrx.dev`.
+Astro + Preact static site for [NexQL MCP](https://github.com/NexQL-OSS/mcp), deployed at `nexql-mcp.astrx.dev`.
 
-## Run locally
+## Stack
 
-From this directory, use any static file server:
+- **Astro 7** — static SSG, SEO-friendly HTML
+- **Preact islands** — copy buttons, KB search
+- **Theme switcher** — same NexQL Themes CDN integration as [nexql.astrx.dev](https://nexql.astrx.dev)
+- **@astrojs/sitemap** — auto sitemap for crawlers
+
+## Structure
+
+| Route | Source |
+|-------|--------|
+| `/` | Landing |
+| `/install` | Installation paths |
+| `/features` | Feature index |
+| `/features/[slug]` | Per-feature docs (8 topics) |
+| `/agents` | Agent workflows |
+| `/docs` | Documentation hub |
+| `/docs/configuration` | Profiles & config.toml |
+| `/docs/tools` | Full MCP tool catalog |
+| `/docs/commands` | CLI reference |
+| `/docs/clients` | MCP client wiring |
+| `/docs/transport` | Stdio vs HTTP |
+| `/kb` | Searchable knowledge base |
+
+Content data: `src/data/{tools,commands,features,kb,site}.ts`
+
+## Develop
 
 ```bash
-npx serve .
-# or
-python3 -m http.server 3000
+cd mcp/site
+npm install
+npm run dev
 ```
 
-No build step or runtime dependencies are required. The page uses the same visual vocabulary as the NexQL and NexQL Themes sites: Space Grotesk, Instrument Serif, JetBrains Mono, a warm paper surface, and a clay accent.
+## Build & deploy
 
-## Deploy
+```bash
+npm run build   # output: dist/
+```
 
-Configure the deployment root/project root as `mcp/site` and publish the directory as a static site. The page has no server-side routes and is suitable for Vercel, Netlify, GitHub Pages, or any static host.
+Vercel: root `mcp/site`, framework Astro, output `dist`. `vercel.json` included.
 
-## Content source
+## Visual parity
 
-Commands and configuration examples are based on `../README.md`, `../docs/config.example.toml`, `../docs/clients/README.md`, and `../docs/tools/README.md`. Update those source docs and this page together when the MCP interface changes.
+Matches NexQL / NexQL Themes sites: Space Grotesk, Instrument Serif, JetBrains Mono, theme picker loading palettes from `nexql-themes.astrx.dev`. Header links to NexQL and Themes.
+
+## Sync with repo
+
+When the MCP interface changes, update:
+
+- `src/data/tools.ts` — tool catalog
+- `src/data/commands.ts` — CLI from `crates/nexql-mcp/src/main.rs`
+- `src/data/features.ts` — feature docs
+- `src/data/kb.ts` — knowledge base articles
+- `src/data/site.ts` — version string

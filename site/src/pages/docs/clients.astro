@@ -1,0 +1,36 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import { CopyButton } from "../../islands/CopyButton";
+
+const docsNav = [
+  { href: "/docs", label: "Overview" },
+  { href: "/docs/configuration", label: "Configuration" },
+  { href: "/docs/tools", label: "Tools" },
+  { href: "/docs/commands", label: "CLI commands" },
+  { href: "/docs/clients", label: "Clients" },
+  { href: "/docs/transport", label: "Transport" },
+];
+
+const cursorJson = `{"mcpServers":{"nexql-mcp":{"command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}`;
+const vscodeJson = `{"servers":{"nexql-mcp":{"type":"stdio","command":"nexql-mcp","args":["postgres://dev@localhost:5432/appdb"]}}}`;
+---
+
+<BaseLayout title="Client setup — NexQL MCP" description="Wire nexql-mcp into MCP clients." canonical="https://nexql-mcp.astrx.dev/docs/clients">
+  <DocShell kicker="Docs" title="Client setup" lede="nexql-mcp init &lt;client&gt; or nexql-mcp tui for guided wiring.">
+    <div class="docs-layout">
+      <DocsSidebar items={docsNav} label="Docs" />
+      <div class="legal-prose">
+        <h2>Cursor — <code>.cursor/mcp.json</code></h2>
+        <div class="code-block"><CopyButton client:load text={cursorJson} /><pre>{cursorJson}</pre></div>
+        <h2>VS Code — <code>.vscode/mcp.json</code></h2>
+        <div class="code-block"><CopyButton client:load text={vscodeJson} /><pre>{vscodeJson}</pre></div>
+        <div class="code-block">
+          <CopyButton client:load text="nexql-mcp init cursor postgres://dev@localhost:5432/appdb" />
+          <pre>nexql-mcp init cursor postgres://…</pre>
+        </div>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

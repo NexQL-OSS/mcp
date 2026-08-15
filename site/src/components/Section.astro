@@ -1,0 +1,44 @@
+---
+/**
+ * A .nx-section with the standard intro block. `data-nx-reveal` is picked up by
+ * public/js/site-chrome.js, which adds .is-visible when the section scrolls into
+ * view (transition defined in styles/nx.css).
+ */
+interface Props {
+  id?: string;
+  kicker?: string;
+  title?: string;
+  lede?: string;
+  /** Centre the intro block — used for full-width grids like platforms. */
+  center?: boolean;
+  /** Narrow rail, for long-form reading (FAQ). */
+  narrow?: boolean;
+  /** Smaller title, for sections that sit under a page header. */
+  small?: boolean;
+}
+
+const { id, kicker, title, lede, center = false, narrow = false, small = false } = Astro.props;
+const headingId = id ? `${id}-title` : undefined;
+---
+
+<section
+  class:list={["nx-section", narrow && "nx-section--narrow"]}
+  id={id}
+  data-nx-reveal
+  aria-labelledby={title ? headingId : undefined}
+>
+  {
+    (kicker || title || lede) && (
+      <div class:list={["nx-section-intro", center && "nx-section-intro--center"]}>
+        {kicker && <p class="nx-kicker">{kicker}</p>}
+        {title && (
+          <h2 class:list={["nx-title", small && "nx-title--sm"]} id={headingId}>
+            {title}
+          </h2>
+        )}
+        {lede && <p class="nx-lede">{lede}</p>}
+      </div>
+    )
+  }
+  <slot />
+</section>

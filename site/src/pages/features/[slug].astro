@@ -1,0 +1,100 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PageHeader from "../../components/PageHeader.astro";
+import Section from "../../components/Section.astro";
+import { features, getFeature } from "../../data/features";
+import { toolGroups } from "../../data/tools";
+
+export function getStaticPaths() {
+  return features.map((f) => ({ params: { slug: f.slug } }));
+}
+
+const { slug } = Astro.params;
+const feature = getFeature(slug!)!;
+
+/** Look up the one-line description for each tool this feature names. */
+const allTools = toolGroups.flatMap((g) => g.tools);
+const namedTools = (feature.tools ?? [])
+  .map((name) => allTools.find((t) => t.name === name))
+  .filter((t): t is NonNullable<typeof t> => Boolean(t));
+
+const relatedDocs = (feature.related ?? [])
+  .map((s) => getFeature(s))
+  .filter((f): f is NonNullable<typeof f> => Boolean(f));
+---
+
+<BaseLayout
+  title={`${feature.subtitle} — NexQL MCP`}
+  description={feature.description}
+  canonical={`https://nexql-mcp.astrx.dev/features/${feature.slug}`}
+>
+  <main id="main" class="mcp-main">
+    <PageHeader
+      kicker={feature.subtitle}
+      title={feature.title}
+      titleEm={feature.titleEm}
+      lede={feature.description}
+    />
+
+    <Section title="In short" small>
+      <ul class="nx-feature-card">
+        {feature.bullets.map((b) => <li><span>{b}</span></li>)}
+      </ul>
+    </Section>
+
+    {
+      feature.sections?.map((s) => (
+        <Section title={s.title} small>
+          <div class="mcp-prose">
+            <p>{s.body}</p>
+            {s.points && (
+              <ul>
+                {s.points.map((p) => (
+                  <li>{p}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Section>
+      ))
+    }
+
+    {
+      namedTools.length > 0 && (
+        <Section kicker="Tools" title="What the agent calls." small>
+          <div class="nx-mcp-tools">
+            <div class="nx-mcp-tools-hdr">
+              <span>Used by this feature</span>
+              <a class="nx-inline-link" href="/docs/tools">
+                Full catalog →
+              </a>
+            </div>
+            {namedTools.map((t) => (
+              <div class="nx-mcp-tool">
+                <code>{t.name}</code>
+                <span>{t.description}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )
+    }
+
+    {
+      relatedDocs.length > 0 && (
+        <Section title="Read next" small>
+          <div class="nx-feature-grid">
+            {relatedDocs.map((r) => (
+              <a class="nx-feature-card" href={`/features/${r.slug}`}>
+                <h3>
+                  {r.title} {r.titleEm}
+                </h3>
+                <p>{r.description}</p>
+              </a>
+            ))}
+          </div>
+        </Section>
+      )
+    }
+  </main>
+</BaseLayout>

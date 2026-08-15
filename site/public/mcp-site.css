@@ -1,0 +1,7 @@
+/* NexQL MCP — stylesheet aggregator.
+   Order matters: tokens define the variables everything else reads, and mcp.css
+   comes last so site-specific components can override the shared .nx-* system. */
+@import url("./styles/tokens.css");
+@import url("./styles/chrome.css");
+@import url("./styles/nx.css");
+@import url("./styles/mcp.css");

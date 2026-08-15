@@ -1,0 +1,11 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import { KbSearch } from "../../islands/KbSearch";
+---
+
+<BaseLayout title="Knowledge base — NexQL MCP" description="Searchable NexQL MCP articles." canonical="https://nexql-mcp.astrx.dev/kb">
+  <DocShell kicker="Knowledge base" title="Answers for setup," titleEm="agents, and ops." lede="Search articles on configuration, security, performance, and workflows.">
+    <KbSearch client:load />
+  </DocShell>
+</BaseLayout>

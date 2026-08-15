@@ -1,0 +1,645 @@
+/* ===========================================================================
+   NexQL MCP — site-specific components
+   ---------------------------------------------------------------------------
+   Everything nexql-mcp.astrx.dev needs that the shared .nx-* system does not
+   provide: the two-column hero, the docs rail, the tool catalog, the CLI flag
+   tables, and the knowledge-base cards.
+
+   Rule of thumb: if a component would make sense on nexql.astrx.dev too, it
+   belongs in nx.css. If it only makes sense for an MCP server, it lives here.
+   All colour comes from the tokens in tokens.css.
+   =========================================================================== */
+
+.mcp-main {
+  padding-top: calc(var(--site-header-offset) + clamp(28px, 5vw, 64px));
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────────────
+   Two-column on wide screens (copy left, live demo right), stacked below
+   1040px. Mirrors the themes-site hero-layout pattern. */
+
+.mcp-hero {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 40px) clamp(40px, 6vw, 72px);
+}
+
+.mcp-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: center;
+}
+
+.mcp-hero-copy {
+  min-width: 0;
+}
+
+.mcp-hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.3rem, 5vw, 3.9rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.03;
+  margin: 0 0 18px;
+  color: var(--fg);
+}
+
+.mcp-hero-title em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  background: var(--nex-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.mcp-hero-lede {
+  color: var(--muted);
+  font-size: clamp(1rem, 1.5vw, 1.12rem);
+  line-height: 1.6;
+  margin: 0 0 26px;
+  max-width: 46ch;
+}
+
+.mcp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.mcp-hero-meta {
+  color: var(--nex-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.mcp-hero-visual {
+  min-width: 0;
+}
+
+@media (max-width: 1040px) {
+  .mcp-hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Page header (interior pages) ─────────────────────────────────────── */
+
+.mcp-page-head {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 40px) clamp(32px, 5vw, 52px);
+  border-bottom: 1px solid var(--nx-line, var(--border));
+  margin-bottom: clamp(36px, 5vw, 64px);
+}
+
+.mcp-page-title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+  margin: 0 0 14px;
+  color: var(--fg);
+}
+
+.mcp-page-title em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  background: var(--nex-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.mcp-page-lede {
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.62;
+  margin: 0;
+  max-width: 62ch;
+}
+
+.mcp-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ── Docs layout + nav rail ───────────────────────────────────────────── */
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: start;
+}
+
+.docs-nav {
+  position: sticky;
+  top: calc(var(--site-header-offset) + 20px);
+}
+
+.docs-nav-label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0 0 12px;
+}
+
+.docs-nav a {
+  display: block;
+  padding: 7px 0 7px 12px;
+  margin-left: -12px;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.docs-nav a:hover {
+  color: var(--fg);
+}
+
+.docs-nav a.is-active {
+  color: var(--fg);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .docs-nav {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    border-bottom: 1px solid var(--nx-line, var(--border));
+    padding-bottom: 14px;
+    margin-bottom: 28px;
+  }
+
+  .docs-nav a {
+    border-left: 0;
+    border-radius: 8px;
+    margin: 0;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .docs-nav a.is-active {
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  }
+
+  .docs-nav-label {
+    display: none;
+  }
+}
+
+/* ── Tool catalog ─────────────────────────────────────────────────────── */
+
+.tool-group {
+  margin-bottom: clamp(32px, 4vw, 48px);
+}
+
+.tool-group-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--nx-line, var(--border));
+}
+
+.tool-group-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--fg);
+}
+
+.tool-group-count {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tool-group-summary {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  flex: 1 1 100%;
+}
+
+.tool-row {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 6px 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font-size: 13px;
+}
+
+.tool-row:last-child {
+  border-bottom: 0;
+}
+
+.tool-row-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+  word-break: break-word;
+}
+
+.tool-row-desc {
+  color: var(--muted);
+  line-height: 1.58;
+}
+
+@media (max-width: 720px) {
+  .tool-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+.access-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.access-badge--write {
+  border-color: color-mix(in srgb, var(--nex-amber) 45%, var(--border));
+  color: var(--nex-amber);
+}
+
+.access-badge--admin {
+  border-color: color-mix(in srgb, var(--nex-magenta) 45%, var(--border));
+  color: var(--nex-magenta);
+}
+
+/* ── Reference tables ─────────────────────────────────────────────────── */
+
+.ref-table-wrap {
+  overflow-x: auto;
+  margin: 18px 0 28px;
+  border: 1px solid var(--nx-line, var(--border));
+  border-radius: 12px;
+}
+
+.ref-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ref-table th,
+.ref-table td {
+  padding: 11px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.ref-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.ref-table th {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ref-table td {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.ref-table code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.ref-table td:first-child {
+  color: var(--fg);
+}
+
+/* ── Code block ───────────────────────────────────────────────────────── */
+
+.code-block {
+  position: relative;
+  background: color-mix(in srgb, var(--deep) 60%, var(--panel));
+  border: 1px solid var(--nx-line, var(--border));
+  border-radius: 12px;
+  margin: 16px 0 24px;
+}
+
+.code-block-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--fg) 92%, var(--muted));
+}
+
+.code-block--bare pre {
+  padding-right: 74px;
+}
+
+.copy-button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.copy-button:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.copy-button.is-copied {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.code-block--bare .copy-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+/* Inline code inside prose. */
+.mcp-prose code,
+.nx-feature-card code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--fg) 6%, var(--panel));
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--fg);
+}
+
+.mcp-prose {
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.68;
+  max-width: 68ch;
+}
+
+.mcp-prose p {
+  margin: 0 0 16px;
+}
+
+.mcp-prose h3 {
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 28px 0 10px;
+}
+
+.mcp-prose ul {
+  margin: 0 0 18px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.mcp-prose li {
+  position: relative;
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+.mcp-prose li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── Knowledge base ───────────────────────────────────────────────────── */
+
+.kb-search {
+  width: 100%;
+  max-width: 540px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--landing-surface);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.kb-search:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: var(--accent);
+}
+
+.kb-count {
+  color: var(--nex-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin: 0 0 24px;
+}
+
+.kb-results {
+  display: grid;
+  gap: 0;
+}
+
+.kb-card {
+  padding: 22px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.kb-card h3 {
+  margin: 10px 0 8px;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.kb-card-summary {
+  color: var(--fg);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+
+.kb-card-body {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.kb-card-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.kb-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.kb-tag-faint {
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.kb-empty {
+  color: var(--muted);
+  padding: 40px 0;
+  font-size: 14px;
+}
+
+/* ── Agent handshake demo ─────────────────────────────────────────────────
+   Renders into the .nx-playground / .nx-pg-* chassis from nx.css. These are
+   the few additions that chassis does not already cover. */
+
+.mcp-demo-toolcall {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.mcp-demo-caret::after {
+  content: "▋";
+  animation: nxCaret 1s step-end infinite;
+  margin-left: 1px;
+  color: var(--accent);
+}
+
+.mcp-demo-hits {
+  display: grid;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.mcp-demo-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.mcp-demo-hit b {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.mcp-demo-hit-score {
+  color: var(--accent);
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-demo-caret::after {
+    animation: none;
+  }
+}
+
+/* ── Misc ─────────────────────────────────────────────────────────────── */
+
+.mcp-note {
+  border-left: 2px solid var(--accent);
+  padding: 4px 0 4px 16px;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.mcp-note strong {
+  color: var(--fg);
+}

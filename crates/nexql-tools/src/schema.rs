@@ -1054,6 +1054,28 @@ pub fn active_tools() -> Vec<ToolSpec> {
     specs
 }
 
+/// JSON Schema fragment for array-typed tool parameters.
+/// Strict MCP clients (Cursor, Copilot, Gemini) reject `"type": "array"` without `items`.
+fn array_items_schema(prop_name: &str) -> Value {
+    match prop_name {
+        "columns" => json!({ "type": "string" }),
+        "rows" => json!({
+            "type": "object",
+            "additionalProperties": true
+        }),
+        "params" => json!({
+            "oneOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" },
+                { "type": "null" }
+            ]
+        }),
+        // Safe default for any future array param — never emit bare `{}`.
+        _ => json!({ "type": "string" }),
+    }
+}
+
 /// Build a JSON Schema object for a tool's input, from `(name, type, required, description)`
 /// tuples. Every property carries a non-empty description (see `all_tools_have_descriptions`
 /// test) and the object forbids unknown properties so a typo'd/hallucinated argument fails
@@ -1063,22 +1085,10 @@ fn object_schema(props: &[(&str, &str, bool, &str)]) -> Value {
     let mut required = Vec::new();
     for (name, ty, req, description) in props {
         let mut prop_val = match *ty {
-            "array" => match *name {
-                "columns" => json!({ "type": "array", "items": { "type": "string" } }),
-                "rows" => json!({ "type": "array", "items": { "type": "object" } }),
-                "params" => json!({
-                    "type": "array",
-                    "items": {
-                        "oneOf": [
-                            { "type": "string" },
-                            { "type": "number" },
-                            { "type": "boolean" },
-                            { "type": "null" }
-                        ]
-                    }
-                }),
-                _ => json!({ "type": "array", "items": {} }),
-            },
+            "array" => json!({
+                "type": "array",
+                "items": array_items_schema(name),
+            }),
             _ => json!({ "type": *ty }),
         };
         prop_val["description"] = json!(*description);
@@ -1117,6 +1127,13 @@ mod tests {
 
     #[test]
     fn array_properties_have_items() {
+        fn items_schema_is_valid(items: &Value) -> bool {
+            items.get("type").is_some()
+                || items.get("oneOf").is_some()
+                || items.get("anyOf").is_some()
+                || items.get("allOf").is_some()
+        }
+
         for tool in active_tools() {
             if let Some(props) = tool
                 .input_schema
@@ -1125,9 +1142,16 @@ mod tests {
             {
                 for (prop_name, prop_val) in props {
                     if prop_val.get("type").and_then(|t| t.as_str()) == Some("array") {
+                        let items = prop_val.get("items").unwrap_or_else(|| {
+                            panic!(
+                                "Tool '{}' parameter '{}' is array type but missing 'items'",
+                                tool.name.as_str(),
+                                prop_name
+                            )
+                        });
                         assert!(
-                            prop_val.get("items").is_some(),
-                            "Tool '{}' parameter '{}' is array type but missing 'items'",
+                            items_schema_is_valid(items),
+                            "Tool '{}' parameter '{}' has array items without a concrete schema",
                             tool.name.as_str(),
                             prop_name
                         );
@@ -1135,6 +1159,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn import_data_rows_and_columns_have_typed_items() {
+        let spec = active_tools()
+            .into_iter()
+            .find(|t| t.name == ToolName::ImportData)
+            .expect("import_data tool");
+        let props = spec
+            .input_schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("import_data properties");
+        let rows = &props["rows"];
+        assert_eq!(rows["type"], "array");
+        assert_eq!(rows["items"]["type"], "object");
+        assert_eq!(rows["items"]["additionalProperties"], true);
+        let columns = &props["columns"];
+        assert_eq!(columns["type"], "array");
+        assert_eq!(columns["items"]["type"], "string");
     }
 
     #[test]

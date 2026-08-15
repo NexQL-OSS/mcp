@@ -1,0 +1,48 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import DocShell from "../components/DocShell.astro";
+---
+
+<BaseLayout
+  title="For agents — NexQL MCP"
+  description="How AI agents use NexQL MCP: exploration workflows, performance diagnosis, and example prompts."
+  canonical="https://nexql-mcp.astrx.dev/agents"
+>
+  <DocShell
+    kicker="Agent workflows"
+    title="Teach agents to ask"
+    titleEm="better questions."
+    lede="Structured tools — not raw SQL — so models orient in schema, bound reads, and diagnose before touching production."
+  >
+    <div class="legal-prose">
+      <h2>Exploration workflow</h2>
+      <ol>
+        <li><code>get_current_context</code> / <code>orient</code></li>
+        <li><code>search_schema(query="…")</code></li>
+        <li><code>describe_object</code></li>
+        <li><code>get_join_path</code></li>
+        <li><code>sample_values</code></li>
+        <li><code>run_select</code></li>
+      </ol>
+
+      <blockquote style="margin: 24px 0; padding: 16px 20px; border-left: 3px solid var(--nex-magenta); font-family: var(--font-serif); font-size: 1.15rem">
+        "Find how users relate to subscriptions and show active counts by plan tier."
+      </blockquote>
+
+      <h2>Performance workflow</h2>
+      <ol>
+        <li><code>db_health_check</code></li>
+        <li><code>slow_queries</code></li>
+        <li><code>list_running_queries</code> + <code>find_blocking_locks</code></li>
+        <li><code>explain_query</code> → <code>deep_plan_analysis</code></li>
+        <li><code>suggest_indexes</code> / <code>auto_tune_query</code></li>
+      </ol>
+
+      <div class="features-grid" style="margin-top: 32px">
+        <a class="feature-card" href="/kb"><h3>Knowledge base</h3><p>Searchable articles.</p></a>
+        <a class="feature-card" href="/docs/clients"><h3>Connect a client</h3><p>MCP JSON configs.</p></a>
+        <a class="feature-card" href="/docs/tools"><h3>Tools reference</h3><p>Full catalog.</p></a>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

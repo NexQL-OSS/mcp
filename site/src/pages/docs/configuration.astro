@@ -1,0 +1,54 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import { CopyButton } from "../../islands/CopyButton";
+
+const docsNav = [
+  { href: "/docs", label: "Overview" },
+  { href: "/docs/configuration", label: "Configuration" },
+  { href: "/docs/tools", label: "Tools" },
+  { href: "/docs/commands", label: "CLI commands" },
+  { href: "/docs/clients", label: "Clients" },
+  { href: "/docs/transport", label: "Transport" },
+];
+---
+
+<BaseLayout title="Configuration — NexQL MCP Docs" description="nexql-mcp profiles and config.toml." canonical="https://nexql-mcp.astrx.dev/docs/configuration">
+  <DocShell kicker="Docs" title="Configuration" lede="Profiles in ~/.config/nexql-mcp/config.toml. Override with NEXQL_MCP_CONFIG.">
+    <div class="docs-layout">
+      <DocsSidebar items={docsNav} label="Docs" />
+      <div class="legal-prose">
+        <div class="code-block">
+          <CopyButton client:load text={`default_profile = "local"\n\n[profiles.local]\nurl = "postgres://dev@localhost:5432/appdb"\naccess_mode = "read"`} />
+          <pre>default_profile = "local"
+
+[profiles.local]
+url = "postgres://dev@localhost:5432/appdb"
+access_mode = "read"
+
+[profiles.prod]
+host = "prod.example.com"
+dbname = "app"
+user = "readonly_agent"
+password_command = "op read op://vault/pg/password"
+access_mode = "read"
+schemas = ["public", "billing"]
+deny_tables = ["auth.*"]
+pii_columns = ["public.users.ssn", "public.users.email"]
+max_rows = 200</pre>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>access_mode</code></td><td>read, write, or admin</td></tr>
+            <tr><td><code>schemas</code></td><td>Schema allowlist</td></tr>
+            <tr><td><code>deny_tables</code></td><td>Blocked table globs</td></tr>
+            <tr><td><code>pii_columns</code></td><td>Masked columns</td></tr>
+            <tr><td><code>max_rows</code></td><td>Row cap per query</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

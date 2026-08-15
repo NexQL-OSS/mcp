@@ -1,0 +1,32 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import { CopyButton } from "../../islands/CopyButton";
+
+const docsNav = [
+  { href: "/docs", label: "Overview" },
+  { href: "/docs/configuration", label: "Configuration" },
+  { href: "/docs/tools", label: "Tools" },
+  { href: "/docs/commands", label: "CLI commands" },
+  { href: "/docs/clients", label: "Clients" },
+  { href: "/docs/transport", label: "Transport" },
+];
+---
+
+<BaseLayout title="HTTP transport — NexQL MCP" description="Stdio vs HTTP transport." canonical="https://nexql-mcp.astrx.dev/docs/transport">
+  <DocShell kicker="Docs" title="Transport" lede="Stdio for desktop clients. HTTP for services and remote sidecars.">
+    <div class="docs-layout">
+      <DocsSidebar items={docsNav} label="Docs" />
+      <div class="legal-prose">
+        <h2>Stdio (default)</h2>
+        <p>Cursor, Claude Desktop, VS Code spawn nexql-mcp as a child process.</p>
+        <h2>HTTP</h2>
+        <div class="code-block">
+          <CopyButton client:load text="NEXQL_MCP_HTTP_TOKEN=change-me nexql-mcp --http --bind 0.0.0.0 --http-port 8899" />
+          <pre>NEXQL_MCP_HTTP_TOKEN=change-me nexql-mcp --http --bind 0.0.0.0 --http-port 8899</pre>
+        </div>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

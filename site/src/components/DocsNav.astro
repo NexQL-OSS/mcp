@@ -1,0 +1,29 @@
+---
+interface NavItem {
+  href: string;
+  label: string;
+}
+
+interface Props {
+  items: NavItem[];
+  label?: string;
+}
+
+const { items, label = "Reference" } = Astro.props;
+const pathname = Astro.url.pathname.replace(/\/$/, "") || "/";
+---
+
+<nav class="docs-nav" aria-label="Documentation">
+  <p class="docs-nav-label">{label}</p>
+  {
+    items.map((item) => {
+      const norm = item.href.replace(/\/$/, "") || "/";
+      const active = pathname === norm;
+      return (
+        <a href={item.href} class:list={{ "is-active": active }} aria-current={active ? "page" : undefined}>
+          {item.label}
+        </a>
+      );
+    })
+  }
+</nav>

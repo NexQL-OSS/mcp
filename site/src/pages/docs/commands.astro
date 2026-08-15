@@ -1,0 +1,58 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import { cliCommands, globalFlags, initClients } from "../../data/commands";
+
+const docsNav = [
+  { href: "/docs", label: "Overview" },
+  { href: "/docs/configuration", label: "Configuration" },
+  { href: "/docs/tools", label: "Tools" },
+  { href: "/docs/commands", label: "CLI commands" },
+  { href: "/docs/clients", label: "Clients" },
+  { href: "/docs/transport", label: "Transport" },
+];
+---
+
+<BaseLayout title="CLI commands — NexQL MCP" description="nexql-mcp CLI reference." canonical="https://nexql-mcp.astrx.dev/docs/commands">
+  <DocShell kicker="Reference" title="CLI commands" lede="Every flag has a NEXQL_MCP_* environment equivalent.">
+    <div class="docs-layout">
+      <DocsSidebar items={docsNav} label="Docs" />
+      <div class="legal-prose">
+        <h2>Global flags</h2>
+        <table class="data-table">
+          <thead><tr><th>Flag</th><th>Env</th><th>Description</th></tr></thead>
+          <tbody>
+            {globalFlags.map((f) => (
+              <tr><td><code>{f.flag}</code></td><td>{f.env ? <code>{f.env}</code> : "—"}</td><td>{f.description}</td></tr>
+            ))}
+          </tbody>
+        </table>
+
+        {cliCommands.map((cmd) => (
+          <section style="margin-top: 32px">
+            <h2><code>{cmd.name}</code></h2>
+            {cmd.usage && <p><code>{cmd.usage}</code></p>}
+            <p>{cmd.description}</p>
+            {cmd.subcommands?.map((sub) => (
+              <div style="margin-top: 16px">
+                <h3><code>{cmd.name} {sub.name}</code></h3>
+                {sub.usage && <p><code>{sub.usage}</code></p>}
+                <p>{sub.description}</p>
+                {sub.subcommands?.map((nested) => (
+                  <div style="margin-left: 16px; border-left: 1px solid var(--landing-border); padding-left: 12px; margin-top: 8px">
+                    <strong><code>{nested.name}</code></strong>
+                    <p>{nested.description}</p>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </section>
+        ))}
+
+        <h2>init clients</h2>
+        <p>{initClients.map((c) => <code style="margin-right: 8px">{c}</code>)}</p>
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

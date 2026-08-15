@@ -1,0 +1,42 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import DocShell from "../../components/DocShell.astro";
+import DocsSidebar from "../../components/DocsSidebar.astro";
+import { toolGroups, toolCount } from "../../data/tools";
+
+const docsNav = [
+  { href: "/docs", label: "Overview" },
+  { href: "/docs/configuration", label: "Configuration" },
+  { href: "/docs/tools", label: "Tools" },
+  { href: "/docs/commands", label: "CLI commands" },
+  { href: "/docs/clients", label: "Clients" },
+  { href: "/docs/transport", label: "Transport" },
+];
+---
+
+<BaseLayout title="Tools reference — NexQL MCP" description={`${toolCount} MCP tools`} canonical="https://nexql-mcp.astrx.dev/docs/tools">
+  <DocShell kicker="Reference" title="Tools" titleEm={`${toolCount} MCP tools`} lede="All tools appear in tools/list; access_mode enforced at call time.">
+    <div class="docs-layout">
+      <DocsSidebar items={docsNav} label="Docs" />
+      <div>
+        {toolGroups.map((group) => (
+          <section style="margin-bottom: 40px" id={group.id}>
+            <h2 class="nx-title nx-title--sm">{group.title}</h2>
+            <p class="nx-lede">{group.summary}</p>
+            <div class="tool-ref-list">
+              {group.tools.map((tool) => (
+                <div class="tool-ref-row">
+                  <div>
+                    <code>{tool.name}</code>
+                    {tool.access && tool.access !== "read" && <span class="access-badge access-badge--write">{tool.access}</span>}
+                  </div>
+                  <span>{tool.description}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  </DocShell>
+</BaseLayout>

@@ -1,0 +1,99 @@
+---
+import { SITE_VERSION, NEXQL_URL, THEMES_URL, REPO_URL } from "../data/site";
+
+const pathname = Astro.url.pathname.replace(/\/$/, "") || "/";
+
+function isActive(href: string): boolean {
+  const norm = href.replace(/\/$/, "") || "/";
+  if (norm === "/") return pathname === "/" || pathname === "/index";
+  return pathname === norm || pathname.startsWith(norm + "/");
+}
+
+const links = [
+  { href: "/install", label: "Install" },
+  { href: "/features", label: "Features" },
+  { href: "/agents", label: "For agents" },
+  { href: "/docs", label: "Docs" },
+  { href: "/kb", label: "Knowledge base" },
+];
+---
+
+<header class="site-header landing-topbar" role="banner">
+  <div class="site-header-inner">
+    <button
+      class="site-header-menu-btn"
+      id="btn-toggle-topbar"
+      type="button"
+      aria-label="Toggle navigation"
+      aria-expanded="false"
+      aria-controls="site-nav"
+    >
+      <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+
+    <a href="/" class="site-logo" aria-label="NexQL MCP — home">
+      <img class="site-logo-img" src="/assets/NexQL.png" alt="" width="34" height="34" />
+      <span class="site-logo-text brand-gradient">NexQL</span>
+      <span class="site-logo-badge">MCP v{SITE_VERSION}</span>
+    </a>
+
+    <nav class="site-nav" id="site-nav" aria-label="Site">
+      {
+        links.map((link) => (
+          <a
+            href={link.href}
+            class:list={{ "is-active": isActive(link.href) }}
+            aria-current={isActive(link.href) ? "page" : undefined}
+          >
+            {link.label}
+          </a>
+        ))
+      }
+      <a href={NEXQL_URL} target="_blank" rel="noopener noreferrer" class="site-nav-external">
+        NexQL ↗
+      </a>
+      <a href={THEMES_URL} target="_blank" rel="noopener noreferrer" class="site-nav-external">
+        Themes ↗
+      </a>
+      <a href={REPO_URL} target="_blank" rel="noopener noreferrer" class="site-nav-external">
+        GitHub ↗
+      </a>
+    </nav>
+
+    <div class="site-header-actions">
+      <div class="theme-picker" id="theme-picker">
+        <button
+          type="button"
+          class="theme-picker-trigger"
+          id="theme-picker-trigger"
+          aria-haspopup="listbox"
+          aria-expanded="false"
+          aria-controls="theme-picker-menu"
+          aria-label="NexQL color theme"
+        >
+          <span class="theme-picker-dot" id="theme-picker-dot" aria-hidden="true"></span>
+          <span class="theme-picker-label" id="theme-picker-label">Loading…</span>
+          <svg class="theme-picker-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M6 9l6 6 6-6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <div
+          class="theme-picker-menu"
+          id="theme-picker-menu"
+          role="listbox"
+          aria-label="NexQL themes"
+          hidden></div>
+      </div>
+    </div>
+  </div>
+</header>

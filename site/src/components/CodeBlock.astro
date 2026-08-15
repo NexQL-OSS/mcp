@@ -1,0 +1,32 @@
+---
+import { CopyButton } from "../islands/CopyButton";
+
+/**
+ * Code sample with a copy button. Pass `code` for the literal text; the copy
+ * button always copies exactly that string, so it stays correct even when the
+ * rendered block is labelled or wrapped.
+ */
+interface Props {
+  code: string;
+  /** Small uppercase caption above the block (e.g. "macOS / Linux"). */
+  label?: string;
+  /** Word for the copy button, e.g. "command". */
+  copyLabel?: string;
+}
+
+const { code, label, copyLabel = "copy" } = Astro.props;
+const trimmed = code.trim();
+---
+
+<div class:list={["code-block", !label && "code-block--bare"]}>
+  {
+    label && (
+      <div class="code-block-label">
+        <span>{label}</span>
+        <CopyButton client:visible text={trimmed} label={copyLabel} />
+      </div>
+    )
+  }
+  {!label && <CopyButton client:visible text={trimmed} label={copyLabel} />}
+  <pre><code>{trimmed}</code></pre>
+</div>

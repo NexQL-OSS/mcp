@@ -1,0 +1,60 @@
+---
+import {
+  SITE_VERSION,
+  NEXQL_URL,
+  THEMES_URL,
+  REPO_URL,
+  REGISTRY_URL,
+  FACTS,
+} from "../data/site";
+---
+
+<footer class="nx-footer">
+  <div class="nx-footer-grid">
+    <div class="nx-footer-brand">
+      <div class="nx-footer-logo">
+        <img src="/assets/NexQL.png" alt="" width="28" height="28" />
+        <span>NexQL MCP</span>
+      </div>
+      <p>
+        A Postgres MCP server that gives agents the schema before they write the query.
+        {FACTS.toolCount} tools, read-only by default, one static binary.
+      </p>
+    </div>
+
+    <div>
+      <div class="nx-footer-col-title">Start here</div>
+      <a href="/install">Install</a>
+      <a href="/features">Features</a>
+      <a href="/agents">For agents</a>
+      <a href="/kb">Knowledge base</a>
+    </div>
+
+    <div>
+      <div class="nx-footer-col-title">Reference</div>
+      <a href="/docs/tools">All {FACTS.toolCount} tools</a>
+      <a href="/docs/commands">CLI commands</a>
+      <a href="/docs/configuration">Configuration</a>
+      <a href="/docs/clients">Client setup</a>
+      <a href="/docs/transport">Transport</a>
+    </div>
+
+    <div>
+      <div class="nx-footer-col-title">Elsewhere</div>
+      <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      <a href={REGISTRY_URL} target="_blank" rel="noopener noreferrer">MCP Registry ↗</a>
+      <a href={NEXQL_URL} target="_blank" rel="noopener noreferrer">NexQL for VS Code ↗</a>
+      <a href={THEMES_URL} target="_blank" rel="noopener noreferrer">NexQL Themes ↗</a>
+    </div>
+  </div>
+
+  <div class="nx-footer-bottom">
+    <span>
+      v{SITE_VERSION} · {FACTS.license} · PostgreSQL {FACTS.pgVersions}
+    </span>
+    <span>
+      <a href={NEXQL_URL}>nexql.astrx.dev</a> ·
+      <a href="/">nexql-mcp.astrx.dev</a>
+    </span>
+  </div>
+</footer>
