@@ -10,7 +10,10 @@ pub mod filter;
 pub mod sql;
 
 pub use access::{AccessMode, check_superuser_guard};
-pub use caps::{DEFAULT_MAX_RESULT_CHARS, DEFAULT_MAX_ROWS, PolicyCaps, clamp_max_rows};
+pub use caps::{
+    AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS, DEFAULT_MAX_ROWS,
+    DEFAULT_STATEMENT_TIMEOUT_MS, PolicyCaps, clamp_max_rows, clamp_statement_timeout_ms,
+};
 pub use error::PolicyError;
 pub use filter::{
     ObjectRef, PolicyFilter, PII_REDACTED, column_matches_pii_policy, is_pii_column,

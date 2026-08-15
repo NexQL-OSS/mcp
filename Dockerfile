@@ -23,6 +23,8 @@ RUN LIBCLANG_PATH="$(dirname "$(find /usr -name 'libclang.so*' 2>/dev/null | hea
 
 FROM gcr.io/distroless/cc-debian12
 
+LABEL io.modelcontextprotocol.server.name="io.github.NexQL-OSS/nexql-mcp"
+
 COPY --from=builder /src/target/release/nexql-mcp /usr/local/bin/nexql-mcp
 
 # Connection string / flags via argv or env (NEXQL_MCP_*).

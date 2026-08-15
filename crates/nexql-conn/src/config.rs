@@ -41,6 +41,7 @@ pub struct ProfileConfig {
     #[serde(default)]
     pub pii_columns: Vec<String>,
     pub max_rows: Option<u32>,
+    pub statement_timeout_ms: Option<u32>,
     pub credential_provider: Option<String>,
 }
 
@@ -67,6 +68,8 @@ pub struct ProjectConfigFile {
     pub pii_columns: Vec<String>,
     /// Maximum rows (can only lower, not raise).
     pub max_rows: Option<u32>,
+    /// Statement timeout in milliseconds (can only lower, not raise).
+    pub statement_timeout_ms: Option<u32>,
     /// Optional project-local index storage directory (relative to `.nexql/`).
     pub index_dir: Option<String>,
 }
@@ -171,6 +174,11 @@ impl ConfigFile {
         Self::parse_str(&raw)
     }
 
+    /// Load config from disk and migrate legacy plaintext credentials to the OS keyring.
+    pub fn load_path_migrated(path: &Path) -> Result<(Self, SecretMigrationReport), ConnError> {
+        crate::config::load_path_migrated(path)
+    }
+
     /// Resolve config path: `$NEXQL_MCP_CONFIG` → `~/.config/nexql-mcp/config.toml`.
     pub fn default_path() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("NEXQL_MCP_CONFIG") {
@@ -186,6 +194,18 @@ impl ConfigFile {
             self.default_profile = Some(name.clone());
         }
         self.profiles.insert(name, profile);
+    }
+
+    /// Insert or replace a profile after routing inline secrets to the OS keyring.
+    pub fn upsert_profile_prepared(
+        &mut self,
+        name: impl Into<String>,
+        profile: ProfileConfig,
+    ) -> Result<(), ConnError> {
+        let name = name.into();
+        let prepared = prepare_profile_for_persist(&name, profile)?;
+        self.upsert_profile(name, prepared);
+        Ok(())
     }
 
     pub fn remove_profile(&mut self, name: &str) -> Option<ProfileConfig> {
@@ -230,6 +250,7 @@ impl ConfigFile {
                 .map(|p| p.pii_columns.clone())
                 .unwrap_or_default(),
             max_rows: policy_source.and_then(|p| p.max_rows),
+            statement_timeout_ms: policy_source.and_then(|p| p.statement_timeout_ms),
             index_dir: None,
         }
     }
@@ -285,6 +306,138 @@ pub fn write_with_backup(path: &Path, content: &str) -> Result<Option<PathBuf>, 
     std::fs::rename(&tmp_path, path)?;
 
     Ok(backup)
+}
+
+/// Whether a profile still has credentials that would be written to TOML in plaintext.
+pub fn profile_has_plaintext_secret(profile: &ProfileConfig) -> bool {
+    if profile.password.is_some() {
+        return true;
+    }
+    if let Some(ref url) = profile.url
+        && let Ok(parsed) = url::Url::parse(url)
+        && parsed.password().is_some()
+    {
+        return true;
+    }
+    false
+}
+
+/// Security warnings for profiles with inline passwords (field or URL).
+pub fn config_plaintext_secret_warnings(config: &ConfigFile) -> Vec<String> {
+    config
+        .profiles
+        .iter()
+        .filter(|(_, profile)| profile_has_plaintext_secret(profile))
+        .map(|(name, _)| {
+            format!(
+                "security: profile '{name}' stores credentials in plaintext — run \
+                 `nexql-mcp profile migrate-secrets` or re-save the profile to migrate to the OS \
+                 keyring, or use password_command / password_file"
+            )
+        })
+        .collect()
+}
+
+/// Result of migrating inline credentials from TOML into the OS keyring.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SecretMigrationReport {
+    /// Profile names successfully migrated.
+    pub migrated: Vec<String>,
+    /// `(profile, error)` pairs when keyring storage failed.
+    pub failed: Vec<(String, String)>,
+    /// Backup path written before persisting the migrated config.
+    pub backup: Option<PathBuf>,
+}
+
+impl SecretMigrationReport {
+    pub fn any_changes(&self) -> bool {
+        !self.migrated.is_empty() || !self.failed.is_empty()
+    }
+}
+
+/// Move plaintext `password` / URL credentials into the OS keyring for every profile
+/// that still has inline secrets. Profiles that fail keyring storage are left unchanged.
+pub fn migrate_plaintext_secrets(config: &mut ConfigFile) -> SecretMigrationReport {
+    let mut report = SecretMigrationReport::default();
+    let names: Vec<String> = config.profiles.keys().cloned().collect();
+    for name in names {
+        let Some(profile) = config.profiles.get(&name) else {
+            continue;
+        };
+        if !profile_has_plaintext_secret(profile) {
+            continue;
+        }
+        let profile = profile.clone();
+        match prepare_profile_for_persist(&name, profile) {
+            Ok(prepared) => {
+                config.profiles.insert(name.clone(), prepared);
+                report.migrated.push(name);
+            }
+            Err(err) => report.failed.push((name, err.to_string())),
+        }
+    }
+    report
+}
+
+/// Load config from disk and migrate any legacy plaintext credentials to the OS keyring.
+/// Rewrites the config file when at least one profile migrates successfully.
+pub fn load_path_migrated(path: &Path) -> Result<(ConfigFile, SecretMigrationReport), ConnError> {
+    if !path.exists() {
+        return Ok((ConfigFile::default(), SecretMigrationReport::default()));
+    }
+    let mut config = ConfigFile::load_path(path)?;
+    let mut report = migrate_plaintext_secrets(&mut config);
+    if !report.migrated.is_empty() {
+        report.backup = config.save(path)?;
+    }
+    if report.any_changes() {
+        log_secret_migration_report(&report);
+    }
+    Ok((config, report))
+}
+
+/// Emit migration outcomes via `tracing` (info on success, warn on keyring failure).
+pub fn log_secret_migration_report(report: &SecretMigrationReport) {
+    for name in &report.migrated {
+        tracing::info!(profile = %name, "migrated plaintext credentials to OS keyring");
+    }
+    for (name, err) in &report.failed {
+        tracing::warn!(
+            profile = %name,
+            error = %err,
+            "could not migrate plaintext credentials; password left in config"
+        );
+    }
+    if let Some(ref backup) = report.backup {
+        tracing::info!(path = %backup.display(), "config backup written before secret migration");
+    }
+}
+
+/// Prepare a profile for disk persistence: inline passwords go to the OS keyring,
+/// never into TOML. Passwords embedded in `url` are stripped and stored in keyring too.
+pub fn prepare_profile_for_persist(
+    profile_name: &str,
+    mut profile: ProfileConfig,
+) -> Result<ProfileConfig, ConnError> {
+    let (password, provider) =
+        crate::secret::route_password_to_keyring(profile_name, profile.password.as_deref())?;
+    if provider.is_some() {
+        profile.password = password;
+        profile.credential_provider = provider;
+    }
+
+    if let Some(ref url) = profile.url
+        && let Ok(mut parsed) = url::Url::parse(url)
+        && let Some(url_pw) = parsed.password()
+        && !url_pw.is_empty()
+    {
+        crate::secret::store_keyring_password(profile_name, url_pw)?;
+        let _ = parsed.set_password(None);
+        profile.url = Some(parsed.to_string());
+        profile.credential_provider = Some("keyring".into());
+    }
+
+    Ok(profile)
 }
 
 fn dirs_config() -> Option<PathBuf> {
@@ -542,5 +695,106 @@ url = "postgres://evil.com/db"
         assert!(p.password.is_none());
         assert!(p.password_command.is_none());
         assert_eq!(p.url.as_deref(), Some("postgres://prod.host:5432/appdb"));
+    }
+
+    #[test]
+    fn profile_has_plaintext_secret_detects_field_and_url() {
+        assert!(profile_has_plaintext_secret(&ProfileConfig {
+            password: Some("x".into()),
+            ..Default::default()
+        }));
+        assert!(profile_has_plaintext_secret(&ProfileConfig {
+            url: Some("postgres://u:pw@localhost/db".into()),
+            ..Default::default()
+        }));
+        assert!(!profile_has_plaintext_secret(&ProfileConfig {
+            credential_provider: Some("keyring".into()),
+            ..Default::default()
+        }));
+    }
+
+    #[test]
+    fn config_plaintext_secret_warnings_lists_profiles() {
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "prod",
+            ProfileConfig {
+                password: Some("secret".into()),
+                ..Default::default()
+            },
+        );
+        let warnings = config_plaintext_secret_warnings(&cfg);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("prod"));
+    }
+
+    #[test]
+    fn migrate_plaintext_secrets_skips_clean_profiles() {
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "local",
+            ProfileConfig {
+                host: Some("localhost".into()),
+                credential_provider: Some("keyring".into()),
+                ..Default::default()
+            },
+        );
+        let report = migrate_plaintext_secrets(&mut cfg);
+        assert!(report.migrated.is_empty());
+        assert!(report.failed.is_empty());
+    }
+
+    #[test]
+    fn migrate_plaintext_secrets_moves_password_to_keyring_or_reports_failure() {
+        const SECRET: &str = "correct-horse-battery-staple";
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "prod",
+            ProfileConfig {
+                password: Some(SECRET.into()),
+                ..Default::default()
+            },
+        );
+        let report = migrate_plaintext_secrets(&mut cfg);
+        if report.migrated.is_empty() {
+            assert_eq!(report.failed.len(), 1);
+            assert_eq!(report.failed[0].0, "prod");
+            assert_eq!(
+                cfg.profiles["prod"].password.as_deref(),
+                Some(SECRET)
+            );
+        } else {
+            assert_eq!(report.migrated, vec!["prod".to_string()]);
+            assert!(cfg.profiles["prod"].password.is_none());
+            assert_eq!(
+                cfg.profiles["prod"].credential_provider.as_deref(),
+                Some("keyring")
+            );
+        }
+    }
+
+    #[test]
+    fn load_path_migrated_never_leaves_plaintext_password_on_disk_when_keyring_works() {
+        const SECRET: &str = "correct-horse-battery-staple";
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "prod",
+            ProfileConfig {
+                password: Some(SECRET.into()),
+                ..Default::default()
+            },
+        );
+        cfg.save(&path).unwrap();
+
+        let (_loaded, report) = load_path_migrated(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        if !report.migrated.is_empty() {
+            assert!(
+                !raw.contains(SECRET),
+                "migrated config must not contain plaintext password: {raw}"
+            );
+        }
     }
 }

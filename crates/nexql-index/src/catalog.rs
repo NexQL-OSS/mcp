@@ -127,6 +127,7 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
 WHERE n.nspname = ANY($1)
   AND c.relkind IN ('r', 'v', 'f', 'm', 'p')
+  AND NOT c.relispartition
 "#;
 
 /// 2. Fetch columns for multiple relations by OID

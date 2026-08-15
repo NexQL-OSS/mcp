@@ -121,6 +121,24 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     false,
                     "Filter by object kind: \"table\", \"view\", or \"materialized_view\".",
                 ),
+                (
+                    "include_partitions",
+                    "boolean",
+                    false,
+                    "When true, list child partition tables individually. Default false groups partitioned parents.",
+                ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
             ]),
         },
         ToolSpec {
@@ -148,23 +166,81 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::RunSelect,
-            description: "Run a read-only SELECT or WITH query. DML/DDL are rejected. Only reference tables/columns confirmed via list_schemas / list_objects.",
-            input_schema: object_schema(&[(
-                "sql",
-                "string",
-                true,
-                "A single SELECT or WITH statement, schema-qualify table names where possible.",
-            )]),
+            description: "Run a read-only SELECT or WITH query. DML/DDL are rejected. Supports parameterized execution via `params` ($1, $2, …). Results default to 50 rows with total_count and has_more pagination metadata.",
+            input_schema: object_schema(&[
+                (
+                    "sql",
+                    "string",
+                    true,
+                    "A single SELECT or WITH statement, schema-qualify table names where possible.",
+                ),
+                (
+                    "params",
+                    "array",
+                    false,
+                    "Bound parameters for $1, $2, … in `sql`. JSON values: string, number, boolean, or null.",
+                ),
+                (
+                    "limit",
+                    "number",
+                    false,
+                    "Maximum rows to return. Defaults to 50; capped by profile max_rows.",
+                ),
+                (
+                    "format",
+                    "string",
+                    false,
+                    "Output format: \"compact\" (default columnar), \"json\", \"markdown\", or \"csv\".",
+                ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
+                (
+                    "resolve_fks",
+                    "boolean",
+                    false,
+                    "When true, add __resolved suffix columns for foreign-key IDs in the result.",
+                ),
+                (
+                    "timeout_ms",
+                    "number",
+                    false,
+                    "Per-query statement timeout in milliseconds; capped by profile statement_timeout_ms.",
+                ),
+            ]),
         },
         ToolSpec {
             name: ToolName::ExplainQuery,
             description: "Run EXPLAIN (no ANALYZE execute) for a SELECT/WITH query.",
-            input_schema: object_schema(&[(
-                "sql",
-                "string",
-                true,
-                "A single SELECT or WITH statement to explain (not executed).",
-            )]),
+            input_schema: object_schema(&[
+                (
+                    "sql",
+                    "string",
+                    true,
+                    "A single SELECT or WITH statement to explain (not executed).",
+                ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
+            ]),
         },
         ToolSpec {
             name: ToolName::DiscoverTools,
@@ -393,6 +469,54 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             )]),
         },
         ToolSpec {
+            name: ToolName::InspectOrSearch,
+            description: "Composite schema discovery: search by keywords and return matching objects with columns, keys, and row estimates in one call — replaces search_schema → describe_object chains.",
+            input_schema: object_schema(&[
+                (
+                    "query",
+                    "string",
+                    true,
+                    "Natural-language or keyword search, e.g. \"cash card\".",
+                ),
+                (
+                    "include_columns",
+                    "boolean",
+                    false,
+                    "Include per-column definitions in each match. Default true.",
+                ),
+                (
+                    "limit_objects",
+                    "number",
+                    false,
+                    "Maximum matching objects to return. Default 3.",
+                ),
+            ]),
+        },
+        ToolSpec {
+            name: ToolName::SearchAllDatabases,
+            description: "Cross-database schema search: find which connection/database owns an entity across all configured profiles and indexed databases.",
+            input_schema: object_schema(&[
+                (
+                    "query",
+                    "string",
+                    true,
+                    "Table/view name or keyword to search across all connections and databases.",
+                ),
+                (
+                    "limit_per_database",
+                    "number",
+                    false,
+                    "Max hits per connection/database pair. Default 3.",
+                ),
+                (
+                    "limit_connections",
+                    "number",
+                    false,
+                    "Max connection/database pairs to search. Default 20.",
+                ),
+            ]),
+        },
+        ToolSpec {
             name: ToolName::SearchSchema,
             description: "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Call this FIRST before writing any SQL — do not assume a table exists without finding it here.",
             input_schema: object_schema(&[(
@@ -405,12 +529,38 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
         ToolSpec {
             name: ToolName::DescribeObject,
             description: "Get structural details of a specific database object (table, view, or materialized view) including columns, data types, constraints, and indexes.",
-            input_schema: object_schema(&[(
-                "ref",
-                "string",
-                true,
-                "Object reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
-            )]),
+            input_schema: object_schema(&[
+                (
+                    "ref",
+                    "string",
+                    true,
+                    "Object reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
+                ),
+                (
+                    "resolve_refs",
+                    "boolean",
+                    false,
+                    "When true, attach enum values and resolved FK label samples on columns.",
+                ),
+                (
+                    "resolve_refs_limit",
+                    "number",
+                    false,
+                    "Max distinct FK values to resolve per column when resolve_refs is true. Default 20.",
+                ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
+            ]),
         },
         ToolSpec {
             name: ToolName::GetJoinPath,
@@ -485,17 +635,43 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
                     false,
                     "Object kind hint: \"table\", \"view\", \"materialized_view\", \"function\", or \"index\". Auto-detected if omitted.",
                 ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
             ]),
         },
         ToolSpec {
             name: ToolName::TableStats,
             description: "Get size, row-count, activity (scans, inserts/updates/deletes, dead tuples, vacuum/analyze times) and per-column statistics for a specific table.",
-            input_schema: object_schema(&[(
-                "ref",
-                "string",
-                true,
-                "Table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
-            )]),
+            input_schema: object_schema(&[
+                (
+                    "ref",
+                    "string",
+                    true,
+                    "Table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                ),
+                (
+                    "connectionId",
+                    "string",
+                    false,
+                    "Optional connection profile override — does not change session context.",
+                ),
+                (
+                    "database",
+                    "string",
+                    false,
+                    "Database on connectionId. Requires connectionId when set.",
+                ),
+            ]),
         },
         ToolSpec {
             name: ToolName::IndexUsage,
@@ -736,6 +912,12 @@ pub fn phase9_write_tools() -> Vec<ToolSpec> {
                     false,
                     "If true, execute then roll back so no change persists. Default false.",
                 ),
+                (
+                    "include_diff",
+                    "boolean",
+                    false,
+                    "When true (default when dry_run), capture before/after row snapshots for UPDATE/DELETE.",
+                ),
             ]),
         },
         ToolSpec {
@@ -760,6 +942,18 @@ pub fn phase9_write_tools() -> Vec<ToolSpec> {
                     "object",
                     false,
                     "Primary-key column name/value pairs identifying the row. Required for update/delete.",
+                ),
+                (
+                    "dry_run",
+                    "boolean",
+                    false,
+                    "If true, execute then roll back so no change persists. Default false.",
+                ),
+                (
+                    "include_diff",
+                    "boolean",
+                    false,
+                    "When true (default when dry_run), capture before/after row snapshots for update/delete.",
                 ),
             ]),
         },
@@ -872,6 +1066,17 @@ fn object_schema(props: &[(&str, &str, bool, &str)]) -> Value {
             "array" => match *name {
                 "columns" => json!({ "type": "array", "items": { "type": "string" } }),
                 "rows" => json!({ "type": "array", "items": { "type": "object" } }),
+                "params" => json!({
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            { "type": "string" },
+                            { "type": "number" },
+                            { "type": "boolean" },
+                            { "type": "null" }
+                        ]
+                    }
+                }),
                 _ => json!({ "type": "array", "items": {} }),
             },
             _ => json!({ "type": *ty }),
@@ -896,9 +1101,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_fifty_three() {
+    fn active_tools_lists_fifty_four() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 52);
+        assert_eq!(specs.len(), 54);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -935,16 +1140,16 @@ mod tests {
     #[test]
     fn profile_tools_filtering() {
         let query_specs = tools_for_profile(ToolProfile::Query);
-        assert_eq!(query_specs.len(), 19);
+        assert_eq!(query_specs.len(), 21);
 
         let dba_specs = tools_for_profile(ToolProfile::Dba);
         assert_eq!(dba_specs.len(), 26);
 
         let meta_specs = tools_for_profile(ToolProfile::Meta);
-        assert_eq!(meta_specs.len(), 11);
+        assert_eq!(meta_specs.len(), 13);
 
         let full_specs = tools_for_profile(ToolProfile::Full);
-        assert_eq!(full_specs.len(), 52);
+        assert_eq!(full_specs.len(), 54);
     }
 
     /// Regression guard for Issue 1: every tool parameter must carry a non-empty

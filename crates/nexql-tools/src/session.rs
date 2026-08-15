@@ -13,7 +13,7 @@ use nexql_conn::{
     resolve_profile,
 };
 use nexql_index::IndexStore;
-use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter};
+use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter, clamp_statement_timeout_ms};
 use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::ToolError;
@@ -103,6 +103,9 @@ pub fn policy_from_profile(
     if let Some(n) = profile.and_then(|p| p.max_rows) {
         caps = caps.with_max_rows(n);
     }
+    if let Some(ms) = profile.and_then(|p| p.statement_timeout_ms) {
+        caps = caps.with_statement_timeout_ms(ms);
+    }
     let filter = profile.map(filter_from_profile).unwrap_or_default();
     ConnectionPolicy {
         access_mode,
@@ -139,9 +142,25 @@ fn active_policy_from(policy: &ConnectionPolicy) -> ActivePolicy {
         filter: policy.filter.clone(),
         pool_opts: PoolOptions {
             read_only: !policy.access_mode.allows_writes(),
+            statement_timeout: std::time::Duration::from_millis(
+                policy.caps.statement_timeout_ms as u64,
+            ),
             ..Default::default()
         },
     }
+}
+
+/// Target connection/database for a single tool call without mutating session context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedContext {
+    pub connection_id: String,
+    pub database: String,
+}
+
+/// Checkout target: active session or an explicit scoped context.
+pub enum CheckoutTarget<'a> {
+    Active,
+    Scoped(&'a ScopedContext),
 }
 
 impl ToolSession {
@@ -364,6 +383,143 @@ impl ToolSession {
         Ok(checkout_guarded(pool, &pool_opts).await?)
     }
 
+    pub fn connection_policy(&self, connection_id: &str) -> Option<ConnectionPolicy> {
+        self.connections()
+            .into_iter()
+            .find(|c| c.id == connection_id)
+            .map(|c| c.policy.clone())
+    }
+
+    pub fn filter_for(&self, connection_id: &str) -> PolicyFilter {
+        self.connection_policy(connection_id)
+            .map(|p| p.filter)
+            .unwrap_or_else(|| self.filter())
+    }
+
+    pub fn caps_for(&self, connection_id: &str) -> PolicyCaps {
+        self.connection_policy(connection_id)
+            .map(|p| p.caps)
+            .unwrap_or_else(|| self.caps())
+    }
+
+    pub fn pool_opts_for(&self, connection_id: &str) -> PoolOptions {
+        if let Some(policy) = self.connection_policy(connection_id) {
+            PoolOptions {
+                read_only: !policy.access_mode.allows_writes(),
+                statement_timeout: std::time::Duration::from_millis(
+                    policy.caps.statement_timeout_ms as u64,
+                ),
+                ..Default::default()
+            }
+        } else {
+            self.pool_opts()
+        }
+    }
+
+    /// Resolve effective connection/database for a tool call.
+    pub async fn resolve_scoped_context(
+        &self,
+        connection_id: Option<&str>,
+        database: Option<&str>,
+    ) -> Result<ScopedContext, ToolError> {
+        if let Some(id) = connection_id {
+            let conn = self
+                .connections()
+                .into_iter()
+                .find(|c| c.id == id)
+                .ok_or_else(|| {
+                    ToolError::Execution(format!(
+                        "Connection not found for ID: {id} — call list_connections"
+                    ))
+                })?;
+            let target_db = database
+                .map(str::to_owned)
+                .or_else(|| conn.database.clone())
+                .unwrap_or_else(|| "postgres".into());
+            Ok(ScopedContext {
+                connection_id: id.to_string(),
+                database: target_db,
+            })
+        } else {
+            if database.is_some() {
+                return Err(ToolError::InvalidArgs(
+                    "database requires connectionId when overriding the active session".into(),
+                ));
+            }
+            let (id, db) = self.active_context().await;
+            Ok(ScopedContext {
+                connection_id: id,
+                database: db,
+            })
+        }
+    }
+
+    async fn ensure_pool_for(&self, ctx: &ScopedContext) -> Result<(), ToolError> {
+        let conn = self
+            .connections()
+            .into_iter()
+            .find(|c| c.id == ctx.connection_id)
+            .ok_or_else(|| {
+                ToolError::Execution(format!(
+                    "Connection not found for ID: {} — call list_connections",
+                    ctx.connection_id
+                ))
+            })?;
+        let pool_opts = self.pool_opts_for(&ctx.connection_id);
+        let key = pool_key(&ctx.connection_id, &ctx.database);
+        let mut g = self.inner.write().await;
+        if g.pools.contains_key(&key) {
+            return Ok(());
+        }
+        let params = params_for_database(&conn.params, &ctx.database);
+        let pool = create_pool(&params, &pool_opts).await?;
+        g.pools.insert(key, pool);
+        Ok(())
+    }
+
+    /// Checkout a client for the given target without changing active session context.
+    pub async fn checkout_for(
+        &self,
+        target: CheckoutTarget<'_>,
+    ) -> Result<(Object, ScopedContext), ToolError> {
+        match target {
+            CheckoutTarget::Active => {
+                let (id, db) = self.active_context().await;
+                let ctx = ScopedContext {
+                    connection_id: id,
+                    database: db,
+                };
+                Ok((self.checkout().await?, ctx))
+            }
+            CheckoutTarget::Scoped(ctx) => {
+                self.ensure_pool_for(ctx).await?;
+                let key = pool_key(&ctx.connection_id, &ctx.database);
+                let pool = {
+                    let g = self.inner.read().await;
+                    g.pools
+                        .get(&key)
+                        .cloned()
+                        .ok_or_else(|| ToolError::Execution("no pool for scoped context".into()))?
+                };
+                let pool_opts = self.pool_opts_for(&ctx.connection_id);
+                let client = checkout_guarded(&pool, &pool_opts).await?;
+                Ok((client, ctx.clone()))
+            }
+        }
+    }
+
+    pub async fn set_statement_timeout(
+        client: &Object,
+        timeout_ms: u32,
+    ) -> Result<(), ToolError> {
+        let ms = clamp_statement_timeout_ms(timeout_ms);
+        client
+            .batch_execute(&format!("SET statement_timeout = '{ms}ms'"))
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+        Ok(())
+    }
+
     /// Test helper: session with no live pools (index tools only).
     #[cfg(test)]
     pub fn for_tests(
@@ -400,6 +556,7 @@ impl ToolSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexql_conn::ConnectionParams;
 
     #[test]
     fn filter_maps_profile_fields() {
@@ -449,6 +606,43 @@ mod tests {
         let names: Vec<_> = session.connections().iter().map(|c| c.id.clone()).collect();
         assert!(names.contains(&"existing".to_string()));
         assert!(names.contains(&"newdb".to_string()));
+    }
+
+    #[tokio::test]
+    async fn checkout_for_scoped_does_not_change_active_context() {
+        let session = ToolSession::for_tests(
+            vec![
+                ConnectionInfo {
+                    id: "a".into(),
+                    name: "a".into(),
+                    host: Some("localhost".into()),
+                    port: Some(5432),
+                    database: Some("postgres".into()),
+                    params: ConnectionParams::default(),
+                    policy: policy_from_profile(None, AccessMode::Read, PolicyCaps::default()),
+                },
+                ConnectionInfo {
+                    id: "b".into(),
+                    name: "b".into(),
+                    host: Some("localhost".into()),
+                    port: Some(5432),
+                    database: Some("postgres".into()),
+                    params: ConnectionParams::default(),
+                    policy: policy_from_profile(None, AccessMode::Read, PolicyCaps::default()),
+                },
+            ],
+            PolicyFilter::default(),
+            None,
+        );
+        let scoped = ScopedContext {
+            connection_id: "b".into(),
+            database: "postgres".into(),
+        };
+        let _ = session
+            .checkout_for(CheckoutTarget::Scoped(&scoped))
+            .await;
+        let (active_id, _) = session.active_context().await;
+        assert_eq!(active_id, "a");
     }
 
     #[test]

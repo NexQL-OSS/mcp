@@ -30,6 +30,41 @@ pub fn rows_to_json_array(rows: &[tokio_postgres::Row]) -> Value {
     Value::Array(rows_to_json_vec(rows))
 }
 
+/// Like [`rows_to_json_array`] but strips the pagination helper column and returns total count.
+pub fn rows_to_json_array_with_total(
+    rows: &[tokio_postgres::Row],
+    total_col: &str,
+) -> (Option<i64>, Value) {
+    let total = rows.first().and_then(|row| {
+        row.columns()
+            .iter()
+            .enumerate()
+            .find_map(|(i, col)| {
+                if col.name() == total_col {
+                    row.try_get::<_, Option<i64>>(i).ok().flatten()
+                } else {
+                    None
+                }
+            })
+    });
+    let values: Vec<Value> = rows
+        .iter()
+        .map(|row| row_to_json_excluding(row, total_col))
+        .collect();
+    (total, Value::Array(values))
+}
+
+fn row_to_json_excluding(row: &tokio_postgres::Row, skip: &str) -> Value {
+    let mut map = serde_json::Map::new();
+    for (i, col) in row.columns().iter().enumerate() {
+        if col.name() == skip {
+            continue;
+        }
+        map.insert(col.name().to_string(), cell_to_json(row, i));
+    }
+    Value::Object(map)
+}
+
 /// Build the columnar envelope `{"columns": [...], "rows": [[...], ...],
 /// "allNullColumns": [...]}` from a homogeneous array of row objects (all
 /// same key set — caller guarantees this). All-null columns are dropped from

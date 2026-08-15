@@ -15,8 +15,10 @@ pub mod secret;
 pub mod tls;
 
 pub use config::{
-    ConfigFile, ProfileConfig, ProjectConfigFile, find_project_config, load_project_config,
-    write_with_backup,
+    ConfigFile, ProfileConfig, ProjectConfigFile, SecretMigrationReport,
+    config_plaintext_secret_warnings, find_project_config, load_path_migrated,
+    load_project_config, log_secret_migration_report, migrate_plaintext_secrets,
+    prepare_profile_for_persist, profile_has_plaintext_secret, write_with_backup,
 };
 pub use error::{ConnError, format_postgres_error};
 pub use pool::{
@@ -28,5 +30,6 @@ pub use resolve::{
     params_from_url, resolve, resolve_all, resolve_profile,
 };
 pub use secret::{
-    CommandRunner, ProcessCommandRunner, resolve_keyring_password, store_keyring_password,
+    CommandRunner, ProcessCommandRunner, resolve_keyring_password, route_password_to_keyring,
+    store_keyring_password,
 };

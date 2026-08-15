@@ -11,20 +11,24 @@ use nexql_index::{
     build_index,
 };
 use nexql_policy::{
-    PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
+    PolicyCaps, PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs,
+    validate_readonly_sql,
 };
 use serde_json::{Value, json};
 
 use crate::cell_json::{
-    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload, rows_to_json_array,
+    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload,
+    rows_to_json_array, rows_to_json_array_with_total,
 };
 use crate::critique;
 use crate::error::ToolError;
 use crate::export::{ExportFormat, columns_from_rows, rows_to_csv, rows_to_sql_insert};
+use crate::format::rows_to_markdown;
 use crate::plan::{analyze_deep_plan, build_explain_sql, extract_plan_metrics};
 use crate::registry::ToolName;
+use crate::resolve::{self, DEFAULT_RESOLVE_REFS_LIMIT};
 use crate::schema::{ToolSpec, active_tools};
-use crate::session::ToolSession;
+use crate::session::{CheckoutTarget, ScopedContext, ToolSession};
 use crate::sql::{self, REPORT_LIMIT_DEFAULT, SLOW_QUERIES_DEFAULT, parse_ref};
 use crate::write::{
     apply_ddl, create_index_concurrently, edit_row, execute_sql, import_data, run_maintenance,
@@ -34,8 +38,42 @@ use crate::write::{
 /// Default hit cap for `search_schema` (matches TS ToolExecutor).
 const SEARCH_SCHEMA_LIMIT: usize = 10;
 
+/// Default row cap for `run_select` when `limit` is omitted (agent-friendly).
+const RUN_SELECT_DEFAULT_LIMIT: u32 = 50;
+
+/// Internal column injected for COUNT(*) OVER() pagination; stripped from results.
+const NEXQL_TOTAL_COUNT_COL: &str = "nexql_total_count";
+
 const NO_INDEX_HINT: &str =
     "No schema index configured — call the 'rebuild_index' tool to build an index.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunSelectFormat {
+    Compact,
+    Json,
+    Markdown,
+    Csv,
+}
+
+impl RunSelectFormat {
+    fn parse(s: &str) -> Result<Self, ToolError> {
+        match s.to_ascii_lowercase().as_str() {
+            "compact" => Ok(Self::Compact),
+            "json" => Ok(Self::Json),
+            "markdown" => Ok(Self::Markdown),
+            "csv" => Ok(Self::Csv),
+            other => Err(ToolError::InvalidArgs(format!(
+                "Unsupported format \"{other}\". Use compact, json, markdown, or csv."
+            ))),
+        }
+    }
+}
+
+struct ExecutionScope {
+    ctx: ScopedContext,
+    filter: PolicyFilter,
+    caps: PolicyCaps,
+}
 
 #[derive(Debug, Clone)]
 pub struct ToolOutcome {
@@ -161,6 +199,33 @@ impl ToolRouter {
         policy_to_query_filter(&self.session.filter())
     }
 
+    fn query_filter_for(&self, connection_id: &str) -> QueryPolicyFilter {
+        policy_to_query_filter(&self.session.filter_for(connection_id))
+    }
+
+    async fn execution_scope_from_args(&self, args: &Value) -> Result<ExecutionScope, ToolError> {
+        let ctx = self
+            .session
+            .resolve_scoped_context(
+                args.get("connectionId").and_then(|v| v.as_str()),
+                args.get("database").and_then(|v| v.as_str()),
+            )
+            .await?;
+        Ok(ExecutionScope {
+            filter: self.session.filter_for(&ctx.connection_id),
+            caps: self.session.caps_for(&ctx.connection_id),
+            ctx,
+        })
+    }
+
+    fn scope_tag(scope: &ExecutionScope, mut outcome: ToolOutcome) -> ToolOutcome {
+        if let Some(obj) = outcome.structured.as_mut().and_then(|v| v.as_object_mut()) {
+            obj.insert("connectionId".into(), json!(scope.ctx.connection_id));
+            obj.insert("database".into(), json!(scope.ctx.database));
+        }
+        outcome
+    }
+
     pub async fn call(&self, name: &str, args: Value) -> ToolOutcome {
         let outcome = match self.call_inner(name, args).await {
             Ok(out) => out,
@@ -210,7 +275,17 @@ impl ToolRouter {
     }
 
     async fn tag_outcome_with_context(&self, mut outcome: ToolOutcome) -> ToolOutcome {
-        let (connection_id, database) = self.session.active_context().await;
+        let (connection_id, database) = if let Some(structured) = &outcome.structured {
+            let cid = structured.get("connectionId").and_then(|v| v.as_str());
+            let db = structured.get("database").and_then(|v| v.as_str());
+            if let (Some(c), Some(d)) = (cid, db) {
+                (c.to_string(), d.to_string())
+            } else {
+                self.session.active_context().await
+            }
+        } else {
+            self.session.active_context().await
+        };
         let access_mode = match self.session.access_mode() {
             nexql_policy::AccessMode::Read => "read",
             nexql_policy::AccessMode::Write => "write",
@@ -270,6 +345,17 @@ impl ToolRouter {
             ToolName::SwitchConnection => self.switch_connection(&args).await,
             ToolName::RunSelect => self.run_select(&args).await,
             ToolName::ExplainQuery => self.explain_query(&args).await,
+            ToolName::DiscoverTools => self.discover_tools(&args).await,
+            ToolName::RunDoctor => self.run_doctor_tool().await,
+            ToolName::SetupConnection => self.setup_connection_tool(&args).await,
+            ToolName::SaveProfile => self.save_profile_tool(&args).await,
+            ToolName::TestProfile => self.test_profile_tool(&args).await,
+            ToolName::ExportProfile => self.export_profile_tool(&args).await,
+            ToolName::ImportProfile => self.import_profile_tool(&args).await,
+            ToolName::ResolveTarget => self.resolve_target(&args).await,
+            ToolName::Orient => self.orient(&args).await,
+            ToolName::InspectOrSearch => self.inspect_or_search(&args).await,
+            ToolName::SearchAllDatabases => self.search_all_databases(&args).await,
             ToolName::SearchSchema => self.search_schema(&args).await,
             ToolName::DescribeObject => self.describe_object(&args).await,
             ToolName::GetJoinPath => self.get_join_path(&args).await,
@@ -301,19 +387,10 @@ impl ToolRouter {
             ToolName::CreateIndexConcurrently => self.create_index_concurrently_tool(&args).await,
             ToolName::RunMaintenance => self.run_maintenance_tool(&args).await,
             ToolName::TerminateQuery => self.terminate_query_tool(&args).await,
-            ToolName::ResolveTarget => self.resolve_target(&args).await,
-            ToolName::Orient => self.orient(&args).await,
-            ToolName::DiscoverTools => self.discover_tools(&args).await,
             ToolName::AutoTuneQuery => self.auto_tune_query(&args).await,
             ToolName::CheckDdlSafety => self.check_ddl_safety_tool(&args).await,
             ToolName::RebuildIndex => self.rebuild_index_tool(&args).await,
             ToolName::RefreshIndex => self.refresh_index_tool(&args).await,
-            ToolName::RunDoctor => self.run_doctor_tool().await,
-            ToolName::SetupConnection => self.setup_connection_tool(&args).await,
-            ToolName::SaveProfile => self.save_profile_tool(&args).await,
-            ToolName::TestProfile => self.test_profile_tool(&args).await,
-            ToolName::ExportProfile => self.export_profile_tool(&args).await,
-            ToolName::ImportProfile => self.import_profile_tool(&args).await,
         }
     }
 
@@ -345,7 +422,11 @@ impl ToolRouter {
             .get("dry_run")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let outcome = execute_sql(&self.session, sql, dry_run).await?;
+        let include_diff = args
+            .get("include_diff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(dry_run);
+        let outcome = execute_sql(&self.session, sql, dry_run, include_diff).await?;
         Ok(self.attach_dml_critique(sql, outcome).await)
     }
 
@@ -775,6 +856,17 @@ impl ToolRouter {
             })));
         };
         let base = store.base_dir(&connection_id, &database);
+        if store.read_manifest(&base)?.is_none() {
+            if let Err(e) = self.ensure_index_warm().await {
+                return Ok(ToolOutcome::ok_json(json!({
+                    "database": database,
+                    "tables": [],
+                    "joins": [],
+                    "enums": {},
+                    "notes": [e.to_string()],
+                })));
+            }
+        }
         let Some(manifest) = store.read_manifest(&base)? else {
             return Ok(ToolOutcome::ok_json(json!({
                 "database": database,
@@ -1202,37 +1294,13 @@ impl ToolRouter {
     }
 
     /// Route a plaintext `password` arg to the OS keyring instead of persisting it
-    /// to disk. Second-review finding: `setup_connection`/`save_profile` copied the
-    /// raw password verbatim into `ProfileConfig.password`, written to
-    /// `~/.config/nexql-mcp/config.toml` — plaintext, plus a plaintext
-    /// `.bak-<ts>` backup on every overwrite. The `keyring` crate was already a
-    /// dependency with a working *read* path (`resolve_keyring_password`, used by
-    /// the resolution ladder in `resolve.rs`) but the write path
-    /// (`store_keyring_password`) had zero call sites.
-    ///
-    /// Returns `(password, credential_provider)` fields for `ProfileConfig`:
-    /// `password` is always `None` on success — `credential_provider: "keyring"`
-    /// is what the existing read-side ladder needs to find it again. `None` input
-    /// (no password arg) passes through unchanged. On keyring failure (no OS
-    /// backend — expect this on some headless/CI hosts), returns an error naming
-    /// the `password_command`/`password_file` `ProfileConfig` fields as the
-    /// supported alternative — **never** silently falls back to plaintext, which
-    /// would defeat the entire point of this fix.
+    /// to disk. See `nexql_conn::route_password_to_keyring`.
     fn route_password_to_keyring(
         profile_name: &str,
         password: Option<&str>,
     ) -> Result<(Option<String>, Option<String>), ToolError> {
-        let Some(password) = password else {
-            return Ok((None, None));
-        };
-        nexql_conn::store_keyring_password(profile_name, password).map_err(|e| {
-            ToolError::Execution(format!(
-                "Could not store the password in the OS keyring ({e}) — refusing to write it to \
-                 disk in plaintext. Use password_command or password_file in the profile config \
-                 instead, or fix the keyring backend and retry."
-            ))
-        })?;
-        Ok((None, Some("keyring".into())))
+        nexql_conn::route_password_to_keyring(profile_name, password)
+            .map_err(|e| ToolError::Execution(e.to_string()))
     }
 
     async fn setup_connection_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1324,7 +1392,9 @@ impl ToolRouter {
                 let path = nexql_conn::ConfigFile::default_path().ok_or_else(|| {
                     ToolError::Execution("Could not resolve config directory".into())
                 })?;
-                let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+                let mut cfg = nexql_conn::ConfigFile::load_path_migrated(&path)
+                    .map(|(c, _)| c)
+                    .unwrap_or_default();
                 cfg.upsert_profile(profile_name, p_config.clone());
                 let backup = cfg
                     .save(&path)
@@ -1410,7 +1480,9 @@ impl ToolRouter {
         let path = nexql_conn::ConfigFile::default_path()
             .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
 
-        let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+        let mut cfg = nexql_conn::ConfigFile::load_path_migrated(&path)
+            .map(|(c, _)| c)
+            .unwrap_or_default();
         cfg.upsert_profile(name, p_config.clone());
         let backup = cfg
             .save(&path)
@@ -1480,7 +1552,9 @@ impl ToolRouter {
             .unwrap_or("full");
         let path = nexql_conn::ConfigFile::default_path()
             .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
-        let cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+        let cfg = nexql_conn::ConfigFile::load_path_migrated(&path)
+            .map(|(c, _)| c)
+            .unwrap_or_default();
 
         if format == "project" {
             let proj = cfg.export_shareable();
@@ -1520,7 +1594,9 @@ impl ToolRouter {
 
         let path = nexql_conn::ConfigFile::default_path()
             .ok_or_else(|| ToolError::Execution("Could not resolve config directory".into()))?;
-        let mut cfg = nexql_conn::ConfigFile::load_path(&path).unwrap_or_default();
+        let mut cfg = nexql_conn::ConfigFile::load_path_migrated(&path)
+            .map(|(c, _)| c)
+            .unwrap_or_default();
 
         let imported: nexql_conn::ConfigFile = toml::from_str(&content)
             .map_err(|e| ToolError::Execution(format!("failed to parse TOML content: {e}")))?;
@@ -1528,8 +1604,10 @@ impl ToolRouter {
         let mut count = 0;
         let mut imported_names: Vec<String> = Vec::new();
         for (name, prof) in imported.profiles {
-            cfg.upsert_profile(name.clone(), prof.clone());
-            self.register_profile_in_session(&name, &prof)?;
+            let prepared = nexql_conn::prepare_profile_for_persist(&name, prof)
+                .map_err(|e| ToolError::Execution(e.to_string()))?;
+            cfg.upsert_profile(name.clone(), prepared.clone());
+            self.register_profile_in_session(&name, &prepared)?;
             imported_names.push(name);
             count += 1;
         }
@@ -1551,6 +1629,70 @@ impl ToolRouter {
         })))
     }
 
+    /// Build a structure-only index when none exists for the given connection/database.
+    async fn ensure_index_warm_for(&self, ctx: &ScopedContext) -> Result<(), ToolError> {
+        let store = self
+            .index_store()
+            .ok_or_else(|| ToolError::Execution(NO_INDEX_HINT.into()))?;
+        let base = store.base_dir(&ctx.connection_id, &ctx.database);
+        if store.read_manifest(&base)?.is_some() {
+            return Ok(());
+        }
+        let req = BuildRequest {
+            connection_id: ctx.connection_id.clone(),
+            database: ctx.database.clone(),
+            scope: IndexScope {
+                included_schemas: vec![],
+                excluded_objects: vec![],
+                pii_excluded_columns: vec![],
+            },
+            depth: BuildDepth::Structure,
+            build_mode: BuildMode::Guided,
+            environment: "development".into(),
+            embeddings: self.use_semantic,
+        };
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(ctx))
+            .await
+            .map_err(|_| {
+                ToolError::Execution(format!(
+                    "No schema index for database \"{}\" — call the 'rebuild_index' tool to build an index.",
+                    ctx.database
+                ))
+            })?;
+        let db = PgCatalogDb::new(&client);
+        build_index(store, &db, &req, None, None, self.embedder.as_deref())
+            .await
+            .map_err(|e| ToolError::Execution(format!("Automatic index build failed: {e}")))?;
+        self.session
+            .clear_index_stale(&ctx.connection_id, &ctx.database);
+        Ok(())
+    }
+
+    async fn ensure_index_warm(&self) -> Result<(), ToolError> {
+        let (connection_id, database) = self.session.active_context().await;
+        self.ensure_index_warm_for(&ScopedContext {
+            connection_id,
+            database,
+        })
+        .await
+    }
+
+    async fn index_service_for(
+        &self,
+        ctx: &ScopedContext,
+    ) -> Result<(&IndexStore, String, String), ToolError> {
+        let store = self
+            .index_store()
+            .ok_or_else(|| ToolError::Execution(NO_INDEX_HINT.into()))?;
+        let base = store.base_dir(&ctx.connection_id, &ctx.database);
+        if store.read_manifest(&base)?.is_none() {
+            self.ensure_index_warm_for(ctx).await?;
+        }
+        Ok((store, ctx.connection_id.clone(), ctx.database.clone()))
+    }
+
     async fn index_service(&self) -> Result<(&IndexStore, String, String), ToolError> {
         let store = self
             .index_store()
@@ -1558,11 +1700,31 @@ impl ToolRouter {
         let (connection_id, database) = self.session.active_context().await;
         let base = store.base_dir(&connection_id, &database);
         if store.read_manifest(&base)?.is_none() {
-            return Err(ToolError::Execution(format!(
-                "No schema index for database \"{database}\" — call the 'rebuild_index' tool to build an index."
-            )));
+            self.ensure_index_warm().await?;
         }
         Ok((store, connection_id, database))
+    }
+
+    async fn collect_index_refs(&self) -> Vec<String> {
+        if let Ok((store, connection_id, database)) = self.index_service().await {
+            let base = store.base_dir(&connection_id, &database);
+            if let Ok(Some(manifest)) = store.read_manifest(&base) {
+                let mut refs = Vec::new();
+                for shard in &manifest.shards {
+                    if let Ok(Some(entries)) = store.read_shard_entries(&base, &shard.file) {
+                        refs.extend(entries.keys().cloned());
+                    }
+                }
+                return refs;
+            }
+        }
+        Vec::new()
+    }
+
+    async fn enrich_query_error(&self, pg_err: &tokio_postgres::Error) -> String {
+        let base = nexql_conn::format_postgres_error(pg_err);
+        let refs = self.collect_index_refs().await;
+        sql::enhance_sql_error(&base, &refs)
     }
 
     /// Turn a non-`Resolved` [`RefResolution`] into the actionable error an agent
@@ -1673,18 +1835,201 @@ impl ToolRouter {
         Ok(ToolOutcome::ok_json(json!(rows)))
     }
 
+    async fn inspect_or_search(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if query.is_empty() {
+            return Err(ToolError::InvalidArgs("query is required".into()));
+        }
+        let include_columns = args
+            .get("include_columns")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let limit_objects = args
+            .get("limit_objects")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(3)
+            .clamp(1, 20);
+
+        let (store, connection_id, database) = self.index_service().await?;
+        let svc = IndexQueryService::new(store, &connection_id, &database);
+        let filter = self.query_filter();
+        let hits = svc.search_schema(
+            query,
+            limit_objects,
+            Some(&filter),
+            SearchOptions {
+                use_semantic: self.use_semantic,
+                embedder: self.embedder.as_deref(),
+            },
+        )?;
+
+        let mut matches = Vec::with_capacity(hits.len());
+        for hit in hits {
+            let entry = svc.describe_object(&hit.ref_, Some(&filter))?;
+            let mut obj = json!({
+                "ref": hit.ref_,
+                "score": hit.score,
+                "kind": hit.kind,
+                "row_estimate": entry.row_estimate.round() as i64,
+                "primary_key": entry.primary_key,
+            });
+            if include_columns {
+                let fk_cols: std::collections::HashSet<String> = entry
+                    .foreign_keys
+                    .as_ref()
+                    .map(|fks| {
+                        fks.iter()
+                            .flat_map(|fk| fk.columns.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let columns: Vec<Value> = entry
+                    .columns
+                    .iter()
+                    .map(|c| {
+                        json!({
+                            "name": c.name,
+                            "type": c.type_name,
+                            "is_pk": c.is_pk.unwrap_or(false),
+                            "is_fk": fk_cols.contains(&c.name),
+                            "not_null": c.not_null,
+                        })
+                    })
+                    .collect();
+                obj["columns"] = json!(columns);
+            }
+            matches.push(obj);
+        }
+
+        Ok(ToolOutcome::ok_json(json!({
+            "query": query,
+            "matches": matches,
+        })))
+    }
+
+    async fn search_all_databases(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if query.is_empty() {
+            return Err(ToolError::InvalidArgs("query is required".into()));
+        }
+        let limit_per_db = args
+            .get("limit_per_database")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(3)
+            .clamp(1, 10);
+        let limit_pairs = args
+            .get("limit_connections")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(20)
+            .clamp(1, 50);
+
+        let Some(store) = self.index_store() else {
+            return Err(ToolError::Execution(NO_INDEX_HINT.into()));
+        };
+
+        let indexed = store.list_indexed_databases().unwrap_or_default();
+        let connections = self.session.connections();
+        let filter = self.query_filter();
+        let mut hits: Vec<Value> = Vec::new();
+        let mut searched = 0usize;
+
+        for (connection_id, database) in indexed {
+            if searched >= limit_pairs {
+                break;
+            }
+            if !connections.iter().any(|c| c.id == connection_id) {
+                continue;
+            }
+            searched += 1;
+            let svc = IndexQueryService::new(store, &connection_id, &database);
+            if let Ok(results) = svc.search_schema(
+                query,
+                limit_per_db,
+                Some(&filter),
+                SearchOptions {
+                    use_semantic: self.use_semantic,
+                    embedder: self.embedder.as_deref(),
+                },
+            ) {
+                for hit in results {
+                    hits.push(json!({
+                        "connectionId": connection_id,
+                        "database": database,
+                        "ref": hit.ref_,
+                        "score": hit.score,
+                        "kind": hit.kind,
+                    }));
+                }
+            }
+        }
+
+        hits.sort_by(|a, b| {
+            let sa = a.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let sb = b.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(ToolOutcome::ok_json(json!({
+            "query": query,
+            "hits": hits,
+            "searched_pairs": searched,
+        })))
+    }
+
     async fn describe_object(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         let ref_ = args
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let (store, connection_id, database) = self.index_service().await?;
+        let scope = self.execution_scope_from_args(args).await?;
+        let resolve_refs = args
+            .get("resolve_refs")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let resolve_limit = args
+            .get("resolve_refs_limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_RESOLVE_REFS_LIMIT);
+        let (store, connection_id, database) = self.index_service_for(&scope.ctx).await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
         let resolved = Self::resolve_indexed_ref_soft(&svc, ref_)?;
-        let filter = self.query_filter();
+        let filter = self.query_filter_for(&scope.ctx.connection_id);
         let entry = svc.describe_object(&resolved, Some(&filter))?;
-        let value = serde_json::to_value(entry).map_err(|e| ToolError::Execution(e.to_string()))?;
-        Ok(ToolOutcome::ok_json(value))
+        let mut value =
+            serde_json::to_value(&entry).map_err(|e| ToolError::Execution(e.to_string()))?;
+        let client = if resolve_refs {
+            Some(
+                self.session
+                    .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+                    .await?
+                    .0,
+            )
+        } else {
+            None
+        };
+        value = resolve::enrich_describe_object_with_store(
+            value,
+            &entry,
+            store,
+            &svc,
+            resolve_refs,
+            resolve_limit,
+            client.as_ref(),
+        )
+        .await?;
+        Ok(Self::scope_tag(&scope, ToolOutcome::ok_json(value)))
     }
 
     async fn get_join_path(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1858,10 +2203,20 @@ impl ToolRouter {
                 "Invalid or missing schema name format".into(),
             ));
         }
-        if !self.session.filter().allows_schema(schema) {
-            return Ok(ToolOutcome::ok_json(json!([])));
+        let scope = self.execution_scope_from_args(args).await?;
+        if !scope.filter.allows_schema(schema) {
+            return Ok(Self::scope_tag(&scope, ToolOutcome::ok_json(json!([]))));
         }
+        let include_partitions = args
+            .get("include_partitions")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let kind = args.get("kind").and_then(|v| v.as_str());
+        let partition_filter = if include_partitions {
+            String::new()
+        } else {
+            " AND NOT c.relispartition".to_string()
+        };
         let mut queries = Vec::new();
         let push_rel = |queries: &mut Vec<String>, relkinds: &[&str], label: &str| {
             let kinds = relkinds
@@ -1869,19 +2224,29 @@ impl ToolRouter {
                 .map(|k| format!("'{k}'"))
                 .collect::<Vec<_>>()
                 .join(",");
+            let partition_count_expr = if label == "partitioned_table" {
+                ", (SELECT COUNT(*)::int FROM pg_inherits i WHERE i.inhparent = c.oid) AS partition_count"
+            } else {
+                ", NULL::int AS partition_count"
+            };
             queries.push(format!(
                 r#"
                 SELECT n.nspname AS schema, c.relname AS name, '{label}' AS kind,
-                       d.description AS comment
+                       d.description AS comment{partition_count_expr}
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
-                WHERE n.nspname = $1 AND c.relkind IN ({kinds})
+                WHERE n.nspname = $1 AND c.relkind IN ({kinds}){partition_filter}
                 "#
             ));
         };
         if kind.is_none() || kind == Some("table") {
-            push_rel(&mut queries, &["r", "f", "p"], "table");
+            push_rel(&mut queries, &["r", "f"], "table");
+            if !include_partitions {
+                push_rel(&mut queries, &["p"], "partitioned_table");
+            } else {
+                push_rel(&mut queries, &["r", "f", "p"], "table");
+            }
         }
         if kind.is_none() || kind == Some("view") {
             push_rel(&mut queries, &["v"], "view");
@@ -1890,28 +2255,37 @@ impl ToolRouter {
             push_rel(&mut queries, &["m"], "matview");
         }
         if queries.is_empty() {
-            return Ok(ToolOutcome::ok_json(json!([])));
+            return Ok(Self::scope_tag(&scope, ToolOutcome::ok_json(json!([]))));
         }
         let sql = queries.join("\nUNION ALL\n") + "\nORDER BY kind, name";
-        let client = self.session.checkout().await?;
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+            .await?;
         let rows = client.query(&sql, &[&schema]).await?;
         let out: Vec<Value> = rows
             .iter()
             .filter(|r| {
                 let s: String = r.get("schema");
                 let name: String = r.get("name");
-                self.session.filter().allows_table(&s, &name)
+                scope.filter.allows_table(&s, &name)
             })
             .map(|r| {
-                json!({
+                let mut obj = json!({
                     "schema": r.get::<_, String>("schema"),
                     "name": r.get::<_, String>("name"),
                     "kind": r.get::<_, String>("kind"),
                     "comment": r.get::<_, Option<String>>("comment"),
-                })
+                });
+                if let Some(count) = r.get::<_, Option<i32>>("partition_count") {
+                    if let Some(obj_map) = obj.as_object_mut() {
+                        obj_map.insert("partition_count".into(), json!(count));
+                    }
+                }
+                obj
             })
             .collect();
-        Ok(ToolOutcome::ok_json(json!(out)))
+        Ok(Self::scope_tag(&scope, ToolOutcome::ok_json(json!(out))))
     }
 
     async fn get_current_context(&self) -> Result<ToolOutcome, ToolError> {
@@ -1945,6 +2319,7 @@ impl ToolRouter {
             .and_then(|v| v.as_str())
             .map(str::to_owned);
         self.session.switch(connection_id, database).await?;
+        let _ = self.ensure_index_warm().await;
         self.get_current_context().await
     }
 
@@ -1953,6 +2328,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        let scope = self.execution_scope_from_args(args).await?;
         match validate_readonly_sql(sql)? {
             SqlDecision::Allow => {}
             SqlDecision::Reject => {
@@ -1962,13 +2338,56 @@ impl ToolRouter {
                 ));
             }
         }
-        enforce_read_table_policy(&self.session.filter(), sql)?;
+        enforce_read_table_policy(&scope.filter, sql)?;
         let trimmed = sql.trim().to_ascii_lowercase();
+        let params = parse_sql_params(args);
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(RUN_SELECT_DEFAULT_LIMIT)
+            .min(scope.caps.max_rows);
+        let format = args
+            .get("format")
+            .and_then(|v| v.as_str())
+            .map(RunSelectFormat::parse)
+            .transpose()?
+            .unwrap_or(RunSelectFormat::Compact);
+        let timeout_ms = args
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .map(|n| n.min(scope.caps.statement_timeout_ms))
+            .unwrap_or(scope.caps.statement_timeout_ms);
+        let resolve_fks = args
+            .get("resolve_fks")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let columnar = matches!(format, RunSelectFormat::Compact);
         let outcome = if trimmed.starts_with("explain") {
-            self.run_select_internal(sql, None, true).await?
+            self.run_select_internal(
+                sql,
+                None,
+                columnar,
+                &params,
+                &scope,
+                format,
+                timeout_ms,
+                resolve_fks,
+            )
+            .await?
         } else {
-            let max_rows = self.session.caps().max_rows;
-            self.run_select_internal(sql, Some(max_rows), true).await?
+            self.run_select_internal(
+                sql,
+                Some(limit),
+                columnar,
+                &params,
+                &scope,
+                format,
+                timeout_ms,
+                resolve_fks,
+            )
+            .await?
         };
         Ok(self.attach_critique(sql, outcome).await)
     }
@@ -2182,6 +2601,7 @@ impl ToolRouter {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("sql is required".into()))?;
+        let scope = self.execution_scope_from_args(args).await?;
         match validate_readonly_sql(sql)? {
             SqlDecision::Allow => {}
             SqlDecision::Reject => {
@@ -2191,19 +2611,29 @@ impl ToolRouter {
                 ));
             }
         }
-        enforce_read_table_policy(&self.session.filter(), sql)?;
+        enforce_read_table_policy(&scope.filter, sql)?;
         let clean = if sql.trim().to_ascii_lowercase().starts_with("explain") {
             sql.to_string()
         } else {
             format!("EXPLAIN {sql}")
         };
-        // Re-validate EXPLAIN wrapper
         if validate_readonly_sql(&clean)? == SqlDecision::Reject {
             return Err(ToolError::Execution(
                 "Security Error: EXPLAIN target is not read-only.".into(),
             ));
         }
-        self.run_select_internal(&clean, None, false).await
+        let timeout_ms = scope.caps.statement_timeout_ms;
+        self.run_select_internal(
+            &clean,
+            None,
+            false,
+            &[],
+            &scope,
+            RunSelectFormat::Json,
+            timeout_ms,
+            false,
+        )
+        .await
     }
 
     async fn get_ddl(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -2211,17 +2641,24 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let scope = self.execution_scope_from_args(args).await?;
         let resolved = self.resolve_ref_best_effort(ref_).await?;
         let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
         let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("table");
         let reg = sql::regclass_literal(&schema, &name);
-        let client = self.session.checkout().await?;
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+            .await?;
 
         match kind {
             "view" | "matview" => {
                 let sql = format!("SELECT pg_get_viewdef({reg}, true) AS definition");
                 let rows = client.query(&sql, &[]).await?;
-                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+                Ok(Self::scope_tag(
+                    &scope,
+                    ToolOutcome::ok_json(rows_to_json(&rows)),
+                ))
             }
             "function" => {
                 let sql = format!(
@@ -2231,12 +2668,18 @@ impl ToolRouter {
                        WHERE n.nspname = '{schema}' AND p.proname = '{name}'"#
                 );
                 let rows = client.query(&sql, &[]).await?;
-                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+                Ok(Self::scope_tag(
+                    &scope,
+                    ToolOutcome::ok_json(rows_to_json(&rows)),
+                ))
             }
             "index" => {
                 let sql = format!("SELECT pg_get_indexdef({reg}) AS definition");
                 let rows = client.query(&sql, &[]).await?;
-                Ok(ToolOutcome::ok_json(rows_to_json(&rows)))
+                Ok(Self::scope_tag(
+                    &scope,
+                    ToolOutcome::ok_json(rows_to_json(&rows)),
+                ))
             }
             "table" => {
                 let columns = client
@@ -2262,12 +2705,15 @@ impl ToolRouter {
                         &[],
                     )
                     .await?;
-                Ok(ToolOutcome::ok_json(json!({
-                    "table": format!("{schema}.{name}"),
-                    "columns": rows_to_json(&columns),
-                    "constraints": rows_to_json(&constraints),
-                    "indexes": rows_to_json(&indexes),
-                })))
+                Ok(Self::scope_tag(
+                    &scope,
+                    ToolOutcome::ok_json(json!({
+                        "table": format!("{schema}.{name}"),
+                        "columns": rows_to_json(&columns),
+                        "constraints": rows_to_json(&constraints),
+                        "indexes": rows_to_json(&indexes),
+                    })),
+                ))
             }
             other => Err(ToolError::InvalidArgs(format!(
                 "Unsupported DDL kind \"{other}\". Use table, view, matview, function, or index."
@@ -2280,9 +2726,13 @@ impl ToolRouter {
             .get("ref")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let scope = self.execution_scope_from_args(args).await?;
         let resolved = self.resolve_ref_best_effort(ref_).await?;
         let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
-        let client = self.session.checkout().await?;
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+            .await?;
         let stats = client.query(&sql::table_stats(&schema, &name), &[]).await?;
         let activity = client
             .query(&sql::table_activity(&schema, &name), &[])
@@ -2300,11 +2750,14 @@ impl ToolRouter {
             .and_then(|a| a.first())
             .cloned()
             .unwrap_or(Value::Null);
-        Ok(ToolOutcome::ok_json(json!({
-            "size": size,
-            "activity": activity,
-            "columns": rows_to_json(&columns),
-        })))
+        Ok(Self::scope_tag(
+            &scope,
+            ToolOutcome::ok_json(json!({
+                "size": size,
+                "activity": activity,
+                "columns": rows_to_json(&columns),
+            })),
+        ))
     }
 
     async fn index_usage(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -2774,10 +3227,20 @@ impl ToolRouter {
             ));
         }
 
-        let max_rows = self.session.caps().max_rows;
-        // Not columnar: export_query needs row-objects to derive `columns` /
-        // build CSV / sqlinsert output below.
-        let outcome = self.run_select_internal(sql, Some(max_rows), false).await?;
+        let scope = self.execution_scope_from_args(args).await?;
+        let max_rows = scope.caps.max_rows;
+        let outcome = self
+            .run_select_internal(
+                sql,
+                Some(max_rows),
+                false,
+                &[],
+                &scope,
+                RunSelectFormat::Json,
+                scope.caps.statement_timeout_ms,
+                false,
+            )
+            .await?;
         if outcome.is_error {
             return Ok(outcome);
         }
@@ -2995,6 +3458,76 @@ impl ToolRouter {
         })))
     }
 
+    async fn finalize_run_select_payload(
+        &self,
+        sql: &str,
+        mut payload: Value,
+        scope: &ExecutionScope,
+        format: RunSelectFormat,
+        columnar: bool,
+        resolve_fks: bool,
+        client: &deadpool_postgres::Object,
+    ) -> Result<ToolOutcome, ToolError> {
+        if resolve_fks
+            && let Some(store) = self.index_store()
+            && let Ok(tables) = select_table_refs(sql)
+        {
+            let filter = self.query_filter_for(&scope.ctx.connection_id);
+            let _ = resolve::resolve_fks_on_payload(
+                &mut payload,
+                store,
+                &scope.ctx.connection_id,
+                &scope.ctx.database,
+                &tables,
+                &filter,
+                client,
+            )
+            .await;
+        }
+
+        if format == RunSelectFormat::Csv {
+            let row_objs = payload_to_row_objects(&payload);
+            let cols = columns_from_rows(&row_objs);
+            let csv = rows_to_csv(&row_objs, &cols);
+            payload = json!({
+                "format": "csv",
+                "csv": csv,
+            });
+        } else if format == RunSelectFormat::Markdown {
+            let (cols, row_vecs) = payload_to_columnar(&payload);
+            let md = rows_to_markdown(&cols, &row_vecs);
+            payload = json!({
+                "format": "markdown",
+                "markdown": md,
+                "columns": cols,
+                "rows": row_vecs,
+            });
+        } else if columnar {
+            payload = columnarize_read_payload(payload);
+        }
+
+        let text = if matches!(format, RunSelectFormat::Compact | RunSelectFormat::Csv) {
+            serde_json::to_string(&payload)
+        } else {
+            serde_json::to_string_pretty(&payload)
+        }
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+        let (trunc, text) = scope.caps.truncate_chars(&text);
+        let structured = if trunc {
+            json!({ "truncated_chars": true, "data": payload })
+        } else {
+            payload
+        };
+        Ok(Self::scope_tag(
+            scope,
+            ToolOutcome {
+                text: text.to_string(),
+                structured: Some(structured),
+                is_error: false,
+            },
+        ))
+    }
+
     /// `columnar`: reshape the result from per-row objects to
     /// `{"columns": [...], "rows": [[...]]}` before serializing, and skip
     /// pretty-printing (Issue 5 — 3–5x fewer tokens at higher row/column
@@ -3008,84 +3541,117 @@ impl ToolRouter {
         sql: &str,
         max_rows: Option<u32>,
         columnar: bool,
+        params: &[Value],
+        scope: &ExecutionScope,
+        format: RunSelectFormat,
+        timeout_ms: u32,
+        resolve_fks: bool,
     ) -> Result<ToolOutcome, ToolError> {
-        let client = self.session.checkout().await?;
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+            .await?;
+        ToolSession::set_statement_timeout(&client, timeout_ms).await?;
+        let pg_params = sql_param_boxes(params)?;
+        let pg_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = pg_params
+            .iter()
+            .map(|p| p.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
         let Some(max_rows) = max_rows else {
-            let rows = client.query(sql, &[]).await?;
+            let rows = self
+                .query_with_hints(&client, sql, &pg_param_refs, timeout_ms)
+                .await?;
             let values = rows_to_json(&rows);
-            let mut payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
-            if columnar {
-                payload = columnarize_read_payload(payload);
-            }
-            let text = if columnar {
-                serde_json::to_string(&payload)
-            } else {
-                serde_json::to_string_pretty(&payload)
-            }
-            .map_err(|e| ToolError::Execution(e.to_string()))?;
-            let caps = self.session.caps();
-            let (trunc, text) = caps.truncate_chars(&text);
-            let structured = if trunc {
-                json!({ "truncated_chars": true, "data": payload })
-            } else {
-                payload
-            };
-            return Ok(ToolOutcome {
-                text: text.to_string(),
-                structured: Some(structured),
-                is_error: false,
-            });
+            let payload =
+                self.apply_pii_redaction_for(sql, ensure_structured_object(values), &scope.filter);
+            return self
+                .finalize_run_select_payload(
+                    sql,
+                    payload,
+                    scope,
+                    format,
+                    columnar,
+                    resolve_fks,
+                    &client,
+                )
+                .await;
         };
 
         let cleaned = sql.trim().trim_end_matches(';').trim();
         let wrapped = format!(
-            "SELECT * FROM ({cleaned}) AS nexql_limited LIMIT {}",
+            "SELECT sub.*, COUNT(*) OVER() AS {NEXQL_TOTAL_COUNT_COL} FROM ({cleaned}) AS sub LIMIT {}",
             max_rows + 1
         );
-        let rows = client.query(&wrapped, &[]).await.map_err(|e| {
-            ToolError::Execution(format!(
-                "Failed to execute row-limited query (refusing unbounded fallback): {}",
-                nexql_conn::format_postgres_error(&e)
-            ))
-        })?;
+        let rows = self
+            .query_with_hints(&client, &wrapped, &pg_param_refs, timeout_ms)
+            .await?;
         let truncated = rows.len() as u32 > max_rows;
-        let keep = if truncated {
-            &rows[..max_rows as usize]
+        let keep_len = if truncated {
+            max_rows as usize
         } else {
-            &rows[..]
+            rows.len()
         };
-        let values = rows_to_json(keep);
-        // Always `{ "rows": [...] }` — truncation flags are extra fields on the object.
-        let mut payload = self.apply_pii_redaction(sql, ensure_structured_object(values));
-        if truncated && let Some(obj) = payload.as_object_mut() {
-            obj.insert("truncated".into(), json!(true));
-            obj.insert("maxRows".into(), json!(max_rows));
+        let (total_count, values) =
+            rows_to_json_array_with_total(&rows[..keep_len], NEXQL_TOTAL_COUNT_COL);
+        let returned = keep_len;
+        let mut payload =
+            self.apply_pii_redaction_for(sql, ensure_structured_object(values), &scope.filter);
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("limit".into(), json!(max_rows));
+            if let Some(total) = total_count {
+                obj.insert("total_count".into(), json!(total));
+                obj.insert("has_more".into(), json!(total > max_rows as i64));
+            } else if truncated {
+                obj.insert("has_more".into(), json!(true));
+            } else {
+                obj.insert("has_more".into(), json!(false));
+                obj.insert("total_count".into(), json!(returned));
+            }
+            if truncated {
+                obj.insert("truncated".into(), json!(true));
+            }
         }
-        if columnar {
-            payload = columnarize_read_payload(payload);
-        }
-        let text = if columnar {
-            serde_json::to_string(&payload)
-        } else {
-            serde_json::to_string_pretty(&payload)
-        }
-        .map_err(|e| ToolError::Execution(e.to_string()))?;
-        let caps = self.session.caps();
-        let (char_trunc, text) = caps.truncate_chars(&text);
-        let structured = if char_trunc {
-            json!({ "truncated_chars": true, "data": payload })
-        } else {
-            payload
-        };
-        Ok(ToolOutcome {
-            text: text.to_string(),
-            structured: Some(structured),
-            is_error: false,
-        })
+        self.finalize_run_select_payload(
+            sql,
+            payload,
+            scope,
+            format,
+            columnar,
+            resolve_fks,
+            &client,
+        )
+        .await
     }
 
-    fn apply_pii_redaction(&self, sql: &str, mut payload: Value) -> Value {
-        let filter = self.session.filter();
+    async fn query_with_hints(
+        &self,
+        client: &deadpool_postgres::Object,
+        sql: &str,
+        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+        timeout_ms: u32,
+    ) -> Result<Vec<tokio_postgres::Row>, ToolError> {
+        match client.query(sql, params).await {
+            Ok(rows) => Ok(rows),
+            Err(e) if is_statement_timeout(&e) => Err(ToolError::Execution(
+                serde_json::to_string(&json!({
+                    "error": "statement_timeout",
+                    "timeout_ms": timeout_ms,
+                    "sql_preview": sql.chars().take(200).collect::<String>(),
+                    "hint": "Narrow the query, add indexes, pass a higher timeout_ms, or use terminate_query in admin mode.",
+                }))
+                .unwrap_or_else(|_| format!("statement timeout after {timeout_ms}ms")),
+            )),
+            Err(e) => Err(ToolError::Execution(self.enrich_query_error(&e).await)),
+        }
+    }
+
+    fn apply_pii_redaction_for(
+        &self,
+        sql: &str,
+        mut payload: Value,
+        filter: &PolicyFilter,
+    ) -> Value {
         if filter.pii_columns.is_empty() {
             return payload;
         }
@@ -3101,6 +3667,73 @@ impl ToolRouter {
         }
         payload
     }
+}
+
+fn is_statement_timeout(err: &tokio_postgres::Error) -> bool {
+    err.code()
+        .map(|code| code.code() == "57014")
+        .unwrap_or(false)
+}
+
+fn payload_to_row_objects(payload: &Value) -> Vec<Value> {
+    if let Some(rows) = payload.get("rows").and_then(|v| v.as_array()) {
+        if rows
+            .first()
+            .and_then(|r| r.as_object())
+            .is_some()
+        {
+            return rows.clone();
+        }
+        if let Some(cols) = payload.get("columns").and_then(|v| v.as_array()) {
+            let col_names: Vec<String> = cols
+                .iter()
+                .filter_map(|c| c.as_str().map(str::to_owned))
+                .collect();
+            return rows
+                .iter()
+                .filter_map(|row| row.as_array())
+                .map(|cells| {
+                    let mut obj = serde_json::Map::new();
+                    for (idx, name) in col_names.iter().enumerate() {
+                        obj.insert(
+                            name.clone(),
+                            cells.get(idx).cloned().unwrap_or(Value::Null),
+                        );
+                    }
+                    Value::Object(obj)
+                })
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+fn payload_to_columnar(payload: &Value) -> (Vec<String>, Vec<Vec<Value>>) {
+    if let (Some(cols), Some(rows)) = (
+        payload.get("columns").and_then(|v| v.as_array()),
+        payload.get("rows").and_then(|v| v.as_array()),
+    ) {
+        let col_names: Vec<String> = cols
+            .iter()
+            .filter_map(|c| c.as_str().map(str::to_owned))
+            .collect();
+        let row_vecs: Vec<Vec<Value>> = rows
+            .iter()
+            .filter_map(|r| r.as_array().cloned())
+            .collect();
+        return (col_names, row_vecs);
+    }
+    let row_objs = payload_to_row_objects(payload);
+    let cols = columns_from_rows(&row_objs);
+    let row_vecs: Vec<Vec<Value>> = row_objs
+        .iter()
+        .map(|row| {
+            cols.iter()
+                .map(|c| row.get(c).cloned().unwrap_or(Value::Null))
+                .collect()
+        })
+        .collect();
+    (cols, row_vecs)
 }
 
 /// Lowercase + collapse to alphanumeric-separated-by-single-spaces, for `fuzzy_score`.
@@ -3213,6 +3846,42 @@ fn read_recent_log_errors() -> Vec<String> {
         })
         .map(String::from)
         .collect()
+}
+
+fn parse_sql_params(args: &Value) -> Vec<Value> {
+    args.get("params")
+        .and_then(|v| v.as_array())
+        .map(|a| a.to_vec())
+        .unwrap_or_default()
+}
+
+fn sql_param_boxes(params: &[Value]) -> Result<Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>, ToolError> {
+    params
+        .iter()
+        .map(json_to_sql_param)
+        .collect::<Result<Vec<_>, _>>()
+}
+
+fn json_to_sql_param(
+    v: &Value,
+) -> Result<Box<dyn tokio_postgres::types::ToSql + Sync + Send>, ToolError> {
+    match v {
+        Value::Null => Ok(Box::new(None::<String>)),
+        Value::Bool(b) => Ok(Box::new(*b)),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Box::new(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Box::new(f))
+            } else {
+                Err(ToolError::InvalidArgs("invalid numeric param".into()))
+            }
+        }
+        Value::String(s) => Ok(Box::new(s.clone())),
+        _ => Err(ToolError::InvalidArgs(
+            "params must be string, number, boolean, or null".into(),
+        )),
+    }
 }
 
 #[cfg(test)]

@@ -43,6 +43,8 @@ impl ToolProfile {
 pub enum ToolName {
     ResolveTarget,
     Orient,
+    InspectOrSearch,
+    SearchAllDatabases,
     SearchSchema,
     DescribeObject,
     GetJoinPath,
@@ -118,6 +120,8 @@ impl ToolName {
     pub const PHASE3: &'static [ToolName] = &[
         Self::ResolveTarget,
         Self::Orient,
+        Self::InspectOrSearch,
+        Self::SearchAllDatabases,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -186,6 +190,8 @@ impl ToolName {
         Self::ImportProfile,
         Self::ResolveTarget,
         Self::Orient,
+        Self::InspectOrSearch,
+        Self::SearchAllDatabases,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -241,6 +247,8 @@ impl ToolName {
         Self::ImportProfile,
         Self::ResolveTarget,
         Self::Orient,
+        Self::InspectOrSearch,
+        Self::SearchAllDatabases,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -284,6 +292,8 @@ impl ToolName {
         Self::ExplainQuery,
         Self::ResolveTarget,
         Self::Orient,
+        Self::InspectOrSearch,
+        Self::SearchAllDatabases,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::GetJoinPath,
@@ -330,6 +340,8 @@ impl ToolName {
         Self::ListConnections,
         Self::GetCurrentContext,
         Self::Orient,
+        Self::InspectOrSearch,
+        Self::SearchAllDatabases,
         Self::SearchSchema,
         Self::DescribeObject,
         Self::RunSelect,
@@ -353,6 +365,8 @@ impl ToolName {
         match self {
             Self::ResolveTarget => "resolve_target",
             Self::Orient => "orient",
+            Self::InspectOrSearch => "inspect_or_search",
+            Self::SearchAllDatabases => "search_all_databases",
             Self::SearchSchema => "search_schema",
             Self::DescribeObject => "describe_object",
             Self::GetJoinPath => "get_join_path",
@@ -458,7 +472,7 @@ mod tests {
 
     #[test]
     fn read_only_is_forty_one_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 43);
+        assert_eq!(ToolName::READ_ONLY.len(), 45);
     }
 
     #[test]
@@ -467,8 +481,8 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_fifty_one_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 52);
+    fn active_surface_is_fifty_four_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 54);
     }
 
     #[test]
