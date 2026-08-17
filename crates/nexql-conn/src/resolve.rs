@@ -636,17 +636,42 @@ fn fill_password(
         return Ok(());
     }
     if let Some(name_or_prov) = profile_name_or_provider {
+        let profile_name = inputs
+            .profile_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or(name_or_prov);
         if name_or_prov == "keyring" || name_or_prov == "os_keyring" {
-            let name = inputs
-                .profile_names
-                .first()
-                .map(|s| s.as_str())
-                .unwrap_or(name_or_prov);
-            if let Ok(pw) = crate::secret::resolve_keyring_password(name) {
-                params.password = Some(pw);
-                return Ok(());
-            }
-        } else if let Ok(pw) = crate::secret::resolve_keyring_password(name_or_prov) {
+            let pw = crate::secret::resolve_stored_profile_password(
+                profile_name,
+                password_file.map(Path::new),
+                Some(name_or_prov),
+            )?;
+            params.password = Some(pw);
+            return Ok(());
+        }
+        if name_or_prov == "file" {
+            let pw = crate::secret::resolve_profile_file_password(
+                profile_name,
+                password_file.map(Path::new),
+            )?;
+            params.password = Some(pw);
+            return Ok(());
+        }
+        if let Ok(pw) = crate::secret::resolve_keyring_password(name_or_prov) {
+            params.password = Some(pw);
+            return Ok(());
+        }
+        if let Ok(pw) = crate::secret::resolve_profile_file_password(name_or_prov, None) {
+            params.password = Some(pw);
+            return Ok(());
+        }
+    } else if let Some(name) = inputs.profile_names.first() {
+        if let Ok(pw) = crate::secret::resolve_stored_profile_password(
+            name,
+            password_file.map(Path::new),
+            None,
+        ) {
             params.password = Some(pw);
             return Ok(());
         }

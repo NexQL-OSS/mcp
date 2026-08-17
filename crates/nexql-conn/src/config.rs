@@ -419,11 +419,12 @@ pub fn prepare_profile_for_persist(
     profile_name: &str,
     mut profile: ProfileConfig,
 ) -> Result<ProfileConfig, ConnError> {
-    let (password, provider) =
+    let routed =
         crate::secret::route_password_to_keyring(profile_name, profile.password.as_deref())?;
-    if provider.is_some() {
-        profile.password = password;
-        profile.credential_provider = provider;
+    if routed.credential_provider.is_some() {
+        profile.password = routed.password;
+        profile.credential_provider = routed.credential_provider;
+        profile.password_file = routed.password_file;
     }
 
     if let Some(ref url) = profile.url
@@ -431,10 +432,11 @@ pub fn prepare_profile_for_persist(
         && let Some(url_pw) = parsed.password()
         && !url_pw.is_empty()
     {
-        crate::secret::store_keyring_password(profile_name, url_pw)?;
+        let stored = crate::secret::store_profile_password(profile_name, url_pw)?;
         let _ = parsed.set_password(None);
         profile.url = Some(parsed.to_string());
-        profile.credential_provider = Some("keyring".into());
+        profile.credential_provider = Some(stored.provider);
+        profile.password_file = stored.password_file;
     }
 
     Ok(profile)
@@ -766,9 +768,13 @@ url = "postgres://evil.com/db"
         } else {
             assert_eq!(report.migrated, vec!["prod".to_string()]);
             assert!(cfg.profiles["prod"].password.is_none());
-            assert_eq!(
-                cfg.profiles["prod"].credential_provider.as_deref(),
-                Some("keyring")
+            assert!(
+                matches!(
+                    cfg.profiles["prod"].credential_provider.as_deref(),
+                    Some("keyring") | Some("file")
+                ),
+                "expected keyring or file provider, got {:?}",
+                cfg.profiles["prod"].credential_provider
             );
         }
     }

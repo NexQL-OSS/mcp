@@ -30,6 +30,9 @@ pub use resolve::{
     params_from_url, resolve, resolve_all, resolve_profile,
 };
 pub use secret::{
-    CommandRunner, ProcessCommandRunner, resolve_keyring_password, route_password_to_keyring,
-    store_keyring_password,
+    CommandRunner, ProcessCommandRunner, RoutedCredential, StoredCredential,
+    default_profile_secret_path, read_password_file, resolve_keyring_password,
+    resolve_profile_file_password, resolve_stored_profile_password, route_password_to_keyring,
+    sanitize_profile_segment, secrets_dir, store_file_password, store_keyring_password,
+    store_profile_password,
 };

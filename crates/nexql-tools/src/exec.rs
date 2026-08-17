@@ -1293,12 +1293,11 @@ impl ToolRouter {
         )
     }
 
-    /// Route a plaintext `password` arg to the OS keyring instead of persisting it
-    /// to disk. See `nexql_conn::route_password_to_keyring`.
+    /// Route a plaintext `password` arg to secure storage instead of persisting it in TOML.
     fn route_password_to_keyring(
         profile_name: &str,
         password: Option<&str>,
-    ) -> Result<(Option<String>, Option<String>), ToolError> {
+    ) -> Result<nexql_conn::RoutedCredential, ToolError> {
         nexql_conn::route_password_to_keyring(profile_name, password)
             .map_err(|e| ToolError::Execution(e.to_string()))
     }
@@ -1375,7 +1374,7 @@ impl ToolRouter {
 
         match nexql_conn::test_connection(&params).await {
             Ok(report) => {
-                let (kr_password, kr_provider) =
+                let routed =
                     Self::route_password_to_keyring(profile_name, params.password.as_deref())?;
                 let p_config = nexql_conn::ProfileConfig {
                     url: params.url.clone(),
@@ -1383,9 +1382,10 @@ impl ToolRouter {
                     port: params.port,
                     dbname: params.dbname.clone(),
                     user: params.user.clone(),
-                    password: kr_password,
+                    password: routed.password,
                     sslmode: params.sslmode.clone(),
-                    credential_provider: kr_provider,
+                    credential_provider: routed.credential_provider,
+                    password_file: routed.password_file,
                     ..Default::default()
                 };
 
@@ -1448,7 +1448,7 @@ impl ToolRouter {
             }
         }
 
-        let (kr_password, kr_provider) =
+        let routed =
             Self::route_password_to_keyring(name, args.get("password").and_then(|v| v.as_str()))?;
 
         let p_config = nexql_conn::ProfileConfig {
@@ -1460,7 +1460,7 @@ impl ToolRouter {
                 .and_then(|v| v.as_str())
                 .map(String::from),
             user: args.get("user").and_then(|v| v.as_str()).map(String::from),
-            password: kr_password,
+            password: routed.password,
             sslmode: args
                 .get("sslmode")
                 .and_then(|v| v.as_str())
@@ -1473,7 +1473,8 @@ impl ToolRouter {
                 .get("max_rows")
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32),
-            credential_provider: kr_provider,
+            credential_provider: routed.credential_provider,
+            password_file: routed.password_file,
             ..Default::default()
         };
 

@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - TBD
+
+### Fixed
+- **File fallback when OS keyring unavailable**: `profile set-password` now tries the OS keyring first, then automatically stores the password in `~/.config/nexql-mcp/secrets/<profile>.pass` (mode 0600) and sets `credential_provider = "file"` in config. Connection resolution tries keyring, then the file store, so WSL/headless Linux works without gnome-keyring.
+
 ## [0.3.2] - 2026-08-17
 
 ### Fixed
 - **OS keyring lookup by wrong name**: `resolve_profile` routed every credential resolution through a hardcoded probe name instead of the actual profile name, so `credential_provider = "keyring"` never matched the stored OS keyring entry. Fixed in the CLI (`profile test`/`profile use`), MCP tool session connect, and the TUI's test/copy-snippet flows.
+- **Linux keyring persistence**: Release builds now enable the `sync-secret-service` keyring backend instead of the in-memory mock store, so passwords stored via `profile set-password` survive across separate CLI/MCP processes (requires a running Secret Service, e.g. gnome-keyring on WSL).
+- **Keyring miss is fail-fast**: When a profile declares `credential_provider = "keyring"` but lookup fails, resolution now errors immediately with keyring guidance instead of connecting and failing with `password missing`.
 - **Connection error detail**: `format_postgres_error` now appends the underlying error source when present.
 - **TUI profile inspector**: Distinguishes OS-keyring-stored passwords from inline (plaintext-in-config) passwords.
 

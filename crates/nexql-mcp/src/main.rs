@@ -1186,12 +1186,26 @@ async fn run_profile_action(
             let mut line = String::new();
             std::io::stdin().read_line(&mut line)?;
             let password = line.trim_end_matches(['\r', '\n']).to_string();
-            nexql_conn::store_keyring_password(name, &password)?;
+            let stored = nexql_conn::store_profile_password(name, &password)?;
             profile.password = None;
-            profile.credential_provider = Some("keyring".into());
+            profile.credential_provider = Some(stored.provider.clone());
+            profile.password_file = stored.password_file.clone();
             config.upsert_profile(name.clone(), profile);
             config.save(&path)?;
-            println!("password updated for '{name}' (stored in OS keyring)");
+            match stored.provider.as_str() {
+                "keyring" => {
+                    println!("password updated for '{name}' (stored in OS keyring)");
+                }
+                "file" => {
+                    println!(
+                        "password updated for '{name}' (OS keyring unavailable; stored in {})",
+                        stored.password_file.as_deref().unwrap_or("secrets file")
+                    );
+                }
+                other => {
+                    println!("password updated for '{name}' (stored via {other})");
+                }
+            }
             Ok(())
         }
         ProfileAction::Test { name } => {
