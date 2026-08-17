@@ -1153,7 +1153,7 @@ async fn run_profile_action(
                 ..Default::default()
             };
             if !*no_test {
-                let params = nexql_conn::resolve_profile(&profile)?;
+                let params = nexql_conn::resolve_profile(name, &profile)?;
                 let report = nexql_conn::test_connection(&params).await?;
                 println!(
                     "✓ Connection verified: {} (latency: {:.0}ms)",
@@ -1201,7 +1201,7 @@ async fn run_profile_action(
                 .or_else(|| config.default_profile.clone())
                 .ok_or("no profile name given and no default_profile set")?;
             let params = if let Some(profile) = config.profiles.get(&profile_name) {
-                nexql_conn::resolve_profile(profile)?
+                nexql_conn::resolve_profile(&profile_name, profile)?
             } else {
                 return Err(format!("profile not found: {profile_name}").into());
             };

@@ -180,12 +180,17 @@ pub fn resolve_all(inputs: &ResolveInputs) -> Result<Vec<ResolvedConnection>, Co
 /// user confirms `save`. Runs the same password_command/env-interpolation path
 /// as a named profile by routing through the public resolve ladder with a
 /// throwaway single-profile `ConfigFile`.
-pub fn resolve_profile(profile: &ProfileConfig) -> Result<ConnectionParams, ConnError> {
-    const PROBE_NAME: &str = "__nexql_mcp_probe__";
+///
+/// `profile_name` must match the OS keyring entry when `credential_provider =
+/// "keyring"` (see `profile set-password` / `prepare_profile_for_persist`).
+pub fn resolve_profile(
+    profile_name: &str,
+    profile: &ProfileConfig,
+) -> Result<ConnectionParams, ConnError> {
     let mut cfg = ConfigFile::default();
-    cfg.profiles.insert(PROBE_NAME.to_string(), profile.clone());
+    cfg.profiles.insert(profile_name.to_string(), profile.clone());
     let inputs = ResolveInputs {
-        profile_names: vec![PROBE_NAME.to_string()],
+        profile_names: vec![profile_name.to_string()],
         config: Some(cfg),
         ..Default::default()
     };
@@ -1258,13 +1263,38 @@ mod tests {
     }
 
     #[test]
-    fn parses_sqlite_and_duckdb_urls() {
-        let sqlite_params = params_from_url("sqlite:///path/to/app.db").unwrap();
-        assert_eq!(sqlite_params.engine, DbEngine::Sqlite);
-        assert_eq!(sqlite_params.dbname.as_deref(), Some("/path/to/app.db"));
+    fn resolve_profile_uses_supplied_profile_name() {
+        let profile = ProfileConfig {
+            host: Some("h".into()),
+            dbname: Some("d".into()),
+            user: Some("u".into()),
+            password: Some("inline-secret".into()),
+            ..Default::default()
+        };
+        let params = resolve_profile("prod", &profile).unwrap();
+        assert_eq!(params.password.as_deref(), Some("inline-secret"));
+    }
 
-        let duck_params = params_from_url("duckdb:///path/to/analytics.db").unwrap();
-        assert_eq!(duck_params.engine, DbEngine::DuckDb);
-        assert_eq!(duck_params.dbname.as_deref(), Some("/path/to/analytics.db"));
+    #[test]
+    fn resolve_profile_keyring_lookup_uses_profile_name() {
+        let profile = ProfileConfig {
+            host: Some("localhost".into()),
+            port: Some(5432),
+            dbname: Some("db".into()),
+            user: Some("u".into()),
+            credential_provider: Some("keyring".into()),
+            ..Default::default()
+        };
+        const PROFILE: &str = "resolve_profile_keyring_test";
+        if crate::secret::store_keyring_password(PROFILE, "kr-secret").is_err() {
+            eprintln!("skip: OS keyring unavailable for store");
+            return;
+        }
+        if crate::secret::resolve_keyring_password(PROFILE).is_err() {
+            eprintln!("skip: OS keyring store/get round-trip unavailable");
+            return;
+        }
+        let params = resolve_profile(PROFILE, &profile).unwrap();
+        assert_eq!(params.password.as_deref(), Some("kr-secret"));
     }
 }

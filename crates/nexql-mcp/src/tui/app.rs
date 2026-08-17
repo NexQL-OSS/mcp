@@ -70,6 +70,7 @@ const FOCUS_STOPS: usize = FIELD_COUNT + 1;
 pub struct ProfileForm {
     pub name: String,
     pub name_editable: bool,
+    pub credential_provider: Option<String>,
     pub fields: [String; FIELD_COUNT],
     pub focused: usize,
 }
@@ -79,6 +80,7 @@ impl ProfileForm {
         Self {
             name: String::new(),
             name_editable: true,
+            credential_provider: None,
             fields: std::array::from_fn(|_| String::new()),
             focused: 0,
         }
@@ -88,6 +90,7 @@ impl ProfileForm {
         Self {
             name: name.to_string(),
             name_editable: false,
+            credential_provider: profile.credential_provider.clone(),
             fields: [
                 profile.url.clone().unwrap_or_default(),
                 profile.host.clone().unwrap_or_default(),
@@ -127,6 +130,7 @@ impl ProfileForm {
             password_command: get(6),
             sslmode: get(7),
             access_mode: get(8),
+            credential_provider: self.credential_provider.clone(),
             ..Default::default()
         }
     }
@@ -167,6 +171,7 @@ pub struct App {
     pub test_outcome: TestOutcome,
     pub test_rx: Option<oneshot::Receiver<Result<ConnectionReport, String>>>,
     pub test_return: TestReturn,
+    pub pending_profile_name: Option<String>,
     pub pending_profile: Option<ProfileConfig>,
     pub picker_items: Vec<ClientPickerItem>,
     pub picker_idx: usize,
@@ -193,6 +198,7 @@ impl App {
             test_outcome: TestOutcome::Idle,
             test_rx: None,
             test_return: TestReturn::List,
+            pending_profile_name: None,
             pending_profile: None,
             picker_items: Vec::new(),
             picker_idx: 0,
@@ -222,9 +228,9 @@ impl App {
         }
     }
 
-    fn start_test(&mut self, profile: ProfileConfig, return_to: TestReturn) {
+    fn start_test(&mut self, profile_name: &str, profile: ProfileConfig, return_to: TestReturn) {
         self.test_return = return_to;
-        match nexql_conn::resolve_profile(&profile) {
+        match nexql_conn::resolve_profile(profile_name, &profile) {
             Ok(params) => {
                 let (tx, rx) = oneshot::channel();
                 self.test_rx = Some(rx);
@@ -241,6 +247,7 @@ impl App {
                 self.test_outcome = TestOutcome::Done(Err(e.to_string()));
             }
         }
+        self.pending_profile_name = Some(profile_name.to_string());
         self.pending_profile = Some(profile);
         self.screen = Screen::Testing;
     }
@@ -293,7 +300,8 @@ impl App {
             return;
         }
 
-        let first_profile = self.config.profiles.get(&selected_names[0]).cloned();
+        let first_name = selected_names[0].clone();
+        let first_profile = self.config.profiles.get(&first_name).cloned();
 
         self.diffs.clear();
         self.summary.clear();
@@ -352,7 +360,7 @@ impl App {
         // Copy-only clients: build a paste-ready snippet with a resolved URL.
         let url = first_profile
             .as_ref()
-            .and_then(|p| nexql_conn::resolve_profile(p).ok())
+            .and_then(|p| nexql_conn::resolve_profile(&first_name, p).ok())
             .and_then(|p| p.to_url().ok());
         for item in self
             .picker_items
@@ -477,7 +485,7 @@ impl App {
                 if let Some(name) = self.selected_name()
                     && let Some(profile) = self.config.profiles.get(&name).cloned()
                 {
-                    self.start_test(profile, TestReturn::List);
+                    self.start_test(&name, profile, TestReturn::List);
                 }
             }
             KeyCode::Char(' ') => {
@@ -532,8 +540,8 @@ impl App {
                     return;
                 }
                 let profile = self.form.to_profile_config();
-                self.form.name = name;
-                self.start_test(profile, TestReturn::Form);
+                self.form.name = name.clone();
+                self.start_test(&name, profile, TestReturn::Form);
             }
             KeyCode::Backspace => {
                 if let Some(text) = self.form.focused_text_mut() {
@@ -560,8 +568,11 @@ impl App {
                 };
             }
             KeyCode::Char('r') => {
-                if let Some(profile) = self.pending_profile.clone() {
-                    self.start_test(profile, self.test_return);
+                if let (Some(name), Some(profile)) = (
+                    self.pending_profile_name.clone(),
+                    self.pending_profile.clone(),
+                ) {
+                    self.start_test(&name, profile, self.test_return);
                 }
             }
             KeyCode::Enter => {

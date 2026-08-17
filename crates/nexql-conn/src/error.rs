@@ -3,6 +3,8 @@
 
 use thiserror::Error;
 
+use std::error::Error as StdError;
+
 #[derive(Debug, Error)]
 pub enum ConnError {
     #[error("no connection source resolved")]
@@ -51,6 +53,13 @@ pub fn format_postgres_error(e: &tokio_postgres::Error) -> String {
         }
         msg
     } else {
-        e.to_string()
+        let mut msg = e.to_string();
+        if let Some(source) = StdError::source(e) {
+            let detail = source.to_string();
+            if !detail.is_empty() && detail != msg {
+                msg.push_str(&format!(" ({detail})"));
+            }
+        }
+        msg
     }
 }
