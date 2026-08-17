@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-17
+
+### Fixed
+- **OS keyring lookup by wrong name**: `resolve_profile` routed every credential resolution through a hardcoded probe name instead of the actual profile name, so `credential_provider = "keyring"` never matched the stored OS keyring entry. Fixed in the CLI (`profile test`/`profile use`), MCP tool session connect, and the TUI's test/copy-snippet flows.
+- **Connection error detail**: `format_postgres_error` now appends the underlying error source when present.
+- **TUI profile inspector**: Distinguishes OS-keyring-stored passwords from inline (plaintext-in-config) passwords.
+
 ## [0.3.1] - 2026-08-16
 
 ### Fixed
