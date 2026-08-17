@@ -768,13 +768,11 @@ url = "postgres://evil.com/db"
         } else {
             assert_eq!(report.migrated, vec!["prod".to_string()]);
             assert!(cfg.profiles["prod"].password.is_none());
+            let provider = cfg.profiles["prod"].credential_provider.as_deref();
             assert!(
-                matches!(
-                    cfg.profiles["prod"].credential_provider.as_deref(),
-                    Some("keyring") | Some("file")
-                ),
-                "expected keyring or file provider, got {:?}",
-                cfg.profiles["prod"].credential_provider
+                provider == Some("keyring") || provider == Some("encrypted_file"),
+                "expected keyring or encrypted_file provider, got {:?}",
+                provider
             );
         }
     }

@@ -21,20 +21,24 @@ embeddings = ["nexql-index/embeddings"]
 
 [dependencies]
 async-trait = "0.1"
+axum = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
+keyring = { workspace = true }
 nexql-conn = { workspace = true }
 nexql-index = { workspace = true }
 nexql-policy = { workspace = true }
 nexql-proto = { workspace = true }
 nexql-tools = { workspace = true }
 ratatui = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

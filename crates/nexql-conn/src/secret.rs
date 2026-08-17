@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 NexQL-OSS Team
 
-//! Secret indirection — `password_command`, OS keyring, and file fallback.
+//! Secret indirection — `password_command`, OS keyring, encrypted file fallback,
+//! and user-managed `password_file`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::error::ConnError;
+use crate::secret_encrypted::{
+    resolve_encrypted_profile_password, store_encrypted_profile_password,
+};
 
 /// Runs an external password command. Injectable for tests.
 pub trait CommandRunner: Send + Sync {
@@ -61,36 +65,7 @@ pub fn interpolate_env(input: &str, getenv: &dyn Fn(&str) -> Option<String>) -> 
     out
 }
 
-/// Where file-backed profile secrets live when the OS keyring is unavailable.
-pub fn secrets_dir() -> Result<PathBuf, ConnError> {
-    let base = crate::config::ConfigFile::default_path()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config").join("nexql-mcp"))
-        })
-        .ok_or_else(|| ConnError::Config("could not resolve nexql-mcp config directory".into()))?;
-    Ok(base.join("secrets"))
-}
-
-/// Safe filename segment for a profile name.
-pub fn sanitize_profile_segment(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-/// Default on-disk secret path for a profile (`~/.config/nexql-mcp/secrets/<name>.pass`).
-pub fn default_profile_secret_path(profile_name: &str) -> Result<PathBuf, ConnError> {
-    Ok(secrets_dir()?.join(format!("{}.pass", sanitize_profile_segment(profile_name))))
-}
-
-/// Read a password from a file (trimmed; rejects empty).
+/// Read a password from a user-managed file (trimmed; rejects empty).
 pub fn read_password_file(path: &Path) -> Result<String, ConnError> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| ConnError::Config(format!("password_file {}: {e}", path.display())))?;
@@ -104,16 +79,9 @@ pub fn read_password_file(path: &Path) -> Result<String, ConnError> {
     Ok(trimmed.to_string())
 }
 
-/// Resolve password from an explicit file path or the default profile secret file.
-pub fn resolve_profile_file_password(
-    profile_name: &str,
-    password_file: Option<&Path>,
-) -> Result<String, ConnError> {
-    if let Some(path) = password_file {
-        return read_password_file(path);
-    }
-    let path = default_profile_secret_path(profile_name)?;
-    read_password_file(&path)
+/// Resolve password from an explicit `password_file` path in profile config.
+pub fn resolve_profile_file_password(password_file: &Path) -> Result<String, ConnError> {
+    read_password_file(password_file)
 }
 
 /// Resolve password from OS keyring (`nexql-mcp` service).
@@ -144,79 +112,47 @@ pub fn store_keyring_password(profile_name: &str, password: &str) -> Result<(), 
     Ok(())
 }
 
-/// Store password in the profile secret file (mode 0600, directory 0700).
-pub fn store_file_password(profile_name: &str, password: &str) -> Result<PathBuf, ConnError> {
-    let dir = secrets_dir()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true).mode(0o700);
-        builder.create(&dir).map_err(ConnError::Io)?;
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir_all(&dir).map_err(ConnError::Io)?;
-    }
+pub const ENCRYPTED_FILE_PROVIDER: &str = "encrypted_file";
 
-    let path = default_profile_secret_path(profile_name)?;
-    write_secret_file(&path, password)?;
-    let round_trip = read_password_file(&path)?;
-    if round_trip != password {
-        return Err(ConnError::Config(
-            "password file write succeeded but read-back mismatch".into(),
-        ));
-    }
-    Ok(path)
-}
+const KEYRING_UNAVAILABLE_HINT: &str = "Install and start a Secret Service (e.g. gnome-keyring on Linux/WSL), \
+or configure `password_command` / an explicit `password_file` path you manage in config.toml.";
 
-fn write_secret_file(path: &Path, password: &str) -> Result<(), ConnError> {
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(ConnError::Io)?;
-        file.write_all(password.as_bytes())
-            .map_err(ConnError::Io)?;
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(path, password).map_err(ConnError::Io)?;
-        Ok(())
-    }
+const ENCRYPTED_FILE_WARNING: &str = "OS keyring unavailable — password stored in an encrypted local file \
+(not plaintext). Weaker than the OS keyring; prefer gnome-keyring when possible.";
+
+/// User-facing warning when the encrypted file fallback was used.
+pub fn encrypted_file_storage_warning() -> &'static str {
+    ENCRYPTED_FILE_WARNING
 }
 
 /// Where a profile password was stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredCredential {
-    /// `keyring` or `file`.
     pub provider: String,
-    /// Set when `provider == "file"`.
+    /// Set when `provider` is `encrypted_file` (relative path under config dir).
     pub password_file: Option<String>,
 }
 
-/// Store a profile password: OS keyring when available, otherwise a private file.
+/// Store a profile password in the OS keyring, falling back to an encrypted local file.
 pub fn store_profile_password(
     profile_name: &str,
     password: &str,
 ) -> Result<StoredCredential, ConnError> {
-    if store_keyring_password(profile_name, password).is_ok() {
+    if let Ok(()) = store_keyring_password(profile_name, password) {
         return Ok(StoredCredential {
             provider: "keyring".into(),
             password_file: None,
         });
     }
-    let path = store_file_password(profile_name, password)?;
+
+    tracing::warn!(
+        profile = %profile_name,
+        "OS keyring unavailable; storing password in encrypted local file"
+    );
+    let rel = store_encrypted_profile_password(profile_name, password)?;
     Ok(StoredCredential {
-        provider: "file".into(),
-        password_file: Some(path.to_string_lossy().into_owned()),
+        provider: ENCRYPTED_FILE_PROVIDER.into(),
+        password_file: Some(rel),
     })
 }
 
@@ -228,7 +164,7 @@ pub struct RoutedCredential {
     pub password_file: Option<String>,
 }
 
-/// Route an inline password to the OS keyring, falling back to a private file.
+/// Route an inline password to the OS keyring or encrypted file (never plaintext TOML).
 pub fn route_password_to_keyring(
     profile_name: &str,
     password: Option<&str>,
@@ -244,49 +180,51 @@ pub fn route_password_to_keyring(
     })
 }
 
-/// Resolve a stored profile password from keyring and/or the file fallback.
+/// Resolve a stored profile password from keyring, encrypted file, or user-managed file.
 pub fn resolve_stored_profile_password(
     profile_name: &str,
     password_file: Option<&Path>,
     credential_provider: Option<&str>,
 ) -> Result<String, ConnError> {
-    if matches!(
-        credential_provider,
-        Some("keyring") | Some("os_keyring") | None
-    ) && let Ok(pw) = resolve_keyring_password(profile_name)
-    {
-        return Ok(pw);
+    match credential_provider {
+        Some("file") => {
+            let path = password_file.ok_or_else(|| {
+                ConnError::PasswordCommand(format!(
+                    "profile '{profile_name}' uses credential_provider=file but password_file is not set"
+                ))
+            })?;
+            read_password_file(path).map_err(|e| {
+                ConnError::PasswordCommand(format!(
+                    "profile '{profile_name}' uses credential_provider=file but password_file could not be read: {e}"
+                ))
+            })
+        }
+        Some(ENCRYPTED_FILE_PROVIDER) => {
+            let path = password_file.ok_or_else(|| {
+                ConnError::PasswordCommand(format!(
+                    "profile '{profile_name}' uses credential_provider=encrypted_file but password_file is not set"
+                ))
+            })?;
+            resolve_encrypted_profile_password(profile_name, path)
+        }
+        Some("keyring") | Some("os_keyring") => resolve_keyring_password(profile_name).map_err(|e| {
+            ConnError::PasswordCommand(format!(
+                "profile '{profile_name}' uses credential_provider=keyring but no password was found: {e}. \
+                 Run `nexql-mcp profile set-password \"{profile_name}\"` after enabling the OS keyring, \
+                 or use password_command / an explicit password_file you manage. {KEYRING_UNAVAILABLE_HINT}"
+            ))
+        }),
+        None => resolve_keyring_password(profile_name),
+        Some(other) => Err(ConnError::PasswordCommand(format!(
+            "unsupported credential_provider '{other}' for profile '{profile_name}'"
+        ))),
     }
-
-    if let Ok(pw) = resolve_profile_file_password(profile_name, password_file) {
-        return Ok(pw);
-    }
-
-    if credential_provider == Some("file") {
-        return Err(ConnError::PasswordCommand(format!(
-            "profile '{profile_name}' uses credential_provider=file but password_file could not be read"
-        )));
-    }
-
-    if matches!(credential_provider, Some("keyring") | Some("os_keyring")) {
-        let file_hint = default_profile_secret_path(profile_name)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "~/.config/nexql-mcp/secrets/<profile>.pass".into());
-        return Err(ConnError::PasswordCommand(format!(
-            "profile '{profile_name}' uses credential_provider=keyring but no password was found. \
-             OS keyring is unavailable or empty — run `nexql-mcp profile set-password \"{profile_name}\"` \
-             (stores to keyring or {file_hint} automatically), or set password_file / password_command"
-        )));
-    }
-
-    Err(ConnError::PasswordCommand(format!(
-        "no stored password for profile '{profile_name}'"
-    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secret_encrypted::store_encrypted_profile_password_at;
 
     #[test]
     fn interpolates_env_placeholders() {
@@ -302,56 +240,57 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_profile_segment_replaces_spaces() {
-        assert_eq!(sanitize_profile_segment("SSP Dev"), "SSP_Dev");
-    }
-
-    #[test]
-    fn file_password_round_trip() {
+    fn explicit_password_file_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("secrets").join("prod.pass");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        write_secret_file(&path, "file-secret").unwrap();
-        assert_eq!(read_password_file(&path).unwrap(), "file-secret");
-    }
-
-    #[test]
-    fn store_profile_password_falls_back_to_file_when_keyring_unavailable() {
-        let dir = tempfile::tempdir().unwrap();
-        let secrets = dir.path().join("secrets");
-        std::fs::create_dir_all(&secrets).unwrap();
-        // Simulate WSL: keyring verify fails on Linux CI without Secret Service.
-        let profile = "SSP Dev";
-        let path = secrets.join(format!("{}.pass", sanitize_profile_segment(profile)));
-        write_secret_file(&path, "wsl-secret").unwrap();
+        let path = dir.path().join("managed.pass");
+        std::fs::write(&path, "file-secret\n").unwrap();
         assert_eq!(
-            resolve_profile_file_password(profile, Some(&path)).unwrap(),
-            "wsl-secret"
+            resolve_profile_file_password(&path).unwrap(),
+            "file-secret"
         );
     }
 
-    struct FakeRunner {
-        out: Result<String, ConnError>,
+    #[test]
+    fn store_profile_password_uses_keyring_or_encrypted_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("nexql-mcp");
+        let rel =
+            store_encrypted_profile_password_at(&config_dir, "SSP Dev", "wsl-secret").unwrap();
+        let pw = crate::secret_encrypted::resolve_encrypted_profile_password_at(
+            &config_dir,
+            "SSP Dev",
+            Path::new(&rel),
+        )
+        .unwrap();
+        assert_eq!(pw, "wsl-secret");
+
+        // Full store_profile_password may use keyring when available; encrypted path is covered above.
+        let stored = store_profile_password("probe-only", "x").unwrap();
+        assert!(
+            stored.provider == "keyring" || stored.provider == ENCRYPTED_FILE_PROVIDER
+        );
     }
 
-    impl CommandRunner for FakeRunner {
-        fn run_stdout(&self, _cmdline: &str) -> Result<String, ConnError> {
-            match &self.out {
-                Ok(s) => Ok(s.clone()),
-                Err(e) => Err(ConnError::PasswordCommand(e.to_string())),
-            }
-        }
+    #[test]
+    fn encrypted_provider_round_trip_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("nexql-mcp");
+        let rel =
+            store_encrypted_profile_password_at(&config_dir, "prod", "correct-horse").unwrap();
+        let pw = crate::secret_encrypted::resolve_encrypted_profile_password_at(
+            &config_dir,
+            "prod",
+            Path::new(&rel),
+        )
+        .unwrap();
+        assert_eq!(pw, "correct-horse");
     }
 
     #[test]
     fn password_command_success() {
-        let r = FakeRunner {
-            out: Ok("  pw  \n".into()),
-        };
         let real = ProcessCommandRunner;
         let got = real.run_stdout("printf 'abc\\n'").unwrap();
         assert_eq!(got, "abc");
-        let _ = r;
     }
 
     #[test]

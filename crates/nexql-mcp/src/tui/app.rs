@@ -12,7 +12,7 @@ use similar::TextDiff;
 use tokio::sync::oneshot;
 
 use crate::client_targets;
-use crate::init_clients;
+use crate::setup::wire::{self, LaunchConfig};
 
 pub enum Screen {
     ProfileList,
@@ -143,13 +143,7 @@ pub struct ClientPickerItem {
     pub selected: bool,
 }
 
-pub struct DiffEntry {
-    pub display_name: &'static str,
-    pub config_path: PathBuf,
-    pub old_content: String,
-    pub new_content: String,
-    pub apply: Option<bool>,
-}
+type DiffEntry = wire::TuiDiffEntry;
 
 pub struct SummaryEntry {
     pub display_name: String,
@@ -300,92 +294,44 @@ impl App {
             return;
         }
 
-        let first_name = selected_names[0].clone();
-        let first_profile = self.config.profiles.get(&first_name).cloned();
-
         self.diffs.clear();
         self.summary.clear();
 
-        let targets = client_targets::mergeable_targets();
-        let mut profile_args: Vec<String> = Vec::new();
-        for name in &selected_names {
-            profile_args.push("--profile".to_string());
-            profile_args.push(name.clone());
-        }
-        for item in self
+        let mergeable_keys: Vec<&str> = self
             .picker_items
             .iter()
             .filter(|i| i.selected && i.mergeable)
-        {
-            let Some(target) = targets.iter().find(|t| t.key == item.key) else {
-                continue;
-            };
-            let Some(path) = (target.config_path)() else {
-                self.summary.push(SummaryEntry {
-                    display_name: item.display_name.to_string(),
-                    path: None,
-                    backup: None,
-                    snippet: None,
-                    error: Some("could not resolve a config path on this OS".into()),
-                    skipped: true,
-                });
-                continue;
-            };
-            let old_content = std::fs::read_to_string(&path).unwrap_or_default();
-            match client_targets::merge_entry(
-                &old_content,
-                target.shape,
-                "nexql-mcp",
-                "nexql-mcp",
-                &profile_args,
-            ) {
-                Ok(new_content) => self.diffs.push(DiffEntry {
-                    display_name: target.display_name,
-                    config_path: path,
-                    old_content,
-                    new_content,
-                    apply: None,
-                }),
-                Err(e) => self.summary.push(SummaryEntry {
-                    display_name: item.display_name.to_string(),
-                    path: Some(path),
-                    backup: None,
-                    snippet: None,
-                    error: Some(e),
-                    skipped: true,
-                }),
-            }
-        }
-
-        // Copy-only clients: build a paste-ready snippet with a resolved URL.
-        let url = first_profile
-            .as_ref()
-            .and_then(|p| nexql_conn::resolve_profile(&first_name, p).ok())
-            .and_then(|p| p.to_url().ok());
-        for item in self
+            .map(|i| i.key)
+            .collect();
+        let copy_only_keys: Vec<&str> = self
             .picker_items
             .iter()
             .filter(|i| i.selected && !i.mergeable)
-        {
-            match init_clients::init_snippet(item.key, url.as_deref()) {
-                Ok(snippet) => self.summary.push(SummaryEntry {
-                    display_name: item.display_name.to_string(),
-                    path: None,
-                    backup: None,
-                    snippet: Some(snippet),
-                    error: None,
-                    skipped: false,
-                }),
-                Err(e) => self.summary.push(SummaryEntry {
-                    display_name: item.display_name.to_string(),
-                    path: None,
-                    backup: None,
-                    snippet: None,
-                    error: Some(e),
-                    skipped: true,
-                }),
-            }
-        }
+            .map(|i| i.key)
+            .collect();
+
+        let outcome = wire::build_tui_wire(
+            &self.config,
+            &selected_names,
+            &mergeable_keys,
+            &copy_only_keys,
+            &LaunchConfig::default(),
+            None,
+        );
+
+        self.diffs = outcome.diffs;
+        self.summary = outcome
+            .summary
+            .into_iter()
+            .map(|s| SummaryEntry {
+                display_name: s.display_name,
+                path: s.path,
+                backup: s.backup,
+                snippet: s.snippet,
+                error: s.error,
+                skipped: s.skipped,
+            })
+            .collect();
 
         self.diff_idx = 0;
         if self.diffs.is_empty() {
@@ -396,37 +342,15 @@ impl App {
     }
 
     fn finalize_diffs(&mut self) {
-        for d in &self.diffs {
-            if d.apply == Some(true) {
-                match nexql_conn::write_with_backup(&d.config_path, &d.new_content) {
-                    Ok(backup) => self.summary.push(SummaryEntry {
-                        display_name: d.display_name.to_string(),
-                        path: Some(d.config_path.clone()),
-                        backup,
-                        snippet: None,
-                        error: None,
-                        skipped: false,
-                    }),
-                    Err(e) => self.summary.push(SummaryEntry {
-                        display_name: d.display_name.to_string(),
-                        path: Some(d.config_path.clone()),
-                        backup: None,
-                        snippet: None,
-                        error: Some(e.to_string()),
-                        skipped: true,
-                    }),
-                }
-            } else {
-                self.summary.push(SummaryEntry {
-                    display_name: d.display_name.to_string(),
-                    path: Some(d.config_path.clone()),
-                    backup: None,
-                    snippet: None,
-                    error: None,
-                    skipped: true,
-                });
-            }
-        }
+        let finalized = wire::finalize_tui_diffs(&self.diffs);
+        self.summary.extend(finalized.into_iter().map(|s| SummaryEntry {
+            display_name: s.display_name,
+            path: s.path,
+            backup: s.backup,
+            snippet: s.snippet,
+            error: s.error,
+            skipped: s.skipped,
+        }));
         self.screen = Screen::Summary;
     }
 

@@ -4785,9 +4785,13 @@ mod tests {
                 "password must never appear in the persisted config file: {raw}"
             );
             if !out.is_error {
+                // Either provider is non-plaintext: `keyring` on hosts with a
+                // working OS keyring, `encrypted_file` (secret_encrypted.rs)
+                // as the automatic fallback when no keyring is reachable —
+                // see secret.rs's store_profile_password_uses_keyring_or_encrypted_file.
                 assert!(
-                    raw.contains("keyring"),
-                    "successful save must record credential_provider = \"keyring\": {raw}"
+                    raw.contains("keyring") || raw.contains(nexql_conn::ENCRYPTED_FILE_PROVIDER),
+                    "successful save must record credential_provider = \"keyring\" or \"encrypted_file\": {raw}"
                 );
             }
         }

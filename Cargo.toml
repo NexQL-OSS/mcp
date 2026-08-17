@@ -18,7 +18,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.3"
+version = "0.4.0"
 edition = "2024"
 license = "GPL-3.0-only"
 repository = "https://github.com/NexQL-OSS/mcp"
@@ -62,11 +62,14 @@ crossterm = "0.29"
 similar = "3"
 fs2 = "0.4"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+getrandom = "0.3"
 
 # `version` is required for `cargo publish` (path-only deps are rejected on crates.io).
 # Keep these in sync with [workspace.package] version above on every release bump.
-nexql-conn = { path = "crates/nexql-conn", version = "0.3.3" }
-nexql-index = { path = "crates/nexql-index", version = "0.3.3" }
-nexql-policy = { path = "crates/nexql-policy", version = "0.3.3" }
-nexql-proto = { path = "crates/nexql-proto", version = "0.3.3" }
-nexql-tools = { path = "crates/nexql-tools", version = "0.3.3" }
+nexql-conn = { path = "crates/nexql-conn", version = "0.4.0" }
+nexql-index = { path = "crates/nexql-index", version = "0.4.0" }
+nexql-policy = { path = "crates/nexql-policy", version = "0.4.0" }
+nexql-proto = { path = "crates/nexql-proto", version = "0.4.0" }
+nexql-tools = { path = "crates/nexql-tools", version = "0.4.0" }

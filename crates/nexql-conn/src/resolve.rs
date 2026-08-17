@@ -622,6 +622,26 @@ fn fill_password(
         params.password = Some(runner.run_stdout(&expanded)?);
         return Ok(());
     }
+    if profile_name_or_provider == Some(crate::secret::ENCRYPTED_FILE_PROVIDER) {
+        let path = password_file.ok_or_else(|| {
+            ConnError::Config(format!(
+                "profile uses credential_provider=encrypted_file but password_file is not set"
+            ))
+        })?;
+        let expanded = interpolate_env(path, getenv);
+        let profile_name = inputs
+            .profile_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("profile");
+        let pw = crate::secret::resolve_stored_profile_password(
+            profile_name,
+            Some(Path::new(&expanded)),
+            Some(crate::secret::ENCRYPTED_FILE_PROVIDER),
+        )?;
+        params.password = Some(pw);
+        return Ok(());
+    }
     if let Some(file) = password_file {
         let expanded = interpolate_env(file, getenv);
         let raw = std::fs::read_to_string(&expanded)
@@ -650,19 +670,34 @@ fn fill_password(
             params.password = Some(pw);
             return Ok(());
         }
-        if name_or_prov == "file" {
-            let pw = crate::secret::resolve_profile_file_password(
+        if name_or_prov == crate::secret::ENCRYPTED_FILE_PROVIDER {
+            let path = password_file.ok_or_else(|| {
+                ConnError::Config(format!(
+                    "profile '{profile_name}' uses credential_provider=encrypted_file but password_file is not set"
+                ))
+            })?;
+            let expanded = interpolate_env(path, getenv);
+            let pw = crate::secret::resolve_stored_profile_password(
                 profile_name,
-                password_file.map(Path::new),
+                Some(Path::new(&expanded)),
+                Some(crate::secret::ENCRYPTED_FILE_PROVIDER),
             )?;
             params.password = Some(pw);
             return Ok(());
         }
-        if let Ok(pw) = crate::secret::resolve_keyring_password(name_or_prov) {
-            params.password = Some(pw);
+        if name_or_prov == "file" {
+            let path = password_file.ok_or_else(|| {
+                ConnError::Config(format!(
+                    "profile '{profile_name}' uses credential_provider=file but password_file is not set"
+                ))
+            })?;
+            let expanded = interpolate_env(path, getenv);
+            params.password = Some(crate::secret::resolve_profile_file_password(Path::new(
+                &expanded,
+            ))?);
             return Ok(());
         }
-        if let Ok(pw) = crate::secret::resolve_profile_file_password(name_or_prov, None) {
+        if let Ok(pw) = crate::secret::resolve_keyring_password(name_or_prov) {
             params.password = Some(pw);
             return Ok(());
         }

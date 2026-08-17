@@ -3,13 +3,13 @@
 
 //! Structured (not string-templated) MCP client config targets — the subset of
 //! `init_clients::SUPPORTED_CLIENTS` that live at a real, mergeable on-disk JSON
-//! file. Used by the TUI's client-picker/diff/write flow.
+//! file. Used by the TUI's client-picker/diff/write flow and the setup web UI.
 //!
 //! Deliberately smaller than `SUPPORTED_CLIENTS`: `continue` (YAML), `jetbrains`
 //! (no file, GUI-only), and `openai-agents` (Python/TOML snippet, not a client
 //! config) have no safe merge target and stay copy-only via `init_snippet`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
@@ -46,93 +46,120 @@ pub struct ClientTarget {
     pub key: &'static str,
     pub display_name: &'static str,
     pub shape: ConfigShape,
-    pub config_path: fn() -> Option<PathBuf>,
 }
 
-/// The 7 clients with a real, mergeable JSON config file.
+/// Copy-only clients surfaced in pickers alongside mergeable targets.
+pub const COPY_ONLY_CLIENTS: &[(&str, &str)] = &[
+    ("continue", "Continue (copy YAML snippet)"),
+    ("jetbrains", "JetBrains AI Assistant (copy snippet)"),
+    ("openai-agents", "OpenAI Agents SDK (copy snippet)"),
+];
+
+/// The clients with a real, mergeable JSON config file.
 pub fn mergeable_targets() -> Vec<ClientTarget> {
     vec![
         ClientTarget {
             key: "claude-desktop",
             display_name: "Claude Desktop",
             shape: ConfigShape::Claude,
-            config_path: claude_desktop_config_path,
         },
         ClientTarget {
             key: "claude-code",
             display_name: "Claude Code",
             shape: ConfigShape::Claude,
-            config_path: claude_code_config_path,
         },
         ClientTarget {
             key: "cursor",
             display_name: "Cursor",
             shape: ConfigShape::Claude,
-            config_path: cursor_config_path,
         },
         ClientTarget {
             key: "vscode",
             display_name: "VS Code",
             shape: ConfigShape::VsCode,
-            config_path: vscode_config_path,
         },
         ClientTarget {
             key: "vscode-copilot",
             display_name: "VS Code Copilot Chat",
             shape: ConfigShape::VsCode,
-            config_path: vscode_config_path,
         },
         ClientTarget {
             key: "zed",
             display_name: "Zed",
             shape: ConfigShape::Zed,
-            config_path: zed_config_path,
         },
         ClientTarget {
             key: "windsurf",
             display_name: "Windsurf",
             shape: ConfigShape::Claude,
-            config_path: windsurf_config_path,
         },
         ClientTarget {
             key: "antigravity",
             display_name: "Antigravity (Google DeepMind AI)",
             shape: ConfigShape::Claude,
-            config_path: antigravity_config_path,
         },
         ClientTarget {
             key: "deepseek",
             display_name: "DeepSeek AI / DeepSeek Coder",
             shape: ConfigShape::Claude,
-            config_path: deepseek_config_path,
         },
         ClientTarget {
             key: "kimi",
             display_name: "Kimi (Moonshot AI)",
             shape: ConfigShape::Claude,
-            config_path: kimi_config_path,
         },
         ClientTarget {
             key: "ollama",
             display_name: "Ollama (Local LLMs)",
             shape: ConfigShape::Claude,
-            config_path: ollama_config_path,
         },
         ClientTarget {
             key: "qwen",
             display_name: "Qwen (Alibaba Cloud AI)",
             shape: ConfigShape::Claude,
-            config_path: qwen_config_path,
         },
     ]
+}
+
+/// Resolve the on-disk config path for a mergeable client key.
+pub fn config_path_for(key: &str, workspace_root: Option<&Path>) -> Option<PathBuf> {
+    match key {
+        "claude-desktop" => claude_desktop_config_path(),
+        "claude-code" => project_or_workspace_path(workspace_root, ".mcp.json"),
+        "cursor" => project_or_workspace_path(workspace_root, ".cursor/mcp.json"),
+        "vscode" | "vscode-copilot" => {
+            project_or_workspace_path(workspace_root, ".vscode/mcp.json")
+        }
+        "zed" => zed_config_path(),
+        "windsurf" => home_dir().map(|h| h.join(".codeium/windsurf/mcp_config.json")),
+        "antigravity" => home_dir().map(|h| {
+            h.join(".gemini")
+                .join("antigravity-ide")
+                .join("mcp_config.json")
+        }),
+        "deepseek" => project_or_workspace_path(workspace_root, ".deepseek/mcp.json").or_else(|| {
+            home_dir().map(|h| h.join(".config/deepseek/mcp.json"))
+        }),
+        "kimi" => project_or_workspace_path(workspace_root, ".kimi/mcp.json")
+            .or_else(|| home_dir().map(|h| h.join(".config/kimi/mcp.json"))),
+        "ollama" => project_or_workspace_path(workspace_root, ".ollama/mcp.json")
+            .or_else(|| home_dir().map(|h| h.join(".ollama/mcp.json"))),
+        "qwen" => project_or_workspace_path(workspace_root, ".qwen/mcp.json")
+            .or_else(|| home_dir().map(|h| h.join(".config/qwen/mcp.json"))),
+        _ => None,
+    }
+}
+
+fn project_or_workspace_path(workspace_root: Option<&Path>, rel: &str) -> Option<PathBuf> {
+    let base = workspace_root
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())?;
+    Some(base.join(rel))
 }
 
 /// Parse `existing` (empty string / missing file → `{}`), set
 /// `value[top_key][server_key] = {command, args, ...}`, leaving every sibling
 /// key untouched, and return the pretty-printed result.
-///
-/// Known limitation: this reformats the whole file (not a text-preserving
-/// patch) — acceptable for v1, surfaced in the diff view before writing.
 pub fn merge_entry(
     existing: &str,
     shape: ConfigShape,
@@ -186,22 +213,6 @@ fn claude_desktop_config_path() -> Option<PathBuf> {
     }
 }
 
-fn claude_code_config_path() -> Option<PathBuf> {
-    std::env::current_dir().ok().map(|d| d.join(".mcp.json"))
-}
-
-fn cursor_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".cursor").join("mcp.json"))
-}
-
-fn vscode_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".vscode").join("mcp.json"))
-}
-
 fn zed_config_path() -> Option<PathBuf> {
     match std::env::consts::OS {
         "macos" => home_dir().map(|h| h.join("Library/Application Support/Zed/settings.json")),
@@ -210,46 +221,6 @@ fn zed_config_path() -> Option<PathBuf> {
         }
         _ => home_dir().map(|h| h.join(".config/zed/settings.json")),
     }
-}
-
-fn windsurf_config_path() -> Option<PathBuf> {
-    home_dir().map(|h| h.join(".codeium").join("windsurf").join("mcp_config.json"))
-}
-
-fn antigravity_config_path() -> Option<PathBuf> {
-    home_dir().map(|h| {
-        h.join(".gemini")
-            .join("antigravity-ide")
-            .join("mcp_config.json")
-    })
-}
-
-fn deepseek_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".deepseek").join("mcp.json"))
-        .or_else(|| home_dir().map(|h| h.join(".config").join("deepseek").join("mcp.json")))
-}
-
-fn kimi_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".kimi").join("mcp.json"))
-        .or_else(|| home_dir().map(|h| h.join(".config").join("kimi").join("mcp.json")))
-}
-
-fn ollama_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".ollama").join("mcp.json"))
-        .or_else(|| home_dir().map(|h| h.join(".ollama").join("mcp.json")))
-}
-
-fn qwen_config_path() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .map(|d| d.join(".qwen").join("mcp.json"))
-        .or_else(|| home_dir().map(|h| h.join(".config").join("qwen").join("mcp.json")))
 }
 
 #[cfg(test)]
@@ -346,5 +317,12 @@ mod tests {
         ] {
             assert!(keys.contains(&expected), "missing {expected}");
         }
+    }
+
+    #[test]
+    fn cursor_path_uses_workspace_root() {
+        let root = PathBuf::from("/tmp/my-project");
+        let path = config_path_for("cursor", Some(&root)).unwrap();
+        assert_eq!(path, root.join(".cursor/mcp.json"));
     }
 }

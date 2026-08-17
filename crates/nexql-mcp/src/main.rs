@@ -5,6 +5,7 @@
 
 mod client_targets;
 mod init_clients;
+mod setup;
 mod tui;
 
 use std::path::PathBuf;
@@ -207,6 +208,24 @@ enum Commands {
     Onboarding,
     /// Interactive profile editor + multi-client wiring.
     Tui,
+    /// Browser-based profile setup and client wiring wizard.
+    Setup {
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+        /// `0` picks an ephemeral port.
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// Open the setup UI in the default browser.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::SetTrue)]
+        #[arg(long = "no-open", action = clap::ArgAction::SetFalse)]
+        open: bool,
+        /// Shut down after this many seconds without API activity.
+        #[arg(long = "idle-timeout", default_value_t = 900)]
+        idle_timeout_secs: u64,
+        /// Workspace root for project-scoped client configs (.cursor/mcp.json, etc.).
+        #[arg(long = "workspace-root")]
+        workspace_root: Option<PathBuf>,
+    },
     /// Execute a read-only SELECT or WITH query and format results in the terminal.
     Query {
         /// SQL statement to execute
@@ -577,6 +596,39 @@ async fn main() -> ExitCode {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
                         eprintln!("tui error: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            Commands::Setup {
+                bind,
+                port,
+                open,
+                idle_timeout_secs,
+                workspace_root,
+            } => {
+                let config_path = match profile_config_path(&cli) {
+                    Ok(path) => path,
+                    Err(e) => {
+                        eprintln!("setup error: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                return match setup::run(setup::SetupOptions {
+                    bind: bind.clone(),
+                    port: *port,
+                    open_browser: *open,
+                    idle_timeout_secs: *idle_timeout_secs,
+                    config_path,
+                    workspace_root: workspace_root
+                        .clone()
+                        .or_else(|| cli.connection.workspace_root.clone()),
+                })
+                .await
+                {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("setup error: {e}");
                         ExitCode::FAILURE
                     }
                 };
@@ -1189,22 +1241,14 @@ async fn run_profile_action(
             let stored = nexql_conn::store_profile_password(name, &password)?;
             profile.password = None;
             profile.credential_provider = Some(stored.provider.clone());
-            profile.password_file = stored.password_file.clone();
+            profile.password_file = stored.password_file;
             config.upsert_profile(name.clone(), profile);
             config.save(&path)?;
-            match stored.provider.as_str() {
-                "keyring" => {
-                    println!("password updated for '{name}' (stored in OS keyring)");
-                }
-                "file" => {
-                    println!(
-                        "password updated for '{name}' (OS keyring unavailable; stored in {})",
-                        stored.password_file.as_deref().unwrap_or("secrets file")
-                    );
-                }
-                other => {
-                    println!("password updated for '{name}' (stored via {other})");
-                }
+            if stored.provider == nexql_conn::ENCRYPTED_FILE_PROVIDER {
+                eprintln!("warning: {}", nexql_conn::encrypted_file_storage_warning());
+                println!("password updated for '{name}' (stored in encrypted local file)");
+            } else {
+                println!("password updated for '{name}' (stored in OS keyring)");
             }
             Ok(())
         }
@@ -1676,6 +1720,29 @@ mod main_cli_tests {
         match cli.command {
             Some(Commands::Onboarding) => {}
             _ => panic!("Expected Commands::Onboarding"),
+        }
+    }
+
+    #[test]
+    fn cli_subcommand_setup_parse() {
+        let cli = Cli::try_parse_from([
+            "nexql-mcp",
+            "setup",
+            "--workspace-root",
+            "/tmp/proj",
+            "--no-open",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Setup {
+                workspace_root,
+                open,
+                ..
+            }) => {
+                assert_eq!(workspace_root.as_deref(), Some(PathBuf::from("/tmp/proj").as_path()));
+                assert!(!open);
+            }
+            _ => panic!("Expected Commands::Setup"),
         }
     }
 }

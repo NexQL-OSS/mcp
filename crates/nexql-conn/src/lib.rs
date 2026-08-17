@@ -12,6 +12,7 @@ pub mod pgpass;
 pub mod pool;
 pub mod resolve;
 pub mod secret;
+pub mod secret_encrypted;
 pub mod tls;
 
 pub use config::{
@@ -31,8 +32,11 @@ pub use resolve::{
 };
 pub use secret::{
     CommandRunner, ProcessCommandRunner, RoutedCredential, StoredCredential,
-    default_profile_secret_path, read_password_file, resolve_keyring_password,
+    encrypted_file_storage_warning, read_password_file, resolve_keyring_password,
     resolve_profile_file_password, resolve_stored_profile_password, route_password_to_keyring,
-    sanitize_profile_segment, secrets_dir, store_file_password, store_keyring_password,
-    store_profile_password,
+    store_keyring_password, store_profile_password, ENCRYPTED_FILE_PROVIDER,
+};
+pub use secret_encrypted::{
+    delete_encrypted_profile_password, nexql_config_dir, resolve_encrypted_profile_password,
+    secrets_dir, store_encrypted_profile_password,
 };

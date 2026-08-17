@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07080E" />
+  <title>NexQL MCP — Profile setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0b0d;
+      --bg-elevated: #0d0f12;
+      --text: #f2f0ea;
+      --text-bright: #f8f6f1;
+      --muted: #8b929e;
+      --muted-dim: #4e545f;
+      --muted-line: #5a616c;
+      --border: #15181d;
+      --border-mid: #191d23;
+      --border-strong: #22262d;
+      --border-ui: #2a2f37;
+      --border-btn: #33383f;
+      --amber: #d2a76a;
+      --mint: #77cba4;
+      --hot: #e0885b;
+      --panel: rgba(255, 255, 255, 0.028);
+      --panel-hover: rgba(255, 255, 255, 0.045);
+      --glow: rgba(210, 167, 106, 0.07);
+      --font-sans: "Space Grotesk", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+      --font-serif: "Instrument Serif", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: var(--amber); text-decoration: none; }
+    a:hover { color: var(--text-bright); }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+    ::selection { background: rgba(210, 167, 106, 0.3); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #20242b; border-radius: 99px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    .stage {
+      position: relative;
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      background: var(--bg);
+    }
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background: radial-gradient(66% 48% at 50% 0%, var(--glow), transparent 72%);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: clamp(10px, 2vw, 26px);
+      padding: 11px clamp(14px, 2.6vw, 34px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 11, 13, 0.72);
+      backdrop-filter: blur(14px);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex: none;
+    }
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      background: linear-gradient(145deg, #2a2218, #15120e);
+      border: 1px solid #3a3228;
+      display: grid;
+      place-items: center;
+      font: 600 10px/1 var(--font-mono);
+      color: var(--amber);
+      letter-spacing: -0.04em;
+    }
+    .brand-name {
+      font: 600 14px/1 var(--font-sans);
+      letter-spacing: -0.01em;
+      color: var(--text-bright);
+    }
+    .brand-badge {
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border-ui);
+      font: 500 8.5px/1 var(--font-mono);
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+    .topbar-meta {
+      font: 400 10px/1.4 var(--font-mono);
+      color: var(--muted-dim);
+      text-align: right;
+      max-width: min(52ch, 50vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tabs {
+      position: relative;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: clamp(6px, 1.1vw, 14px);
+      padding: 10px clamp(14px, 2.6vw, 34px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 11, 13, 0.5);
+      overflow-x: auto;
+    }
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 2px;
+      flex: none;
+      white-space: nowrap;
+    }
+    .tab-btn .bar {
+      width: 9px;
+      height: 2px;
+      background: var(--border-ui);
+      flex: none;
+      transition: width 0.35s ease, background 0.35s ease;
+    }
+    .tab-btn.active .bar {
+      width: 22px;
+      background: var(--amber);
+    }
+    .tab-btn span {
+      font: 500 9px/1 var(--font-mono);
+      letter-spacing: 0.13em;
+      color: var(--muted-dim);
+      transition: color 0.35s ease;
+    }
+    .tab-btn.active span { color: var(--text-bright); }
+    .tab-btn:hover span { color: var(--text); }
+
+    main {
+      position: relative;
+      z-index: 2;
+      overflow-y: auto;
+      padding: clamp(16px, 3vh, 34px) clamp(14px, 3vw, 40px) clamp(24px, 4vh, 48px);
+    }
+    .content {
+      max-width: 880px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(14px, 2.2vh, 22px);
+    }
+
+    .panel {
+      border: 1px solid var(--border-mid);
+      border-radius: 14px;
+      background: var(--panel);
+      padding: clamp(16px, 2.2vw, 24px);
+      animation: rise 0.35s ease both;
+    }
+    .panel h2 {
+      margin: 0 0 1rem;
+      font: 400 clamp(20px, 2vw, 26px)/1.15 var(--font-serif);
+      color: var(--text-bright);
+    }
+    .panel .lede {
+      margin: -0.35rem 0 1rem;
+      font: 400 13px/1.5 var(--font-sans);
+      color: var(--muted);
+    }
+
+    .section-title {
+      margin: 1.1rem 0 0.55rem;
+      font: 500 8.5px/1 var(--font-mono);
+      letter-spacing: 0.14em;
+      color: var(--muted-line);
+      text-transform: uppercase;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .btn-primary {
+      padding: 8px 14px;
+      border-radius: 7px;
+      border: 1px solid var(--amber);
+      background: rgba(210, 167, 106, 0.12);
+      font: 500 12px/1 var(--font-sans);
+      color: var(--text-bright);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .btn-primary:hover {
+      border-color: var(--text-bright);
+      background: rgba(210, 167, 106, 0.2);
+    }
+    .btn-secondary {
+      padding: 8px 14px;
+      border-radius: 7px;
+      border: 1px solid var(--border-btn);
+      font: 500 12px/1 var(--font-sans);
+      color: var(--text);
+      transition: border-color 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--amber); }
+    .btn-danger {
+      border-color: rgba(224, 136, 91, 0.45);
+      color: var(--hot);
+    }
+    .btn-danger:hover { border-color: var(--hot); }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .data-table thead span {
+      display: block;
+      padding: 0 0 7px;
+      border-bottom: 1px solid #23272e;
+      font: 500 8.5px/1.2 var(--font-mono);
+      letter-spacing: 0.12em;
+      color: var(--muted-line);
+    }
+    .data-table tbody tr {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .data-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+    .data-table tbody tr.selected { background: rgba(210, 167, 106, 0.08); }
+    .data-table td {
+      padding: 10px 4px;
+      font: 400 13px/1.4 var(--font-sans);
+      color: #e4e1d9;
+      vertical-align: middle;
+    }
+    .data-table td:last-child { text-align: right; }
+    .data-table .mono {
+      font: 400 11px/1.4 var(--font-mono);
+      color: #9c9a93;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border-ui);
+      font: 500 8.5px/1 var(--font-mono);
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: lowercase;
+    }
+    .badge.default {
+      border-color: rgba(119, 203, 164, 0.35);
+      color: var(--mint);
+      background: rgba(119, 203, 164, 0.08);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+    label.field-label {
+      display: block;
+      margin-bottom: 0.3rem;
+      font: 500 8.5px/1 var(--font-mono);
+      letter-spacing: 0.12em;
+      color: var(--muted-line);
+      text-transform: uppercase;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      color: var(--text-bright);
+      font: 400 13px/1.4 var(--font-sans);
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: rgba(210, 167, 106, 0.55);
+    }
+    textarea {
+      min-height: 120px;
+      font: 400 11px/1.6 var(--font-mono);
+      color: var(--amber);
+      resize: vertical;
+    }
+    textarea[readonly] { color: #c4b08a; }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font: 400 12.5px/1.4 var(--font-sans);
+      color: var(--muted);
+    }
+    .check-row input { width: auto; }
+
+    .status {
+      padding: 10px 13px;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      font: 400 12.5px/1.45 var(--font-sans);
+      border: 1px solid transparent;
+    }
+    .status.ok {
+      color: var(--mint);
+      background: rgba(119, 203, 164, 0.08);
+      border-color: rgba(119, 203, 164, 0.25);
+    }
+    .status.err {
+      color: var(--hot);
+      background: rgba(224, 136, 91, 0.08);
+      border-left: 2px solid var(--hot);
+      border-radius: 3px 8px 8px 3px;
+    }
+    .status.info {
+      color: var(--amber);
+      background: rgba(210, 167, 106, 0.08);
+      border-color: rgba(210, 167, 106, 0.22);
+    }
+
+    .hidden { display: none !important; }
+
+    pre.diff {
+      margin: 0.65rem 0 0;
+      padding: 11px 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: var(--bg);
+      overflow: auto;
+      max-height: 280px;
+      font: 400 10.5px/1.55 var(--font-mono);
+      color: #c9c4bb;
+      white-space: pre;
+    }
+
+    .client-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.55rem;
+    }
+    .client-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.55rem;
+      padding: 10px 12px;
+      border: 1px solid var(--border-mid);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.018);
+      font: 400 12.5px/1.4 var(--font-sans);
+      color: #e4e1d9;
+      transition: border-color 0.15s;
+    }
+    .client-item:hover { border-color: #4e545f; }
+    .client-item input { width: auto; margin-top: 2px; }
+    .client-item .path {
+      display: block;
+      margin-top: 4px;
+      font: 400 9px/1.35 var(--font-mono);
+      color: var(--muted-dim);
+      word-break: break-all;
+    }
+
+    .diff-apply {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin: 0.5rem 0;
+      font: 400 12px/1.4 var(--font-sans);
+      color: var(--muted);
+    }
+    .diff-apply input { width: auto; }
+
+    .meta {
+      font: 400 11px/1.45 var(--font-mono);
+      color: var(--muted-dim);
+      word-break: break-all;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">N</div>
+        <span class="brand-name">NexQL</span>
+        <span class="brand-badge">SETUP</span>
+      </div>
+      <div class="topbar-meta" id="header-meta">Loading…</div>
+    </header>
+
+    <nav class="tabs" aria-label="Setup sections">
+      <button type="button" class="tab-btn active" data-tab="profiles"><span class="bar"></span><span>PROFILES</span></button>
+      <button type="button" class="tab-btn" data-tab="editor"><span class="bar"></span><span>EDITOR</span></button>
+      <button type="button" class="tab-btn" data-tab="wire"><span class="bar"></span><span>WIRE</span></button>
+      <button type="button" class="tab-btn" data-tab="import"><span class="bar"></span><span>IMPORT</span></button>
+    </nav>
+
+    <main>
+      <div class="content">
+        <div id="keyring-banner" class="hidden"></div>
+        <div id="flash"></div>
+
+        <section id="tab-profiles" class="tab">
+          <div class="panel">
+            <h2>Connection profiles</h2>
+            <p class="lede">Named Postgres targets in <code style="font-family:var(--font-mono);color:var(--amber)">~/.config/nexql-mcp/config.toml</code> — passwords go to the OS keyring or an encrypted local file, never plaintext in config.</p>
+            <div class="toolbar">
+              <button type="button" class="btn-primary" id="btn-new-profile">New profile</button>
+              <button type="button" class="btn-secondary" id="btn-refresh">Refresh</button>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th><span>NAME</span></th>
+                  <th><span>TARGET</span></th>
+                  <th><span>ACCESS</span></th>
+                  <th><span></span></th>
+                </tr>
+              </thead>
+              <tbody id="profiles-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="tab-editor" class="tab hidden">
+          <div class="panel">
+            <h2 id="editor-title">Profile</h2>
+            <form id="profile-form">
+              <div class="grid">
+                <div><label class="field-label" for="f-name">Name</label><input id="f-name" required /></div>
+                <div><label class="field-label" for="f-access">Access mode</label>
+                  <select id="f-access"><option>read</option><option>write</option><option>admin</option></select>
+                </div>
+                <div style="grid-column:1/-1"><label class="field-label" for="f-url">URL (overrides fields below)</label><input id="f-url" placeholder="postgres://user@host:5432/db" /></div>
+                <div><label class="field-label" for="f-host">Host</label><input id="f-host" placeholder="127.0.0.1" /></div>
+                <div><label class="field-label" for="f-port">Port</label><input id="f-port" type="number" placeholder="5432" /></div>
+                <div><label class="field-label" for="f-dbname">Database</label><input id="f-dbname" /></div>
+                <div><label class="field-label" for="f-user">User</label><input id="f-user" /></div>
+                <div><label class="field-label" for="f-password">Password</label><input id="f-password" type="password" autocomplete="new-password" /></div>
+                <div><label class="field-label" for="f-password-command">Password command</label><input id="f-password-command" placeholder="op read op://…" /></div>
+                <div><label class="field-label" for="f-sslmode">SSL mode</label>
+                  <select id="f-sslmode"><option value="">prefer</option><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
+                </div>
+              </div>
+              <p class="section-title">Policy</p>
+              <div class="grid">
+                <div><label class="field-label" for="f-schemas">Schemas</label><input id="f-schemas" placeholder="public, billing" /></div>
+                <div><label class="field-label" for="f-deny-schemas">Deny schemas</label><input id="f-deny-schemas" /></div>
+                <div><label class="field-label" for="f-deny-tables">Deny tables</label><input id="f-deny-tables" placeholder="auth.*" /></div>
+                <div><label class="field-label" for="f-pii-columns">PII columns</label><input id="f-pii-columns" placeholder="public.users.email" /></div>
+                <div><label class="field-label" for="f-max-rows">Max rows</label><input id="f-max-rows" type="number" /></div>
+                <div><label class="field-label" for="f-timeout">Statement timeout (ms)</label><input id="f-timeout" type="number" /></div>
+              </div>
+              <div class="toolbar" style="margin-top:1rem">
+                <label class="check-row"><input type="checkbox" id="f-default" /> Set as default</label>
+                <label class="check-row"><input type="checkbox" id="f-confirm-elevate" /> Confirm elevated access (write/admin)</label>
+              </div>
+              <div class="toolbar">
+                <button type="button" class="btn-secondary" id="btn-test">Test connection</button>
+                <button type="submit" class="btn-primary">Save profile</button>
+                <button type="button" class="btn-secondary btn-danger hidden" id="btn-delete">Delete</button>
+              </div>
+            </form>
+            <div id="test-result"></div>
+          </div>
+        </section>
+
+        <section id="tab-wire" class="tab hidden">
+          <div class="panel">
+            <h2>Wire MCP clients</h2>
+            <p class="lede">Merge into on-disk client configs with a diff preview — or copy snippets for clients without a safe merge target.</p>
+            <div class="grid" style="margin-bottom:0.5rem">
+              <div><label class="field-label" for="w-launch">Launch mode</label>
+                <select id="w-launch">
+                  <option value="path">PATH binary (nexql-mcp)</option>
+                  <option value="npx">npx (pinned version)</option>
+                  <option value="npx_latest">npx (latest)</option>
+                </select>
+              </div>
+              <div><label class="field-label" for="w-npx-version">npx version pin</label><input id="w-npx-version" placeholder="0.3.3" /></div>
+            </div>
+            <p class="section-title">Profiles to wire</p>
+            <div id="wire-profiles" class="client-list"></div>
+            <p class="section-title">Mergeable clients</p>
+            <div id="wire-mergeable" class="client-list"></div>
+            <p class="section-title">Copy-only snippets</p>
+            <div id="wire-copy" class="client-list"></div>
+            <div class="toolbar" style="margin-top:1rem">
+              <button type="button" class="btn-primary" id="btn-preview-wire">Preview changes</button>
+              <button type="button" class="btn-secondary hidden" id="btn-apply-wire">Apply selected</button>
+            </div>
+            <div id="wire-preview"></div>
+          </div>
+        </section>
+
+        <section id="tab-import" class="tab hidden">
+          <div class="panel">
+            <h2>Import profiles</h2>
+            <p class="lede">Paste TOML with a <code style="font-family:var(--font-mono);color:var(--amber)">[profiles.*]</code> section. Secrets are routed to the keyring or encrypted file on import.</p>
+            <label class="field-label" for="import-toml">TOML</label>
+            <textarea id="import-toml" placeholder="[profiles.local]&#10;url = &quot;postgres://…&quot;"></textarea>
+            <div class="toolbar"><button type="button" class="btn-primary" id="btn-import">Import</button></div>
+          </div>
+          <div class="panel">
+            <h2>Export profile</h2>
+            <p class="lede meta">Select a profile in the list, then export secret-sanitized TOML.</p>
+            <textarea id="export-toml" readonly placeholder="Exported TOML appears here…"></textarea>
+            <div class="toolbar"><button type="button" class="btn-secondary" id="btn-export">Export selected</button></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    let token = params.get('token') || sessionStorage.getItem('nexql_setup_token') || '';
+    if (params.get('token')) sessionStorage.setItem('nexql_setup_token', token);
+
+    let meta = null;
+    let profiles = [];
+    let selectedProfile = null;
+    let editingExisting = false;
+    let wirePreview = null;
+    let clients = { mergeable: [], copy_only: [] };
+
+    function headers() {
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'X-Setup-Token': token,
+      };
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`/api/v1${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data?.error || res.statusText);
+      return data;
+    }
+
+    function flash(msg, kind = 'info') {
+      const el = document.getElementById('flash');
+      el.className = `status ${kind}`;
+      el.textContent = msg;
+      setTimeout(() => { el.textContent = ''; el.className = ''; }, 6000);
+    }
+
+    function showTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.add('hidden'));
+      document.getElementById(`tab-${name}`).classList.remove('hidden');
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => showTab(btn.dataset.tab));
+    });
+
+    function splitCsv(v) {
+      return v.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    function profilePayload() {
+      return {
+        profile: {
+          url: document.getElementById('f-url').value || null,
+          host: document.getElementById('f-host').value || null,
+          port: document.getElementById('f-port').value ? Number(document.getElementById('f-port').value) : null,
+          dbname: document.getElementById('f-dbname').value || null,
+          user: document.getElementById('f-user').value || null,
+          password_command: document.getElementById('f-password-command').value || null,
+          sslmode: document.getElementById('f-sslmode').value || null,
+          access_mode: document.getElementById('f-access').value || 'read',
+          schemas: splitCsv(document.getElementById('f-schemas').value),
+          deny_schemas: splitCsv(document.getElementById('f-deny-schemas').value),
+          deny_tables: splitCsv(document.getElementById('f-deny-tables').value),
+          pii_columns: splitCsv(document.getElementById('f-pii-columns').value),
+          max_rows: document.getElementById('f-max-rows').value ? Number(document.getElementById('f-max-rows').value) : null,
+          statement_timeout_ms: document.getElementById('f-timeout').value ? Number(document.getElementById('f-timeout').value) : null,
+          password_stored: false,
+          has_inline_password: false,
+        },
+        password: document.getElementById('f-password').disabled ? null : (document.getElementById('f-password').value || null),
+        set_default: document.getElementById('f-default').checked,
+        confirm_elevated_access: document.getElementById('f-confirm-elevate').checked,
+      };
+    }
+
+    function fillForm(p) {
+      document.getElementById('f-name').value = p.name;
+      document.getElementById('f-name').readOnly = editingExisting;
+      const pr = p.profile || {};
+      document.getElementById('f-url').value = pr.url || '';
+      document.getElementById('f-host').value = pr.host || '';
+      document.getElementById('f-port').value = pr.port || '';
+      document.getElementById('f-dbname').value = pr.dbname || '';
+      document.getElementById('f-user').value = pr.user || '';
+      document.getElementById('f-password').value = '';
+      document.getElementById('f-password-command').value = pr.password_command || '';
+      document.getElementById('f-sslmode').value = pr.sslmode || '';
+      document.getElementById('f-access').value = pr.access_mode || 'read';
+      document.getElementById('f-schemas').value = (pr.schemas || []).join(', ');
+      document.getElementById('f-deny-schemas').value = (pr.deny_schemas || []).join(', ');
+      document.getElementById('f-deny-tables').value = (pr.deny_tables || []).join(', ');
+      document.getElementById('f-pii-columns').value = (pr.pii_columns || []).join(', ');
+      document.getElementById('f-max-rows').value = pr.max_rows || '';
+      document.getElementById('f-timeout').value = pr.statement_timeout_ms || '';
+      document.getElementById('f-default').checked = !!p.is_default;
+      document.getElementById('btn-delete').classList.toggle('hidden', !editingExisting);
+      document.getElementById('editor-title').textContent = editingExisting ? `Edit · ${p.name}` : 'New profile';
+    }
+
+    async function loadMeta() {
+      meta = await api('/meta');
+      const parts = [`v${meta.version}`, meta.config_path];
+      if (meta.workspace_root) parts.push(meta.workspace_root);
+      document.getElementById('header-meta').textContent = parts.join(' · ');
+      document.getElementById('w-npx-version').placeholder = meta.version;
+      renderKeyringBanner();
+    }
+
+    function renderKeyringBanner() {
+      const el = document.getElementById('keyring-banner');
+      const pw = document.getElementById('f-password');
+      const pwLabel = document.querySelector('label[for="f-password"]');
+      if (!meta || meta.keyring_available) {
+        el.className = 'hidden';
+        el.innerHTML = '';
+        if (pw) { pw.disabled = false; pw.placeholder = ''; }
+        if (pwLabel) pwLabel.textContent = 'Password (OS keyring)';
+        return;
+      }
+      el.className = 'status err';
+      const secretsHint = meta.secrets_dir
+        ? ` Encrypted files: <code>${escapeHtml(meta.secrets_dir)}</code>.`
+        : '';
+      el.innerHTML =
+        '<strong>OS keyring unavailable</strong> (common on WSL without gnome-keyring). ' +
+        'Passwords you enter here will be stored in an <strong>encrypted local file</strong> — not plaintext, but weaker than the OS keyring.' +
+        secretsHint +
+        ' Prefer <code>password_command</code> for production, or install gnome-keyring: ' +
+        '<code>sudo apt install gnome-keyring dbus-x11</code> then <code>gnome-keyring-daemon --start --components=secrets</code>.';
+      if (pw) { pw.disabled = false; pw.placeholder = 'stored encrypted on disk'; }
+      if (pwLabel) pwLabel.textContent = 'Password (encrypted file)';
+    }
+
+    async function loadProfiles() {
+      profiles = await api('/profiles');
+      const tbody = document.getElementById('profiles-table');
+      tbody.innerHTML = '';
+      profiles.forEach(p => {
+        const tr = document.createElement('tr');
+        if (p.name === selectedProfile) tr.classList.add('selected');
+        tr.innerHTML = `
+          <td>${escapeHtml(p.name)} ${p.is_default ? '<span class="badge default">default</span>' : ''}</td>
+          <td class="mono">${escapeHtml(p.host_or_url)}</td>
+          <td><span class="badge">${escapeHtml(p.access_mode)}</span></td>
+          <td><button type="button" class="btn-secondary" data-edit="${encodeURIComponent(p.name)}">Edit</button></td>`;
+        tr.addEventListener('click', () => { selectedProfile = p.name; loadProfiles(); });
+        tr.querySelector('[data-edit]').addEventListener('click', (e) => {
+          e.stopPropagation(); openEditor(p.name);
+        });
+        tbody.appendChild(tr);
+      });
+      renderWireProfileChecks();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function openEditor(name) {
+      if (name) {
+        editingExisting = true;
+        const p = await api(`/profiles/${encodeURIComponent(name)}`);
+        fillForm(p);
+      } else {
+        editingExisting = false;
+        selectedProfile = null;
+        fillForm({ name: '', profile: {}, is_default: false });
+        document.getElementById('f-name').readOnly = false;
+      }
+      showTab('editor');
+    }
+
+    document.getElementById('btn-new-profile').addEventListener('click', () => openEditor(null));
+    document.getElementById('btn-refresh').addEventListener('click', () => loadProfiles().catch(e => flash(e.message, 'err')));
+
+    document.getElementById('profile-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const name = document.getElementById('f-name').value.trim();
+        const body = profilePayload();
+        let resp;
+        if (editingExisting) {
+          resp = await api(`/profiles/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(body) });
+        } else {
+          resp = await api('/profiles', { method: 'POST', body: JSON.stringify({ name, ...body }) });
+        }
+        flash(`Saved profile "${name}"`, 'ok');
+        if (resp.credential_warning) flash(resp.credential_warning, 'info');
+        selectedProfile = name;
+        await loadProfiles();
+        editingExisting = true;
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    document.getElementById('btn-test').addEventListener('click', async () => {
+      const name = document.getElementById('f-name').value.trim();
+      if (!name) return flash('Enter a profile name first', 'err');
+      const box = document.getElementById('test-result');
+      box.className = 'status info';
+      box.textContent = 'Testing connection…';
+      try {
+        if (!editingExisting) {
+          await api('/profiles', { method: 'POST', body: JSON.stringify({ name, ...profilePayload() }) });
+          editingExisting = true;
+          document.getElementById('f-name').readOnly = true;
+        } else {
+          await api(`/profiles/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(profilePayload()) });
+        }
+        const start = await api(`/profiles/${encodeURIComponent(name)}/test`, { method: 'POST' });
+        let result = null;
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          result = await api(`/profiles/${encodeURIComponent(name)}/test/${start.job_id}`);
+          if (result.status !== 'running') break;
+        }
+        if (result.status === 'ok') {
+          box.className = 'status ok';
+          box.textContent = `Connected · ${result.server_version} · ${Math.round(result.latency_ms)}ms · superuser=${result.is_superuser}`;
+        } else {
+          box.className = 'status err';
+          box.textContent = result.error || 'Connection failed';
+        }
+      } catch (err) {
+        box.className = 'status err';
+        box.textContent = err.message;
+      }
+    });
+
+    document.getElementById('btn-delete').addEventListener('click', async () => {
+      const name = document.getElementById('f-name').value.trim();
+      if (!confirm(`Delete profile "${name}"?`)) return;
+      try {
+        await api(`/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        flash(`Deleted "${name}"`, 'ok');
+        selectedProfile = null;
+        showTab('profiles');
+        await loadProfiles();
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    function renderWireProfileChecks() {
+      const el = document.getElementById('wire-profiles');
+      el.innerHTML = profiles.map(p => `
+        <label class="client-item"><input type="checkbox" value="${escapeHtml(p.name)}" ${p.name === selectedProfile ? 'checked' : ''} /> ${escapeHtml(p.name)}</label>
+      `).join('');
+    }
+
+    async function loadClients() {
+      clients = await api('/clients');
+      document.getElementById('wire-mergeable').innerHTML = clients.mergeable.map(c => `
+        <label class="client-item"><input type="checkbox" value="${escapeHtml(c.key)}" data-mergeable="1" />
+          <span>${escapeHtml(c.display_name)}<span class="path">${escapeHtml(c.config_path || 'n/a')}${c.exists ? '' : ' · new'}</span></span></label>
+      `).join('');
+      document.getElementById('wire-copy').innerHTML = clients.copy_only.map(c => `
+        <label class="client-item"><input type="checkbox" value="${escapeHtml(c.key)}" data-copy="1" /> ${escapeHtml(c.display_name)}</label>
+      `).join('');
+    }
+
+    function launchConfig() {
+      const mode = document.getElementById('w-launch').value;
+      const ver = document.getElementById('w-npx-version').value.trim();
+      return {
+        mode: mode === 'npx_latest' ? 'npx_latest' : mode,
+        npx_version: ver || meta?.version || null,
+      };
+    }
+
+    document.getElementById('btn-preview-wire').addEventListener('click', async () => {
+      try {
+        const profileNames = [...document.querySelectorAll('#wire-profiles input:checked')].map(i => i.value);
+        const clientKeys = [...document.querySelectorAll('#wire-mergeable input:checked')].map(i => i.value);
+        const copyOnly = [...document.querySelectorAll('#wire-copy input:checked')].map(i => i.value);
+        wirePreview = await api('/clients/preview', {
+          method: 'POST',
+          body: JSON.stringify({ profile_names: profileNames, client_keys: clientKeys, copy_only_keys: copyOnly, launch: launchConfig() }),
+        });
+        const box = document.getElementById('wire-preview');
+        let html = '';
+        wirePreview.diffs.forEach((d, i) => {
+          html += `<div class="panel" style="margin-top:0.75rem"><h2 style="font-size:1.15rem">${escapeHtml(d.display_name)}</h2><p class="meta">${escapeHtml(d.config_path)}</p>`;
+          if (d.valid) {
+            html += `<label class="diff-apply"><input type="checkbox" class="apply-diff" data-idx="${i}" data-key="${escapeHtml(d.client_key)}" checked /> Apply this change</label>`;
+            html += `<pre class="diff">${escapeHtml(d.unified_diff)}</pre>`;
+          } else {
+            html += `<div class="status err">${escapeHtml(d.error)}</div>`;
+          }
+          html += '</div>';
+        });
+        wirePreview.snippets.forEach(s => {
+          html += `<div class="panel" style="margin-top:0.75rem"><h2 style="font-size:1.15rem">${escapeHtml(s.display_name)} <span class="badge">copy</span></h2>`;
+          if (s.error) html += `<div class="status err">${escapeHtml(s.error)}</div>`;
+          else html += `<textarea readonly>${escapeHtml(s.content)}</textarea>`;
+          html += '</div>';
+        });
+        box.innerHTML = html || '<p class="meta">No changes to preview.</p>';
+        document.getElementById('btn-apply-wire').classList.toggle('hidden', !wirePreview.diffs.some(d => d.valid));
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    document.getElementById('btn-apply-wire').addEventListener('click', async () => {
+      if (!wirePreview) return;
+      const apply_keys = [...document.querySelectorAll('.apply-diff:checked')].map(i => i.dataset.key);
+      try {
+        const res = await api('/clients/apply', {
+          method: 'POST',
+          body: JSON.stringify({ preview: wirePreview, apply_keys }),
+        });
+        const applied = res.results.filter(r => r.applied).length;
+        flash(`Applied ${applied} client config(s)`, 'ok');
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    document.getElementById('btn-import').addEventListener('click', async () => {
+      try {
+        const res = await api('/profiles/import', {
+          method: 'POST',
+          body: JSON.stringify({ toml: document.getElementById('import-toml').value }),
+        });
+        flash(`Imported ${res.imported} profile(s)`, 'ok');
+        await loadProfiles();
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    document.getElementById('btn-export').addEventListener('click', async () => {
+      if (!selectedProfile) return flash('Select a profile first', 'err');
+      try {
+        const res = await api(`/profiles/${encodeURIComponent(selectedProfile)}/export`);
+        document.getElementById('export-toml').value = res.toml;
+      } catch (err) { flash(err.message, 'err'); }
+    });
+
+    async function boot() {
+      if (!token) {
+        flash('Missing setup token — run `nexql-mcp setup` and open the printed URL', 'err');
+        return;
+      }
+      try {
+        await loadMeta();
+        await loadProfiles();
+        await loadClients();
+      } catch (err) {
+        flash(err.message, 'err');
+      }
+    }
+    boot();
+  </script>
+</body>
+</html>

@@ -513,11 +513,13 @@ fn draw_profile_inspector(frame: &mut Frame, app: &App, area: Rect) {
 
     let pass_info = if profile.credential_provider.as_deref() == Some("keyring") {
         "●●●●●●●● (OS keyring)"
+    } else if profile.credential_provider.as_deref() == Some("encrypted_file") {
+        "●●●●●●●● (encrypted file)"
     } else if profile.credential_provider.as_deref() == Some("file") {
         profile
             .password_file
             .as_deref()
-            .unwrap_or("~/.config/nexql-mcp/secrets/<profile>.pass")
+            .unwrap_or("(password_file not set)")
     } else if profile.password.is_some() {
         "●●●●●●●● (inline — migrate to keyring on save)"
     } else if let Some(cmd) = &profile.password_command {

@@ -2,31 +2,29 @@
 
 Astro + Preact static site for [NexQL MCP](https://github.com/NexQL-OSS/mcp), deployed at `nexql-mcp.astrx.dev`.
 
+A single page: `StoryDemo`, a replayed agent conversation walking through one
+production incident end to end (noticed → narrowed → explained → fixed →
+recovered) using NexQL MCP's read-only tools. Ported from the Claude Design
+source `NexQL MCP Story.dc.html`.
+
 ## Stack
 
 - **Astro 7** — static SSG, SEO-friendly HTML
-- **Preact islands** — copy buttons, KB search
-- **Theme switcher** — same NexQL Themes CDN integration as [nexql.astrx.dev](https://nexql.astrx.dev)
+- **Preact island** (`client:load`) — the scene player, autoplay clock, and install modal
 - **@astrojs/sitemap** — auto sitemap for crawlers
 
 ## Structure
 
 | Route | Source |
 |-------|--------|
-| `/` | Landing |
-| `/install` | Installation paths |
-| `/features` | Feature index |
-| `/features/[slug]` | Per-feature docs (8 topics) |
-| `/agents` | Agent workflows |
-| `/docs` | Documentation hub |
-| `/docs/configuration` | Profiles & config.toml |
-| `/docs/tools` | Full MCP tool catalog |
-| `/docs/commands` | CLI reference |
-| `/docs/clients` | MCP client wiring |
-| `/docs/transport` | Stdio vs HTTP |
-| `/kb` | Searchable knowledge base |
+| `/` | `src/pages/index.astro` → `StoryDemo` |
 
-Content data: `src/data/{tools,commands,features,kb,site}.ts`
+Scene data (the seven-scene script, tool calls, chart data) lives inline in
+`src/islands/StoryDemo.tsx`. Repo/tool-reference links shown in the Install
+modal live in the same file (`LINKS`, `INSTALLS`).
+
+`src/data/site.ts` holds the handful of constants (`SITE_URL`, `REPO_URL`,
+`FACTS`, …) used for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
 
 ## Develop
 
@@ -44,16 +42,8 @@ npm run build   # output: dist/
 
 Vercel: root `mcp/site`, framework Astro, output `dist`. `vercel.json` included.
 
-## Visual parity
-
-Matches NexQL / NexQL Themes sites: Space Grotesk, Instrument Serif, JetBrains Mono, theme picker loading palettes from `nexql-themes.astrx.dev`. Header links to NexQL and Themes.
-
 ## Sync with repo
 
-When the MCP interface changes, update:
-
-- `src/data/tools.ts` — tool catalog
-- `src/data/commands.ts` — CLI from `crates/nexql-mcp/src/main.rs`
-- `src/data/features.ts` — feature docs
-- `src/data/kb.ts` — knowledge base articles
-- `src/data/site.ts` — version string
+When the MCP interface changes (tool count, install commands, doc links),
+update the `S`, `INSTALLS`, and `LINKS` constants in
+`src/islands/StoryDemo.tsx`, and `FACTS`/`SITE_VERSION` in `src/data/site.ts`.

@@ -147,7 +147,7 @@ impl OnboardingApp {
         let mut model_items: Vec<ModelItem> = targets
             .into_iter()
             .map(|t| {
-                let path = (t.config_path)();
+                let path = client_targets::config_path_for(t.key, None);
                 let found = path.as_ref().map(|p| p.exists()).unwrap_or(false);
                 ModelItem {
                     key: t.key,
@@ -384,7 +384,7 @@ impl OnboardingApp {
             let Some(target) = targets.iter().find(|t| t.key == item.key) else {
                 continue;
             };
-            let Some(path) = (target.config_path)() else {
+            let Some(path) = client_targets::config_path_for(target.key, None) else {
                 self.summary.push(SummaryEntry {
                     display_name: item.display_name.to_string(),
                     path: None,

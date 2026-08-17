@@ -1,337 +1,102 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import Section from "../components/Section.astro";
-import CodeBlock from "../components/CodeBlock.astro";
-import { AgentHandshake } from "../islands/AgentHandshake";
-import { toolGroups } from "../data/tools";
-import { NEXQL_URL, REPO_URL, FACTS } from "../data/site";
-
-const clients = [
-  "Claude Code",
-  "Cursor",
-  "VS Code",
-  "Zed",
-  "Windsurf",
-  "Claude Desktop",
-  "Cline",
-  "Continue",
-];
-
-const pillars = [
-  {
-    mark: "01",
-    title: "An index, not a schema dump",
-    body: "Built once from your catalog and kept on disk: TF-IDF lexical search, an inferred foreign-key join graph, and per-column value profiles.",
-    points: [
-      "search_schema answers in tens of milliseconds",
-      "get_join_path walks declared and inferred edges",
-      "sample_values reads profiles — no SELECT DISTINCT",
-      "Optional local MiniLM embeddings, fused with RRF",
-    ],
-  },
-  {
-    mark: "02",
-    title: "Read-only is the default, not a setting",
-    body: "Every pool connection opens with default_transaction_read_only = ON. Write and admin tools are visible but refused until you raise the access mode.",
-    points: [
-      "Three modes: read, write, admin",
-      "SQL parsed with pg_query — never prefix matching",
-      "Superuser writes need --i-know-what-im-doing",
-      "Row caps and pagination on every read",
-    ],
-  },
-  {
-    mark: "03",
-    title: "Diagnostics that know it's production",
-    body: "Lock chains, slow queries, bloat, unused indexes and missing foreign keys — the questions you actually get paged about.",
-    points: [
-      "Plan analysis via explain_query and deep_plan_analysis",
-      "auto_tune_query proposes indexes from real plans",
-      "check_ddl_safety flags lock risk before you apply",
-      "db_health_check for a one-call snapshot",
-    ],
-  },
-  {
-    mark: "04",
-    title: "One binary, every client",
-    body: "A single static Rust executable. Spawn it over stdio, or run it as a streamable HTTP endpoint behind a bearer token.",
-    points: [
-      `stdio for desktop clients; HTTP on :${FACTS.httpPort}`,
-      `Rate limited to ${FACTS.rateLimit} requests / 60s per token`,
-      "Tool profiles trim the surface for small context windows",
-      `PostgreSQL ${FACTS.pgVersions}, ${FACTS.license}`,
-    ],
-  },
-];
-
-const platforms = [
-  { name: "Claude Code", note: "claude mcp add" },
-  { name: "Cursor", note: "mcp.json" },
-  { name: "VS Code", note: "NexQL extension" },
-  { name: "Zed", note: "context server" },
-  { name: "Windsurf", note: "mcp_config.json" },
-  { name: "Claude Desktop", note: "MCPB bundle" },
-];
-
-const faqs = [
-  {
-    q: "How is this different from a generic Postgres MCP server?",
-    a: "Generic servers hand the model a SQL socket and hope. NexQL MCP builds a searchable index of your catalog first, so the agent finds the right tables and the right join before it writes anything — and the SQL it does write is parsed and access-checked before it reaches the database.",
-  },
-  {
-    q: "Will it write to my database?",
-    a: `Not unless you pass --access-mode write or admin. In the default read mode every connection is opened read-only at the transaction level, and the ${FACTS.toolCount} tools are gated at call time rather than hidden from the list — so the agent gets a clear refusal instead of a confusing absence.`,
-  },
-  {
-    q: "Does my schema leave the machine?",
-    a: "No. The index is built locally and stored under ~/.local/share/nexql-mcp. Embeddings, if you enable them, run locally through MiniLM. The server makes no outbound network calls of its own.",
-  },
-  {
-    q: "Do I need the VS Code extension?",
-    a: "No — this is a standalone binary and works with any MCP client. If you do use NexQL for VS Code, it can manage the server for you, but the two ship and version independently.",
-  },
-  {
-    q: "What does the tool profile flag do?",
-    a: "It trims the tool surface so it costs less context. --tools query exposes 21 schema and query tools, dba exposes 26 monitoring and maintenance tools, meta exposes 13 plus a discover_tools call for lazy activation, and full lists all " + FACTS.toolCount + ".",
-  },
-];
-
-const teaserGroups = toolGroups.slice(0, 4);
+import { StoryDemo } from "../islands/StoryDemo";
 ---
 
 <BaseLayout
-  title="NexQL MCP — Postgres context for AI agents"
-  description={`A Postgres MCP server that indexes your schema so agents query it correctly. ${FACTS.toolCount} tools, read-only by default, stdio or HTTP, PostgreSQL ${FACTS.pgVersions}.`}
+  title="NexQL MCP — a week in the life of one database"
+  description="A replayed agent conversation: an evening sales drop noticed, narrowed to a single slow request, explained, fixed without locking payments, and confirmed recovered — all through NexQL MCP's read-only tools."
 >
-  <main id="main" class="mcp-main">
-    <div class="mcp-hero">
-      <div class="mcp-hero-grid">
-        <div class="mcp-hero-copy">
-          <div class="hero-eyebrow">
-            <a href={NEXQL_URL} target="_blank" rel="noopener noreferrer" class="hero-product-badge">
-              From the NexQL team
-            </a>
-            <span class="hero-eyebrow-sep" aria-hidden="true">·</span>
-            <span>Standalone Postgres MCP server</span>
-          </div>
-
-          <h1 class="mcp-hero-title">
-            Your agent guesses at schemas. <em>Give it the map.</em>
-          </h1>
-
-          <p class="mcp-hero-lede">
-            NexQL MCP indexes your catalog once, then answers the questions an agent actually
-            has — which table, which join, which column — before it writes a line of SQL.
-            Read-only until you say otherwise.
-          </p>
-
-          <div class="mcp-hero-actions">
-            <a class="nx-btn nx-btn--grad" href="/install">Install in a minute</a>
-            <a class="nx-btn nx-btn--ghost" href="/agents">How agents use it</a>
-            <a class="nx-btn nx-btn--ghost" href="/docs">Read the docs</a>
-          </div>
-
-          <p class="mcp-hero-meta">
-            {FACTS.toolCount} tools · read-only default · stdio + HTTP · PostgreSQL {FACTS.pgVersions}
-            · {FACTS.license}
-          </p>
-        </div>
-
-        <div class="mcp-hero-visual">
-          <AgentHandshake client:visible />
-        </div>
-      </div>
-    </div>
-
-    <div class="nx-marquee" aria-hidden="true">
-      <div class="nx-marquee-track">
-        {
-          [...clients, ...clients].map((c) => (
-            <span class="nx-marquee-item">
-              {c}
-              <span class="nx-marquee-diamond">◆</span>
-            </span>
-          ))
-        }
-      </div>
-    </div>
-
-    <Section
-      id="why"
-      kicker="What it actually does"
-      title="Four things a SQL socket can't do."
-      lede="A generic MCP server gives a model database access. This one gives it database knowledge — and a hard boundary around what it can change."
-    >
-      <div class="nx-feature-grid">
-        {
-          pillars.map((p) => (
-            <article class="nx-feature-card">
-              <div class="nx-feature-mark">{p.mark}</div>
-              <h3>{p.title}</h3>
-              <p>{p.body}</p>
-              <ul>
-                {p.points.map((point) => (
-                  <li>
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))
-        }
-      </div>
-    </Section>
-
-    <Section
-      id="tools"
-      kicker={`${FACTS.toolCount} tools`}
-      title="Named for the job, not for the SQL."
-      lede="Agents pick tools by name. Specific names beat one generic query tool, because the model can tell from the name alone which call answers its question."
-    >
-      <div class="nx-mcp-tools">
-        <div class="nx-mcp-tools-hdr">
-          <span>A sample of the catalog</span>
-          <a class="nx-inline-link" href="/docs/tools">All {FACTS.toolCount} tools →</a>
-        </div>
-        {
-          teaserGroups.map((group) =>
-            group.tools.slice(0, 3).map((tool) => (
-              <div class="nx-mcp-tool">
-                <code>{tool.name}</code>
-                <span>{tool.description}</span>
-              </div>
-            )),
-          )
-        }
-      </div>
-    </Section>
-
-    <Section
-      id="clients"
-      title="Wherever your agent already lives."
-      lede="One binary, spoken to over stdio or HTTP. Nothing to host, no sidecar, no daemon to babysit."
-      center
-      small
-    >
-      <div class="nx-platform-grid">
-        {
-          platforms.map((p) => (
-            <div class="nx-platform">
-              <div class="nx-platform-name">{p.name}</div>
-              <div class="nx-platform-note">{p.note}</div>
-            </div>
-          ))
-        }
-      </div>
-    </Section>
-
-    <Section
-      id="compare"
-      kicker="Compare"
-      title="The difference is what happens before the query."
-    >
-      <div class="nx-compare-wrap">
-        <table class="nx-compare">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Generic Postgres MCP</th>
-              <th class="is-nexql">NexQL MCP</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Finding the right table</td>
-              <td>Dump the schema into context</td>
-              <td class="is-nexql">Indexed search, ranked hits</td>
-            </tr>
-            <tr>
-              <td>Joining two tables</td>
-              <td>Model infers from column names</td>
-              <td class="is-nexql">Join graph from real constraints</td>
-            </tr>
-            <tr>
-              <td>Knowing a column's values</td>
-              <td>SELECT DISTINCT and hope</td>
-              <td class="is-nexql">Precomputed value profiles</td>
-            </tr>
-            <tr>
-              <td>Write safety</td>
-              <td>Prefix-check the SQL string</td>
-              <td class="is-nexql">pg_query AST + transaction-level read-only</td>
-            </tr>
-            <tr>
-              <td>Context cost</td>
-              <td>Whole schema, every session</td>
-              <td class="is-nexql">Tool profiles from 13 to {FACTS.toolCount} tools</td>
-            </tr>
-            <tr>
-              <td>Production diagnostics</td>
-              <td>Not included</td>
-              <td class="is-nexql">Locks, bloat, slow queries, plan analysis</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Section>
-
-    <Section
-      id="install"
-      kicker="Install"
-      title="One command, then point your client at it."
-      lede="Prebuilt binaries for macOS, Linux and Windows. No runtime, no container required."
-    >
-      <CodeBlock
-        label="macOS / Linux"
-        copyLabel="command"
-        code="curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash"
-      />
-      <CodeBlock
-        label="Then point it at a database and wire up a client"
-        copyLabel="commands"
-        code={`nexql-mcp postgres://dev@localhost:5432/appdb doctor
-nexql-mcp init claude postgres://dev@localhost:5432/appdb`}
-      />
-      <p class="mcp-note">
-        <strong>Prefer a package manager?</strong> npm, cargo, Docker and an MCPB bundle for Claude
-        Desktop are all on the <a class="nx-inline-link" href="/install">install page</a>.
-      </p>
-    </Section>
-
-    <Section id="faq" title="Questions worth asking" narrow>
-      <div class="nx-faq">
-        {
-          faqs.map((f) => (
-            <details class="nx-faq-item">
-              <summary>
-                {f.q}
-                <span class="nx-faq-plus" aria-hidden="true">
-                  +
-                </span>
-              </summary>
-              <p>{f.a}</p>
-            </details>
-          ))
-        }
-      </div>
-    </Section>
-
-    <section class="nx-cta" data-nx-reveal>
-      <div class="nx-cta-wash" aria-hidden="true"></div>
-      <div class="nx-cta-inner">
-        <h2 class="nx-title nx-title--cta">
-          Stop pasting schemas <em>into prompts.</em>
-        </h2>
-        <p class="nx-lede">
-          Free, {FACTS.license}, and it runs entirely on your machine.
-        </p>
-        <div class="nx-cta-actions">
-          <a class="nx-btn nx-btn--grad" href="/install">Get started</a>
-          <a class="nx-btn nx-btn--ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
-            Source on GitHub ↗
-          </a>
-        </div>
-      </div>
-    </section>
-  </main>
+  <StoryDemo client:load />
 </BaseLayout>
+
+<style is:global>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0a0b0d;
+  }
+  body {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a {
+    color: #d2a76a;
+    text-decoration: none;
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+  }
+  ::selection {
+    background: rgba(210, 167, 106, 0.3);
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #20242b;
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @keyframes stRise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes stFade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes stBlink {
+    0%,
+    48% {
+      opacity: 1;
+    }
+    49%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* Hover states — Preact's string `style` prop can't carry pseudo-classes,
+     so these live as classes on the few interactive elements in StoryDemo
+     (base color stays inline for 1:1 fidelity with the design source). */
+  .story-navlink:hover {
+    color: #f2f0ea;
+  }
+  .story-install-btn:hover {
+    border-color: #d2a76a;
+  }
+  .story-option:hover {
+    border-color: #4e545f;
+  }
+  .story-close:hover {
+    color: #f2f0ea;
+  }
+  .story-tab:hover {
+    border-color: #4e545f;
+  }
+  .story-tab[aria-pressed="true"]:hover {
+    border-color: #d2a76a;
+  }
+</style>

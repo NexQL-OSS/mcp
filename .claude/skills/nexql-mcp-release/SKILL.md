@@ -1,8 +1,8 @@
 ---
 name: nexql-mcp-release
 description: >-
-  Workflow for multi-profile DB configuration, adding new LLM models & AI clients,
-  executing workspace quality checks, version bumping, and publishing git tag releases in nexql-mcp.
+  Version bump, commit/tag/push, monitor Release CI to completion, and retry up to
+  five times on failure. Also covers multi-profile DB config and LLM client onboarding in nexql-mcp.
 ---
 
 # nexql-mcp Release, Model Onboarding & Multi-Profile Skill
@@ -76,14 +76,109 @@ LIBCLANG_PATH=/usr/lib cargo check --workspace
 If the user wants one, prepend a new `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` following the existing Keep a Changelog format, summarizing the change.
 
 ### Step 6: Report
-Show the diff (`git diff --stat`) and the resulting version. **Do not commit, tag, or push** unless the user explicitly asks — bump/build and release are separate approvals.
+Show the diff (`git diff --stat`) and the resulting version. **Do not commit, tag, or push** unless the user explicitly asks — bump/build and release are separate approvals. When the user asks to ship, continue with **§4**.
 
 ---
 
-## 4. Troubleshooting & Verification Checklist
+## 4. Ship: commit, tag, push, monitor CI (max 5 attempts)
+
+Run this loop when the user asks to release, publish, tag, or finish a version bump. Track **`release_attempt`** from 1 through **5**; stop only when Release CI succeeds or attempt 5 fails.
+
+**Repo:** `nexql-oss/mcp` (standalone git repo). **Trigger:** push tag `vX.Y.Z` → `.github/workflows/release.yml`.
+
+### 4.1 Pre-ship checklist
+
+- `git status` clean (or only intentional release fixes staged).
+- On `main` (or merge PR first — release tags must land on the commit you intend to ship).
+- `./scripts/bump-version.sh --check X.Y.Z` passes for target version.
+- Tag name is `vX.Y.Z` matching workspace `Cargo.toml` version.
+
+### 4.2 Commit and push (each attempt)
+
+```bash
+cd mcp   # repo root
+git add -A
+git commit -m "$(cat <<'EOF'
+<concise why-focused message — ci fix, manifest sync, etc.>
+EOF
+)"
+git push origin main
+```
+
+Only commit when there are changes. Skip empty commits.
+
+### 4.3 Tag and push (each attempt)
+
+GitHub Actions re-runs use the **tag’s commit SHA**. CI/workflow fixes require **retagging** onto the new `main` tip — re-running a failed job alone keeps the old broken workflow/script.
+
+```bash
+VERSION=X.Y.Z
+git tag -d "v${VERSION}" 2>/dev/null || true
+git push origin ":refs/tags/v${VERSION}" 2>/dev/null || true
+git tag -a "v${VERSION}" -m "v${VERSION}"
+git push origin "v${VERSION}"
+```
+
+### 4.4 Monitor Release CI
+
+```bash
+gh run list --workflow=release.yml --limit 5
+gh run watch <run-id> --exit-status
+```
+
+On failure:
+
+```bash
+gh run view <run-id> --log-failed
+```
+
+**Job order (partial parallel):**
+
+| Job | Purpose |
+|-----|---------|
+| `verify-release-tag` | `./scripts/bump-version.sh --check` vs tag |
+| `build-*` | Cross-platform binaries + npm platform artifacts |
+| `docker` | GHCR image |
+| `publish-cargo` | `./scripts/publish-crates.sh` (ordered crates.io publish + poll) |
+| `publish-npm` | Platform packages + root `npm/` |
+| `package-mcpb`, `sbom`, `render-homebrew-formula` | Release assets |
+| `release` | GitHub Release upload |
+
+**Success criteria:** workflow run **completed / success** — all required jobs green, GitHub Release created, crates on crates.io, npm packages published.
+
+Poll every 1–2 minutes while `in_progress`. Full matrix often takes **10–20 minutes**.
+
+### 4.5 On failure → fix → next attempt
+
+1. Read `--log-failed`; identify root cause (build, publish script, missing CI dep, manifest drift).
+2. Apply minimal fix in repo.
+3. Increment `release_attempt`.
+4. If `release_attempt > 5`: report failure, list what was tried, ask user how to proceed. **Do not retag again.**
+5. Otherwise repeat **§4.2 → §4.3 → §4.4**.
+
+Common fixes (see also §5):
+
+- **Tag/manifest mismatch** — re-run `./scripts/bump-version.sh X.Y.Z`, commit, retag.
+- **Linux keyring / dbus link errors** — ensure `libdbus-1-dev` in `release.yml`, `ci.yml`, `build-setup.yml`, `Dockerfile`.
+- **`cargo publish` / crates.io** — use `./scripts/publish-crates.sh` only; **never** pass `--no-wait` (unsupported on stable cargo in CI). Script skips already-published crates and polls index between dependents.
+- **crates.io index lag** — script treats upload timeout / “already exists” as success and polls `https://crates.io/api/v1/crates/<crate>/<ver>`.
+
+**Local unblock (optional, user-approved):** with `CARGO_REGISTRY_TOKEN` set, `./scripts/publish-crates.sh` from repo root can finish cargo publishes without waiting for full Release matrix — still retag afterward so npm/GitHub release jobs run.
+
+### 4.6 Done
+
+Report: tag SHA, workflow run URL, crates.io versions confirmed, npm/GitHub Release links. Update `CHANGELOG.md` date if still placeholder.
+
+---
+
+## 5. Troubleshooting & Verification Checklist
 
 | Problem | Cause / Solution |
 |---------|------------------|
 | `no method named resolve_target` | Ensure method is inside `impl ToolRouter` and helper functions are outside. |
 | `router.specs().len()` assertion failure | Update expected tool count assertion in `exec.rs` (unit test) and `tests/phase2_catalog.rs` (integration test). |
 | `bindgen` / `pg_query` compile error | Ensure `LIBCLANG_PATH=/usr/lib` is exported in command invocation or environment. |
+| `unexpected argument '--no-wait'` | Remove `--no-wait` from publish path; use `scripts/publish-crates.sh` as-is. |
+| `publish-cargo` failed mid-chain | Re-run full release via retag; script skips crates already on crates.io. |
+| Re-run failed job still fails | Tag points at old commit — fix on `main`, retag, push tag (§4.3). |
+| Release attempt budget exhausted | Stop after 5 commit/tag/monitor cycles; summarize blockers for user. |

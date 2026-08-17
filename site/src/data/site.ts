@@ -1,4 +1,4 @@
-export const SITE_VERSION = "0.3.0";
+export const SITE_VERSION = "0.3.3";
 export const SITE_URL = "https://nexql-mcp.astrx.dev";
 
 /** Sibling NexQL properties, cross-linked from the header, footer and hero. */

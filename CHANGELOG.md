@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.3] - TBD
+## [0.4.0] - 2026-08-18
 
-### Fixed
-- **File fallback when OS keyring unavailable**: `profile set-password` now tries the OS keyring first, then automatically stores the password in `~/.config/nexql-mcp/secrets/<profile>.pass` (mode 0600) and sets `credential_provider = "file"` in config. Connection resolution tries keyring, then the file store, so WSL/headless Linux works without gnome-keyring.
+### Added
+- **`nexql-mcp setup`**: a local, browser-based setup wizard (`crates/nexql-mcp/src/setup/`). Lists installed MCP clients, previews the exact config diff per file, and applies it — no manual JSON editing. Runs standalone via `npx -y nexql-mcp setup`, no local install required.
+
+### Security
+- **No automatic plaintext password files**: `profile set-password` and inline-password migration store credentials in the OS keyring first. NexQL never writes passwords to disk in plaintext. When the keyring is unavailable, it now falls back automatically to a per-profile, machine-local encrypted file (ChaCha20-Poly1305, key stored 0600 under `~/.config/nexql-mcp`, secrets dir 0700) instead of failing outright — a warning names the fallback and points at `password_command` / an explicit user-managed `password_file` as stronger alternatives.
+
+### Changed
+- **nexql-mcp.astrx.dev rewritten as a single page**: the multi-page docs/features/install site is replaced by an interactive replay of one production incident worked end-to-end through NexQL's tools, plus an install modal (npx per-client snippets, curl/PowerShell installer, direct-download fallback, and the new setup wizard).
+
+## [0.3.3] - 2026-08-17
 
 ## [0.3.2] - 2026-08-17
 
