@@ -43,8 +43,25 @@ wait_for_crate() {
 
 publish_once() {
   local crate="$1"
-  # Upload without cargo's short internal wait; we poll crates.io ourselves.
-  cargo publish -p "$crate" --locked --no-wait
+  local output
+  local exit_code=0
+  set +e
+  output="$(cargo publish -p "$crate" --locked 2>&1)"
+  exit_code=$?
+  set -e
+  printf '%s\n' "$output"
+  if [ "$exit_code" -eq 0 ]; then
+    return 0
+  fi
+  # Upload often succeeds even when cargo's internal index wait times out.
+  if printf '%s\n' "$output" | grep -Fq "timed out waiting for"; then
+    echo "note: cargo publish upload finished but index wait timed out; polling crates.io..."
+    return 0
+  fi
+  if printf '%s\n' "$output" | grep -Fq "already exists on crates.io"; then
+    return 0
+  fi
+  return "$exit_code"
 }
 
 publish_crate() {
