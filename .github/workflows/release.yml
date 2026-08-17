@@ -315,17 +315,8 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          crates=(nexql-policy nexql-proto nexql-conn nexql-index nexql-tools nexql-mcp)
-          for crate in "${crates[@]}"; do
-            status="$(curl -s -o /dev/null -w '%{http_code}' -A "nexql-mcp-release-ci (github.com/NexQL-OSS/mcp)" "https://crates.io/api/v1/crates/${crate}/${version}")"
-            if [ "$status" = "200" ]; then
-              echo "skip: ${crate} ${version} already published"
-              continue
-            fi
-            cargo publish -p "$crate" --locked
-            sleep 20
-          done
+          chmod +x ./scripts/publish-crates.sh
+          ./scripts/publish-crates.sh
 
       # rust-cache post-step treats any `target/**/tests` dir as trybuild/macrotest
       # scratch and tries to opendir `tests/{target,trybuild}`. `cargo publish`
