@@ -179,7 +179,7 @@ impl ToolSession {
         default_mode: AccessMode,
         default_caps: PolicyCaps,
     ) -> Result<(), ToolError> {
-        let params = resolve_profile(profile).map_err(ToolError::Conn)?;
+        let params = resolve_profile(name, profile).map_err(ToolError::Conn)?;
         let policy = policy_from_profile(Some(profile), default_mode, default_caps);
         let info = ConnectionInfo {
             id: name.to_string(),

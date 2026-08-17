@@ -511,8 +511,10 @@ fn draw_profile_inspector(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ]));
 
-    let pass_info = if profile.password.is_some() {
-        "●●●●●●●● (Stored in config)"
+    let pass_info = if profile.credential_provider.as_deref() == Some("keyring") {
+        "●●●●●●●● (OS keyring)"
+    } else if profile.password.is_some() {
+        "●●●●●●●● (inline — migrate to keyring on save)"
     } else if let Some(cmd) = &profile.password_command {
         cmd.as_str()
     } else {
