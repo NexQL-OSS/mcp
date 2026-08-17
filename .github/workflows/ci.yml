@@ -33,7 +33,7 @@ jobs:
 
       - name: Install clang (Linux pg_query bindgen)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -67,7 +67,7 @@ jobs:
       - name: Install MSRV Rust toolchain
         uses: dtolnay/rust-toolchain@1.88
       - name: Install clang (pg_query bindgen)
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev
       - name: MSRV check
         run: cargo check --workspace
 
@@ -115,7 +115,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev postgresql-client
       - name: Build release binary
         run: cargo build -p nexql-mcp --release
       - name: Run local MCP smoke harness
@@ -130,7 +130,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install clang (pg_query bindgen)
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev binutils
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev binutils
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
       - name: Build release binary
@@ -150,7 +150,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install clang (pg_query bindgen)
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
       - name: Release build
