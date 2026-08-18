@@ -2,10 +2,14 @@
 
 Astro + Preact static site for [NexQL MCP](https://github.com/NexQL-OSS/mcp), deployed at `nexql-mcp.astrx.dev`.
 
-A single page: `StoryDemo`, a replayed agent conversation walking through one
-production incident end to end (noticed → narrowed → explained → fixed →
-recovered) using NexQL MCP's read-only tools. Ported from the Claude Design
-source `NexQL MCP Story.dc.html`.
+Two interactive pages, same narrative player:
+
+| Route | Island | What it shows |
+|-------|--------|---------------|
+| `/` | `StoryDemo` | A replayed agent conversation — one production incident end to end (noticed → narrowed → explained → fixed → recovered) |
+| `/setup` | `SetupDemo` | Install and setup walkthrough — wizard → profile → wire client → doctor → first question |
+
+Both share `NarrativePlayer` + `story-shared.ts`. The use-case story was ported from the Claude Design source `NexQL MCP Story.dc.html`.
 
 ## Stack
 
@@ -18,10 +22,10 @@ source `NexQL MCP Story.dc.html`.
 | Route | Source |
 |-------|--------|
 | `/` | `src/pages/index.astro` → `StoryDemo` |
+| `/setup` | `src/pages/setup.astro` → `SetupDemo` |
 
-Scene data (the seven-scene script, tool calls, chart data) lives inline in
-`src/islands/StoryDemo.tsx`. Repo/tool-reference links shown in the Install
-modal live in the same file (`LINKS`, `INSTALLS`).
+Scene scripts live in `StoryDemo.tsx` (seven scenes) and `SetupDemo.tsx` (five steps).
+Install-modal data (`LINKS`, `NPX_CLIENTS`, snippets) lives in `story-shared.ts`.
 
 `src/data/site.ts` holds the handful of constants (`SITE_URL`, `REPO_URL`,
 `FACTS`, …) used for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
@@ -45,5 +49,5 @@ Vercel: root `mcp/site`, framework Astro, output `dist`. `vercel.json` included.
 ## Sync with repo
 
 When the MCP interface changes (tool count, install commands, doc links),
-update the `S`, `INSTALLS`, and `LINKS` constants in
-`src/islands/StoryDemo.tsx`, and `FACTS`/`SITE_VERSION` in `src/data/site.ts`.
+update `LINKS`/`NPX_CLIENTS` in `src/islands/story-shared.ts`, setup scenes in
+`SetupDemo.tsx`, and `FACTS`/`SITE_VERSION` in `src/data/site.ts`.

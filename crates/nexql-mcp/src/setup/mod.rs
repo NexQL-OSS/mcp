@@ -376,18 +376,17 @@ async fn upsert_profile_inner(
     }
     state.touch();
 
-    if let Some(mode_str) = body.profile.access_mode.as_deref() {
-        if let Ok(mode) = mode_str.parse::<AccessMode>()
-            && mode.allows_writes()
-            && !body.confirm_elevated_access.unwrap_or(false)
-        {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "refusing to save profile \"{name}\" with access_mode \"{mode_str}\" — set confirm_elevated_access"
-                ),
-            );
-        }
+    if let Some(mode_str) = body.profile.access_mode.as_deref()
+        && let Ok(mode) = mode_str.parse::<AccessMode>()
+        && mode.allows_writes()
+        && !body.confirm_elevated_access.unwrap_or(false)
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "refusing to save profile \"{name}\" with access_mode \"{mode_str}\" — set confirm_elevated_access"
+            ),
+        );
     }
 
     let mut config = match state.config.lock() {
@@ -652,8 +651,10 @@ async fn export_profile(
     if !config.profiles.contains_key(&name) {
         return api_error(StatusCode::NOT_FOUND, format!("profile not found: {name}"));
     }
-    let mut single = ConfigFile::default();
-    single.default_profile = Some(name.clone());
+    let mut single = ConfigFile {
+        default_profile: Some(name.clone()),
+        ..Default::default()
+    };
     if let Some(p) = config.profiles.get(&name) {
         single.profiles.insert(name.clone(), p.clone());
     }

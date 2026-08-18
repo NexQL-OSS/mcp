@@ -624,9 +624,10 @@ fn fill_password(
     }
     if profile_name_or_provider == Some(crate::secret::ENCRYPTED_FILE_PROVIDER) {
         let path = password_file.ok_or_else(|| {
-            ConnError::Config(format!(
+            ConnError::Config(
                 "profile uses credential_provider=encrypted_file but password_file is not set"
-            ))
+                    .to_string(),
+            )
         })?;
         let expanded = interpolate_env(path, getenv);
         let profile_name = inputs
@@ -701,15 +702,12 @@ fn fill_password(
             params.password = Some(pw);
             return Ok(());
         }
-    } else if let Some(name) = inputs.profile_names.first() {
-        if let Ok(pw) = crate::secret::resolve_stored_profile_password(
-            name,
-            password_file.map(Path::new),
-            None,
-        ) {
-            params.password = Some(pw);
-            return Ok(());
-        }
+    } else if let Some(name) = inputs.profile_names.first()
+        && let Ok(pw) =
+            crate::secret::resolve_stored_profile_password(name, password_file.map(Path::new), None)
+    {
+        params.password = Some(pw);
+        return Ok(());
     }
     if let Some(pw) = getenv("PGPASSWORD") {
         params.password = Some(pw);

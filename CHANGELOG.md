@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-18
+
+### Fixed
+- **Clippy warnings under `-D warnings`**: `nexql-conn` credential resolution and `nexql-mcp` setup-wizard save/export handlers had accumulated `useless_format`, `collapsible_if`, `field_reassign_with_default`, and `too_many_arguments` lints; cleared for CI.
+
+### Changed
+- **Setup wizard UI**: refreshed `crates/nexql-mcp/assets/setup/index.html`.
+- **Site**: `astrx.dev` story demo split into shared narrative/setup islands (`NarrativePlayer.tsx`, `SetupDemo.tsx`, `story-shared.ts`) plus a new `/setup` page.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added

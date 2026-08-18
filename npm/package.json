@@ -1,7 +1,7 @@
 {
   "name": "nexql-mcp",
   "mcpName": "io.github.NexQL-OSS/nexql-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Standalone Postgres MCP server \u2014 npx shim (binaries ship in optionalDependencies)",
   "keywords": [
     "postgres",
@@ -20,11 +20,11 @@
     "nexql-mcp": "bin/nexql-mcp.js"
   },
   "optionalDependencies": {
-    "@nexql/mcp-darwin-arm64": "0.4.0",
-    "@nexql/mcp-darwin-x64": "0.4.0",
-    "@nexql/mcp-linux-arm64": "0.4.0",
-    "@nexql/mcp-linux-x64": "0.4.0",
-    "@nexql/mcp-win32-x64": "0.4.0"
+    "@nexql/mcp-darwin-arm64": "0.4.1",
+    "@nexql/mcp-darwin-x64": "0.4.1",
+    "@nexql/mcp-linux-arm64": "0.4.1",
+    "@nexql/mcp-linux-x64": "0.4.1",
+    "@nexql/mcp-win32-x64": "0.4.1"
   },
   "files": [
     "bin"

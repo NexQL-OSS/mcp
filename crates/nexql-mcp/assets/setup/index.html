@@ -3,37 +3,166 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#07080E" />
+  <meta name="theme-color" content="#0B0E14" id="theme-color-meta" />
   <title>NexQL MCP — Profile setup</title>
+  <script>
+    (function () {
+      var stored = localStorage.getItem('nexql_setup_theme');
+      var theme = stored === 'light' || stored === 'dark'
+        ? stored
+        : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+      var meta = document.getElementById('theme-color-meta');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#faf9f5' : '#0B0E14');
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    :root {
-      --bg: #0a0b0d;
-      --bg-elevated: #0d0f12;
-      --text: #f2f0ea;
-      --text-bright: #f8f6f1;
-      --muted: #8b929e;
-      --muted-dim: #4e545f;
-      --muted-line: #5a616c;
-      --border: #15181d;
-      --border-mid: #191d23;
-      --border-strong: #22262d;
-      --border-ui: #2a2f37;
-      --border-btn: #33383f;
-      --amber: #d2a76a;
-      --mint: #77cba4;
-      --hot: #e0885b;
-      --panel: rgba(255, 255, 255, 0.028);
-      --panel-hover: rgba(255, 255, 255, 0.045);
-      --glow: rgba(210, 167, 106, 0.07);
+    :root,
+    [data-theme="dark"] {
+      color-scheme: dark;
+      /* NexQL brand ribbon (fixed — matches nexql.astrx.dev) */
+      --nex-blue: #3d6fe0;
+      --nex-indigo: #6c4cd6;
+      --nex-magenta: #e0388f;
+      --nex-orange: #f26b3a;
+      --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
+      /* NexQL Mute Dark (site default theme) */
+      --theme-color: #0b0e14;
+      --bg: #0b0e14;
+      --bg-elevated: #161b22;
+      --input-bg: #0b0e14;
+      --text: #e6edf3;
+      --text-bright: #e6edf3;
+      --muted: #a0a0a0;
+      --muted-dim: #586674;
+      --muted-line: #7688b8;
+      --border: #21262d;
+      --border-mid: #21262d;
+      --border-strong: #30363d;
+      --border-ui: #30363d;
+      --border-btn: #30363d;
+      --accent: #e0a4cc;
+      --btn-on-accent: #0b0e14;
+      --mint: #7ee8a8;
+      --hot: #ff4d6d;
+      --chrome: rgba(11, 14, 20, 0.9);
+      --chrome-subtle: rgba(11, 14, 20, 0.78);
+      --scrollbar-thumb: #30363d;
+      --brand-mark-bg: var(--nex-grad);
+      --brand-mark-border: #30363d;
+      --tab-active-bg: #e0a4cc26;
+      --accent-subtle: #e0a4cc1f;
+      --accent-subtle-hover: #e0a4cc33;
+      --accent-focus: #e0a4cc8c;
+      --surface-inset: rgba(255, 255, 255, 0.028);
+      --surface-inset-hover: rgba(255, 255, 255, 0.045);
+      --surface-inset-2: rgba(255, 255, 255, 0.018);
+      --surface-inset-3: rgba(255, 255, 255, 0.02);
+      --row-hover: rgba(255, 255, 255, 0.03);
+      --row-selected: #e0a4cc1a;
+      --table-head-border: #21262d;
+      --table-cell: #e6edf3;
+      --table-mono: #a0a0a0;
+      --diff-text: #c4a4b8;
+      --textarea-readonly: #c4a4b8;
+      --client-hover-border: #484f58;
+      --selection: #e0a4cc4d;
+      --mint-bg: rgba(126, 232, 168, 0.1);
+      --mint-border: rgba(126, 232, 168, 0.28);
+      --mint-badge-border: rgba(126, 232, 168, 0.35);
+      --hot-bg: rgba(255, 77, 109, 0.1);
+      --accent-bg: rgba(224, 164, 204, 0.1);
+      --accent-border: rgba(224, 164, 204, 0.28);
+      --hot-border: rgba(255, 77, 109, 0.45);
+      --glow: rgba(224, 164, 204, 0.09);
+      --panel: var(--surface-inset);
+      --panel-hover: var(--surface-inset-hover);
       --font-sans: "Space Grotesk", system-ui, sans-serif;
       --font-mono: "JetBrains Mono", ui-monospace, monospace;
       --font-serif: "Instrument Serif", Georgia, serif;
+      --text-xs: clamp(0.75rem, 0.7rem + 0.2vw, 0.8125rem);
+      --text-sm: clamp(0.875rem, 0.82rem + 0.25vw, 0.9375rem);
+      --text-base: clamp(1rem, 0.95rem + 0.3vw, 1.0625rem);
+      --text-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.25rem);
+      --text-xl: clamp(1.5rem, 1.35rem + 0.6vw, 1.875rem);
+      --space-xs: 0.5rem;
+      --space-sm: 0.75rem;
+      --space-md: 1rem;
+      --space-lg: 1.5rem;
+      --space-xl: 2rem;
+      --touch-min: 2.75rem;
+      --content-max: min(960px, 100%);
+      --page-pad: clamp(1rem, 2.5vw, 2.5rem);
+    }
+
+    [data-theme="light"] {
+      color-scheme: light;
+      --nex-blue: #3d6fe0;
+      --nex-indigo: #6c4cd6;
+      --nex-magenta: #e0388f;
+      --nex-orange: #f26b3a;
+      --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
+      /* NexQL site light surfaces + Mute accent */
+      --theme-color: #faf9f5;
+      --bg: #faf9f5;
+      --bg-elevated: #ffffff;
+      --input-bg: #ffffff;
+      --text: #1a1917;
+      --text-bright: #1a1917;
+      --muted: #6b665f;
+      --muted-dim: #8a857c;
+      --muted-line: #6b665f;
+      --border: #d9d5cc;
+      --border-mid: #d9d5cc;
+      --border-strong: #cfc9be;
+      --border-ui: #c2bbb0;
+      --border-btn: #b8b0a4;
+      --accent: #a84d8f;
+      --btn-on-accent: #ffffff;
+      --mint: #1a7a52;
+      --hot: #c42d4a;
+      --chrome: rgba(250, 249, 245, 0.92);
+      --chrome-subtle: rgba(250, 249, 245, 0.88);
+      --scrollbar-thumb: #c8c2b8;
+      --brand-mark-bg: var(--nex-grad);
+      --brand-mark-border: #d9d5cc;
+      --tab-active-bg: rgba(168, 77, 143, 0.12);
+      --accent-subtle: rgba(168, 77, 143, 0.1);
+      --accent-subtle-hover: rgba(168, 77, 143, 0.18);
+      --accent-focus: rgba(168, 77, 143, 0.45);
+      --surface-inset: rgba(0, 0, 0, 0.025);
+      --surface-inset-hover: rgba(0, 0, 0, 0.045);
+      --surface-inset-2: rgba(0, 0, 0, 0.02);
+      --surface-inset-3: rgba(0, 0, 0, 0.03);
+      --row-hover: rgba(0, 0, 0, 0.03);
+      --row-selected: rgba(168, 77, 143, 0.1);
+      --table-head-border: #d9d5cc;
+      --table-cell: #1a1917;
+      --table-mono: #5a5568;
+      --diff-text: #3d3848;
+      --textarea-readonly: #6b5a6a;
+      --client-hover-border: #a8a095;
+      --selection: rgba(168, 77, 143, 0.22);
+      --mint-bg: rgba(26, 122, 82, 0.1);
+      --mint-border: rgba(26, 122, 82, 0.28);
+      --mint-badge-border: rgba(26, 122, 82, 0.35);
+      --hot-bg: rgba(196, 45, 74, 0.08);
+      --accent-bg: rgba(168, 77, 143, 0.08);
+      --accent-border: rgba(168, 77, 143, 0.22);
+      --hot-border: rgba(196, 45, 74, 0.4);
+      --glow: rgba(168, 77, 143, 0.07);
+      --panel: #ffffff;
+      --panel-hover: var(--surface-inset-hover);
     }
 
     * { box-sizing: border-box; }
+    html {
+      font-size: 100%;
+      scroll-behavior: smooth;
+    }
     html, body {
       margin: 0;
       padding: 0;
@@ -41,15 +170,17 @@
       background: var(--bg);
       color: var(--text);
       font-family: var(--font-sans);
+      font-size: var(--text-base);
+      line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
-    a { color: var(--amber); text-decoration: none; }
+    a { color: var(--accent); text-decoration: none; }
     a:hover { color: var(--text-bright); }
     button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
-    ::selection { background: rgba(210, 167, 106, 0.3); }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-thumb { background: #20242b; border-radius: 99px; }
+    ::selection { background: var(--selection); }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
     ::-webkit-scrollbar-track { background: transparent; }
 
     .stage {
@@ -58,6 +189,12 @@
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr);
       background: var(--bg);
+    }
+    @media (min-width: 900px) {
+      .stage {
+        grid-template-columns: 220px minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+      }
     }
     .stage::before {
       content: "";
@@ -69,182 +206,332 @@
     }
 
     .topbar {
-      position: relative;
+      position: sticky;
+      top: 0;
       z-index: 5;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: clamp(10px, 2vw, 26px);
-      padding: 11px clamp(14px, 2.6vw, 34px);
+      gap: var(--space-md);
+      padding: var(--space-sm) var(--page-pad);
       border-bottom: 1px solid var(--border);
-      background: rgba(10, 11, 13, 0.72);
+      background: var(--chrome);
       backdrop-filter: blur(14px);
+      grid-column: 1 / -1;
+    }
+    @media (min-width: 900px) {
+      .topbar { padding-block: var(--space-md); }
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 0.65rem;
       flex: none;
     }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      flex: none;
+    }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: var(--touch-min);
+      min-height: var(--touch-min);
+      padding: 0.5rem;
+      border-radius: 10px;
+      border: 1px solid var(--border-ui);
+      background: var(--surface-inset-3);
+      color: var(--muted);
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+    .theme-toggle:hover {
+      border-color: var(--accent);
+      color: var(--text-bright);
+      background: var(--panel-hover);
+    }
+    .theme-toggle svg {
+      width: 1.125rem;
+      height: 1.125rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .theme-toggle .icon-sun { display: none; }
+    .theme-toggle .icon-moon { display: block; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
     .brand-mark {
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
-      background: linear-gradient(145deg, #2a2218, #15120e);
-      border: 1px solid #3a3228;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 6px;
+      background: var(--brand-mark-bg);
+      border: 1px solid var(--brand-mark-border);
       display: grid;
       place-items: center;
-      font: 600 10px/1 var(--font-mono);
-      color: var(--amber);
+      font: 600 0.75rem/1 var(--font-mono);
+      color: #ffffff;
       letter-spacing: -0.04em;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     }
     .brand-name {
-      font: 600 14px/1 var(--font-sans);
+      font: 600 var(--text-lg)/1 var(--font-sans);
       letter-spacing: -0.01em;
       color: var(--text-bright);
     }
     .brand-badge {
-      padding: 3px 6px;
-      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+      border-radius: 5px;
       border: 1px solid var(--border-ui);
-      font: 500 8.5px/1 var(--font-mono);
-      letter-spacing: 0.16em;
+      font: 500 var(--text-xs)/1 var(--font-mono);
+      letter-spacing: 0.12em;
       color: var(--muted);
     }
     .topbar-meta {
-      font: 400 10px/1.4 var(--font-mono);
-      color: var(--muted-dim);
+      font: 400 var(--text-xs)/1.5 var(--font-mono);
+      color: var(--muted);
       text-align: right;
-      max-width: min(52ch, 50vw);
+      max-width: min(56ch, 55vw);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    @media (max-width: 599px) {
+      .topbar-meta { display: none; }
+      .mobile-meta {
+        display: block;
+        margin: 0 0 var(--space-sm);
+        padding-bottom: var(--space-sm);
+        border-bottom: 1px solid var(--border);
+      }
+    }
+    @media (min-width: 600px) {
+      .mobile-meta { display: none; }
+    }
 
     .tabs {
-      position: relative;
+      position: sticky;
+      top: 0;
       z-index: 4;
       display: flex;
-      align-items: center;
-      gap: clamp(6px, 1.1vw, 14px);
-      padding: 10px clamp(14px, 2.6vw, 34px);
+      align-items: stretch;
+      gap: 0.25rem;
+      padding: var(--space-sm) var(--page-pad);
       border-bottom: 1px solid var(--border);
-      background: rgba(10, 11, 13, 0.5);
+      background: var(--chrome-subtle);
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    @media (min-width: 900px) {
+      .tabs {
+        position: sticky;
+        top: 0;
+        grid-row: 2;
+        grid-column: 1;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.35rem;
+        padding: var(--space-lg) var(--space-md);
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+        overflow-x: hidden;
+        overflow-y: auto;
+        min-height: 0;
+      }
+    }
+    .tabs-label {
+      display: none;
+      margin: 0 0 var(--space-sm);
+      padding: 0 0.5rem;
+      font: 500 var(--text-xs)/1 var(--font-mono);
+      letter-spacing: 0.14em;
+      color: var(--muted-line);
+      text-transform: uppercase;
+    }
+    @media (min-width: 900px) {
+      .tabs-label { display: block; }
+    }
+    @media (max-width: 899px) {
+      .tabs { top: 3.5rem; }
     }
     .tab-btn {
       display: flex;
       align-items: center;
-      gap: 7px;
-      padding: 5px 2px;
+      gap: 0.65rem;
+      min-height: var(--touch-min);
+      padding: 0.65rem 0.85rem;
       flex: none;
       white-space: nowrap;
+      border-radius: 10px;
+      transition: background 0.2s ease;
     }
+    @media (min-width: 900px) {
+      .tab-btn {
+        flex: none;
+        width: 100%;
+        padding: 0.85rem 1rem;
+      }
+    }
+    .tab-btn:hover { background: var(--panel-hover); }
+    .tab-btn.active { background: var(--tab-active-bg); }
     .tab-btn .bar {
-      width: 9px;
-      height: 2px;
+      width: 12px;
+      height: 3px;
+      border-radius: 2px;
       background: var(--border-ui);
       flex: none;
       transition: width 0.35s ease, background 0.35s ease;
     }
-    .tab-btn.active .bar {
-      width: 22px;
-      background: var(--amber);
+    @media (min-width: 900px) {
+      .tab-btn .bar { width: 4px; height: 1.25rem; border-radius: 2px; }
     }
-    .tab-btn span {
-      font: 500 9px/1 var(--font-mono);
-      letter-spacing: 0.13em;
-      color: var(--muted-dim);
+    .tab-btn.active .bar {
+      width: 28px;
+      background: var(--accent);
+    }
+    @media (min-width: 900px) {
+      .tab-btn.active .bar { width: 4px; height: 1.75rem; }
+    }
+    .tab-btn span:last-child {
+      font: 500 var(--text-sm)/1.2 var(--font-sans);
+      letter-spacing: 0.04em;
+      color: var(--muted);
       transition: color 0.35s ease;
     }
-    .tab-btn.active span { color: var(--text-bright); }
-    .tab-btn:hover span { color: var(--text); }
+    .tab-btn.active span:last-child { color: var(--text-bright); font-weight: 600; }
+    .tab-btn:hover span:last-child { color: var(--text); }
 
     main {
       position: relative;
       z-index: 2;
       overflow-y: auto;
-      padding: clamp(16px, 3vh, 34px) clamp(14px, 3vw, 40px) clamp(24px, 4vh, 48px);
+      padding: var(--space-lg) var(--page-pad) var(--space-xl);
+      min-height: 0;
+    }
+    @media (min-width: 900px) {
+      main { grid-row: 2; grid-column: 2; padding: var(--space-xl) var(--page-pad); }
     }
     .content {
-      max-width: 880px;
+      max-width: var(--content-max);
       margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: clamp(14px, 2.2vh, 22px);
+      gap: var(--space-lg);
     }
 
     .panel {
       border: 1px solid var(--border-mid);
-      border-radius: 14px;
+      border-radius: 16px;
       background: var(--panel);
-      padding: clamp(16px, 2.2vw, 24px);
+      padding: clamp(1.25rem, 2.5vw, 2rem);
       animation: rise 0.35s ease both;
     }
     .panel h2 {
-      margin: 0 0 1rem;
-      font: 400 clamp(20px, 2vw, 26px)/1.15 var(--font-serif);
+      margin: 0 0 var(--space-md);
+      font: 400 var(--text-xl)/1.2 var(--font-serif);
       color: var(--text-bright);
     }
     .panel .lede {
-      margin: -0.35rem 0 1rem;
-      font: 400 13px/1.5 var(--font-sans);
+      margin: -0.25rem 0 var(--space-lg);
+      font: 400 var(--text-base)/1.6 var(--font-sans);
       color: var(--muted);
+      max-width: 65ch;
+    }
+    .panel .lede code {
+      font-family: var(--font-mono);
+      font-size: 0.92em;
+      color: var(--accent);
     }
 
     .section-title {
-      margin: 1.1rem 0 0.55rem;
-      font: 500 8.5px/1 var(--font-mono);
-      letter-spacing: 0.14em;
+      margin: var(--space-lg) 0 var(--space-sm);
+      font: 600 var(--text-xs)/1.3 var(--font-mono);
+      letter-spacing: 0.1em;
       color: var(--muted-line);
       text-transform: uppercase;
+    }
+    .section-title:first-child { margin-top: 0; }
+
+    .subnav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0 0 var(--space-lg);
+      padding: var(--space-sm);
+      border: 1px solid var(--border-mid);
+      border-radius: 12px;
+      background: var(--surface-inset-3);
+    }
+    .subnav a {
+      padding: 0.5rem 0.85rem;
+      border-radius: 8px;
+      font: 500 var(--text-sm)/1.2 var(--font-sans);
+      color: var(--muted);
+      transition: background 0.15s, color 0.15s;
+    }
+    .subnav a:hover {
+      color: var(--text-bright);
+      background: var(--panel-hover);
     }
 
     .toolbar {
       display: flex;
-      gap: 0.55rem;
+      gap: var(--space-sm);
       flex-wrap: wrap;
       align-items: center;
-      margin-bottom: 1rem;
+      margin-bottom: var(--space-lg);
     }
-    .btn-primary {
-      padding: 8px 14px;
-      border-radius: 7px;
-      border: 1px solid var(--amber);
-      background: rgba(210, 167, 106, 0.12);
-      font: 500 12px/1 var(--font-sans);
-      color: var(--text-bright);
+    .btn-primary,
+    .btn-secondary {
+      min-height: var(--touch-min);
+      padding: 0.65rem 1.15rem;
+      border-radius: 10px;
+      font: 500 var(--text-sm)/1.2 var(--font-sans);
       transition: border-color 0.2s, background 0.2s;
     }
+    .btn-primary {
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: var(--btn-on-accent, #0b0e14);
+    }
     .btn-primary:hover {
-      border-color: var(--text-bright);
-      background: rgba(210, 167, 106, 0.2);
+      border-color: color-mix(in srgb, var(--accent) 85%, white);
+      background: color-mix(in srgb, var(--accent) 88%, white);
+      color: var(--btn-on-accent, #0b0e14);
     }
     .btn-secondary {
-      padding: 8px 14px;
-      border-radius: 7px;
       border: 1px solid var(--border-btn);
-      font: 500 12px/1 var(--font-sans);
       color: var(--text);
-      transition: border-color 0.2s;
     }
-    .btn-secondary:hover { border-color: var(--amber); }
+    .btn-secondary:hover { border-color: var(--accent); }
     .btn-danger {
-      border-color: rgba(224, 136, 91, 0.45);
+      border-color: var(--hot-border);
       color: var(--hot);
     }
     .btn-danger:hover { border-color: var(--hot); }
 
+    .table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -0.25rem;
+      padding: 0 0.25rem;
+    }
     .data-table {
       width: 100%;
+      min-width: 520px;
       border-collapse: collapse;
     }
     .data-table thead span {
       display: block;
-      padding: 0 0 7px;
-      border-bottom: 1px solid #23272e;
-      font: 500 8.5px/1.2 var(--font-mono);
-      letter-spacing: 0.12em;
+      padding: 0 0 var(--space-sm);
+      border-bottom: 1px solid var(--table-head-border);
+      font: 600 var(--text-xs)/1.3 var(--font-mono);
+      letter-spacing: 0.08em;
       color: var(--muted-line);
     }
     .data-table tbody tr {
@@ -252,162 +539,360 @@
       cursor: pointer;
       transition: background 0.15s;
     }
-    .data-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
-    .data-table tbody tr.selected { background: rgba(210, 167, 106, 0.08); }
+    .data-table tbody tr:hover { background: var(--row-hover); }
+    .data-table tbody tr.selected { background: var(--row-selected); }
     .data-table td {
-      padding: 10px 4px;
-      font: 400 13px/1.4 var(--font-sans);
-      color: #e4e1d9;
+      padding: var(--space-md) 0.5rem;
+      font: 400 var(--text-base)/1.45 var(--font-sans);
+      color: var(--table-cell);
       vertical-align: middle;
     }
     .data-table td:last-child { text-align: right; }
     .data-table .mono {
-      font: 400 11px/1.4 var(--font-mono);
-      color: #9c9a93;
+      font: 400 var(--text-sm)/1.45 var(--font-mono);
+      color: var(--table-mono);
+    }
+    .data-table .btn-secondary {
+      min-height: 2.25rem;
+      padding: 0.45rem 0.85rem;
+      font-size: var(--text-xs);
     }
 
     .badge {
       display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: 0.2rem 0.55rem;
+      border-radius: 5px;
       border: 1px solid var(--border-ui);
-      font: 500 8.5px/1 var(--font-mono);
-      letter-spacing: 0.1em;
+      font: 500 var(--text-xs)/1.2 var(--font-mono);
+      letter-spacing: 0.06em;
       color: var(--muted);
       text-transform: lowercase;
     }
     .badge.default {
-      border-color: rgba(119, 203, 164, 0.35);
+      border-color: var(--mint-badge-border);
       color: var(--mint);
-      background: rgba(119, 203, 164, 0.08);
+      background: var(--mint-bg);
     }
 
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 0.85rem;
+      gap: var(--space-md);
     }
     @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
 
     label.field-label {
       display: block;
-      margin-bottom: 0.3rem;
-      font: 500 8.5px/1 var(--font-mono);
-      letter-spacing: 0.12em;
-      color: var(--muted-line);
-      text-transform: uppercase;
+      margin-bottom: 0.45rem;
+      font: 600 var(--text-sm)/1.35 var(--font-sans);
+      color: var(--text);
+    }
+    .field-hint {
+      margin: -0.2rem 0 0.65rem;
+      font: 400 var(--text-sm)/1.5 var(--font-sans);
+      color: var(--muted);
     }
     input, select, textarea {
       width: 100%;
-      padding: 10px 12px;
-      border-radius: 8px;
+      padding: 0.75rem 0.9rem;
+      border-radius: 10px;
       border: 1px solid var(--border-strong);
-      background: var(--bg);
+      background: var(--input-bg);
       color: var(--text-bright);
-      font: 400 13px/1.4 var(--font-sans);
+      font: 400 var(--text-base)/1.45 var(--font-sans);
       transition: border-color 0.15s;
     }
     input:focus, select:focus, textarea:focus {
       outline: none;
-      border-color: rgba(210, 167, 106, 0.55);
+      border-color: var(--accent-focus);
     }
+    select { cursor: pointer; }
     textarea {
-      min-height: 120px;
-      font: 400 11px/1.6 var(--font-mono);
-      color: var(--amber);
+      min-height: 10rem;
+      font: 400 var(--text-sm)/1.65 var(--font-mono);
+      color: var(--accent);
       resize: vertical;
     }
-    textarea[readonly] { color: #c4b08a; }
+    textarea[readonly] { color: var(--textarea-readonly); }
 
     .check-row {
       display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font: 400 12.5px/1.4 var(--font-sans);
+      align-items: flex-start;
+      gap: 0.6rem;
+      font: 400 var(--text-base)/1.5 var(--font-sans);
       color: var(--muted);
+      min-height: var(--touch-min);
+      padding: 0.25rem 0;
     }
-    .check-row input { width: auto; }
+    .check-row input {
+      width: 1.125rem;
+      height: 1.125rem;
+      margin-top: 0.2rem;
+      flex: none;
+      accent-color: var(--accent);
+    }
 
     .status {
-      padding: 10px 13px;
-      border-radius: 8px;
-      margin-bottom: 0.5rem;
-      font: 400 12.5px/1.45 var(--font-sans);
+      padding: var(--space-md) var(--space-lg);
+      border-radius: 12px;
+      margin-bottom: var(--space-md);
+      font: 400 var(--text-base)/1.55 var(--font-sans);
       border: 1px solid transparent;
     }
     .status.ok {
       color: var(--mint);
-      background: rgba(119, 203, 164, 0.08);
-      border-color: rgba(119, 203, 164, 0.25);
+      background: var(--mint-bg);
+      border-color: var(--mint-border);
     }
     .status.err {
       color: var(--hot);
-      background: rgba(224, 136, 91, 0.08);
-      border-left: 2px solid var(--hot);
-      border-radius: 3px 8px 8px 3px;
+      background: var(--hot-bg);
+      border-left: 3px solid var(--hot);
+      border-radius: 4px 12px 12px 4px;
     }
     .status.info {
-      color: var(--amber);
-      background: rgba(210, 167, 106, 0.08);
-      border-color: rgba(210, 167, 106, 0.22);
+      color: var(--accent);
+      background: var(--accent-bg);
+      border-color: var(--accent-border);
+    }
+    .status code {
+      font-family: var(--font-mono);
+      font-size: 0.92em;
     }
 
     .hidden { display: none !important; }
 
     pre.diff {
-      margin: 0.65rem 0 0;
-      padding: 11px 13px;
+      margin: var(--space-md) 0 0;
+      padding: var(--space-md) var(--space-lg);
       border: 1px solid var(--border-strong);
-      border-radius: 8px;
-      background: var(--bg);
+      border-radius: 12px;
+      background: var(--input-bg);
       overflow: auto;
-      max-height: 280px;
-      font: 400 10.5px/1.55 var(--font-mono);
-      color: #c9c4bb;
+      max-height: min(50vh, 420px);
+      font: 400 var(--text-sm)/1.6 var(--font-mono);
+      color: var(--diff-text);
       white-space: pre;
     }
 
     .client-list {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 0.55rem;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+      gap: var(--space-sm);
     }
     .client-item {
       display: flex;
       align-items: flex-start;
-      gap: 0.55rem;
-      padding: 10px 12px;
+      gap: 0.75rem;
+      min-height: var(--touch-min);
+      padding: var(--space-md);
       border: 1px solid var(--border-mid);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.018);
-      font: 400 12.5px/1.4 var(--font-sans);
-      color: #e4e1d9;
+      border-radius: 12px;
+      background: var(--surface-inset-2);
+      font: 400 var(--text-base)/1.45 var(--font-sans);
+      color: var(--table-cell);
       transition: border-color 0.15s;
+      cursor: pointer;
     }
-    .client-item:hover { border-color: #4e545f; }
-    .client-item input { width: auto; margin-top: 2px; }
+    .client-item:hover { border-color: var(--client-hover-border); }
+    .client-item input {
+      width: 1.125rem;
+      height: 1.125rem;
+      margin-top: 0.2rem;
+      flex: none;
+      accent-color: var(--accent);
+    }
     .client-item .path {
       display: block;
-      margin-top: 4px;
-      font: 400 9px/1.35 var(--font-mono);
-      color: var(--muted-dim);
+      margin-top: 0.35rem;
+      font: 400 var(--text-xs)/1.45 var(--font-mono);
+      color: var(--muted);
       word-break: break-all;
     }
 
     .diff-apply {
       display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      margin: 0.5rem 0;
-      font: 400 12px/1.4 var(--font-sans);
+      align-items: flex-start;
+      gap: 0.6rem;
+      margin: var(--space-sm) 0;
+      font: 400 var(--text-base)/1.5 var(--font-sans);
       color: var(--muted);
     }
-    .diff-apply input { width: auto; }
+    .diff-apply input {
+      width: 1.125rem;
+      height: 1.125rem;
+      margin-top: 0.2rem;
+      flex: none;
+      accent-color: var(--accent);
+    }
 
     .meta {
-      font: 400 11px/1.45 var(--font-mono);
-      color: var(--muted-dim);
+      font: 400 var(--text-sm)/1.55 var(--font-mono);
+      color: var(--muted);
       word-break: break-all;
+    }
+
+    .panel-compact h2 {
+      font-size: var(--text-lg);
+      margin-bottom: var(--space-sm);
+    }
+
+    /* Editor wizard */
+    .editor-panel { padding-bottom: 0; }
+    .editor-header { margin-bottom: var(--space-lg); }
+    .editor-header .lede { margin-bottom: 0; }
+
+    .stepper {
+      display: flex;
+      gap: 0.35rem;
+      margin: 0 0 var(--space-lg);
+      padding: var(--space-sm);
+      border: 1px solid var(--border-mid);
+      border-radius: 12px;
+      background: var(--surface-inset-3);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .step-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 1 0 auto;
+      min-width: 8.5rem;
+      min-height: 2.75rem;
+      padding: 0.55rem 0.85rem;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      font: 500 var(--text-sm)/1.2 var(--font-sans);
+      color: var(--muted);
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .step-pill:hover:not(:disabled) {
+      background: var(--panel-hover);
+      color: var(--text);
+    }
+    .step-pill:disabled { cursor: default; opacity: 0.55; }
+    .step-pill .step-num {
+      display: grid;
+      place-items: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-ui);
+      font: 600 0.75rem/1 var(--font-mono);
+      flex: none;
+    }
+    .step-pill.active {
+      background: var(--tab-active-bg);
+      border-color: var(--accent-border);
+      color: var(--text-bright);
+    }
+    .step-pill.active .step-num {
+      border-color: var(--accent);
+      background: var(--accent-subtle);
+      color: var(--accent);
+    }
+    .step-pill.done { color: var(--text); }
+    .step-pill.done .step-num {
+      border-color: var(--mint-badge-border);
+      background: var(--mint-bg);
+      color: var(--mint);
+    }
+
+    .form-step {
+      display: none;
+      animation: rise 0.3s ease both;
+    }
+    .form-step.active { display: block; }
+
+    .form-section {
+      margin-bottom: var(--space-lg);
+      padding: var(--space-lg);
+      border: 1px solid var(--border-mid);
+      border-radius: 14px;
+      background: var(--surface-inset-3);
+    }
+    .form-section:last-child { margin-bottom: 0; }
+    .form-section-heading {
+      margin: 0 0 0.35rem;
+      font: 600 var(--text-lg)/1.25 var(--font-sans);
+      color: var(--text-bright);
+    }
+    .form-section-desc {
+      margin: 0 0 var(--space-md);
+      font: 400 var(--text-sm)/1.55 var(--font-sans);
+      color: var(--muted);
+      max-width: 62ch;
+    }
+    .form-section .grid { margin-top: var(--space-sm); }
+
+    .form-divider {
+      margin: var(--space-lg) 0;
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .form-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      align-items: center;
+      justify-content: space-between;
+      margin-top: var(--space-lg);
+      padding: var(--space-lg) 0;
+      border-top: 1px solid var(--border);
+      position: sticky;
+      bottom: 0;
+      background: linear-gradient(to top, var(--panel) 78%, transparent);
+    }
+    .form-nav-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      align-items: center;
+    }
+    .form-nav .btn-primary,
+    .form-nav .btn-secondary { margin-bottom: 0; }
+
+    .review-summary {
+      display: grid;
+      gap: var(--space-md);
+    }
+    .review-block {
+      padding: var(--space-md) var(--space-lg);
+      border: 1px solid var(--border-mid);
+      border-radius: 12px;
+      background: var(--input-bg);
+    }
+    .review-block h3 {
+      margin: 0 0 var(--space-sm);
+      font: 600 var(--text-sm)/1.3 var(--font-sans);
+      color: var(--muted-line);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .review-row {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-md);
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+      font: 400 var(--text-sm)/1.45 var(--font-sans);
+    }
+    .review-row:last-child { border-bottom: none; }
+    .review-row dt { color: var(--muted); flex: none; }
+    .review-row dd {
+      margin: 0;
+      text-align: right;
+      color: var(--text-bright);
+      font-family: var(--font-mono);
+      font-size: 0.92em;
+      word-break: break-all;
+    }
+
+    @media (max-width: 599px) {
+      .toolbar .check-row { width: 100%; }
     }
 
     @keyframes rise {
@@ -424,14 +909,21 @@
         <span class="brand-name">NexQL</span>
         <span class="brand-badge">SETUP</span>
       </div>
-      <div class="topbar-meta" id="header-meta">Loading…</div>
+      <div class="topbar-actions">
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light mode" title="Switch to light mode">
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+        <div class="topbar-meta" id="header-meta">Loading…</div>
+      </div>
     </header>
 
     <nav class="tabs" aria-label="Setup sections">
-      <button type="button" class="tab-btn active" data-tab="profiles"><span class="bar"></span><span>PROFILES</span></button>
-      <button type="button" class="tab-btn" data-tab="editor"><span class="bar"></span><span>EDITOR</span></button>
-      <button type="button" class="tab-btn" data-tab="wire"><span class="bar"></span><span>WIRE</span></button>
-      <button type="button" class="tab-btn" data-tab="import"><span class="bar"></span><span>IMPORT</span></button>
+      <p class="tabs-label">Sections</p>
+      <button type="button" class="tab-btn active" data-tab="profiles"><span class="bar" aria-hidden="true"></span><span>Profiles</span></button>
+      <button type="button" class="tab-btn" data-tab="editor"><span class="bar" aria-hidden="true"></span><span>Editor</span></button>
+      <button type="button" class="tab-btn" data-tab="wire"><span class="bar" aria-hidden="true"></span><span>Wire clients</span></button>
+      <button type="button" class="tab-btn" data-tab="import"><span class="bar" aria-hidden="true"></span><span>Import / Export</span></button>
     </nav>
 
     <main>
@@ -442,11 +934,12 @@
         <section id="tab-profiles" class="tab">
           <div class="panel">
             <h2>Connection profiles</h2>
-            <p class="lede">Named Postgres targets in <code style="font-family:var(--font-mono);color:var(--amber)">~/.config/nexql-mcp/config.toml</code> — passwords go to the OS keyring or an encrypted local file, never plaintext in config.</p>
+            <p class="lede">Named Postgres targets in <code>~/.config/nexql-mcp/config.toml</code> — passwords go to the OS keyring or an encrypted local file, never plaintext in config.</p>
             <div class="toolbar">
               <button type="button" class="btn-primary" id="btn-new-profile">New profile</button>
               <button type="button" class="btn-secondary" id="btn-refresh">Refresh</button>
             </div>
+            <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
@@ -458,49 +951,133 @@
               </thead>
               <tbody id="profiles-table"></tbody>
             </table>
+            </div>
           </div>
         </section>
 
         <section id="tab-editor" class="tab hidden">
-          <div class="panel">
-            <h2 id="editor-title">Profile</h2>
+          <div class="panel editor-panel">
+            <header class="editor-header">
+              <h2 id="editor-title">Profile</h2>
+              <p class="lede" id="editor-lede">Set up a named Postgres connection in five guided steps.</p>
+            </header>
+
+            <nav class="stepper" id="editor-stepper" aria-label="Profile setup steps">
+              <button type="button" class="step-pill active" data-step="1" aria-current="step"><span class="step-num">1</span><span>Basics</span></button>
+              <button type="button" class="step-pill" data-step="2" disabled><span class="step-num">2</span><span>Connection</span></button>
+              <button type="button" class="step-pill" data-step="3" disabled><span class="step-num">3</span><span>Credentials</span></button>
+              <button type="button" class="step-pill" data-step="4" disabled><span class="step-num">4</span><span>Policy</span></button>
+              <button type="button" class="step-pill" data-step="5" disabled><span class="step-num">5</span><span>Review</span></button>
+            </nav>
+
             <form id="profile-form">
-              <div class="grid">
-                <div><label class="field-label" for="f-name">Name</label><input id="f-name" required /></div>
-                <div><label class="field-label" for="f-access">Access mode</label>
-                  <select id="f-access"><option>read</option><option>write</option><option>admin</option></select>
+              <div class="form-step active" data-step="1">
+                <div class="form-section">
+                  <h3 class="form-section-heading">Profile identity</h3>
+                  <p class="form-section-desc">Choose a short, memorable name and how much access MCP tools get for this database.</p>
+                  <div class="grid">
+                    <div>
+                      <label class="field-label" for="f-name">Profile name</label>
+                      <input id="f-name" required placeholder="local-dev" />
+                    </div>
+                    <div>
+                      <label class="field-label" for="f-access">Access mode</label>
+                      <select id="f-access"><option>read</option><option>write</option><option>admin</option></select>
+                      <p class="field-hint">Read is recommended for most MCP use. Write/admin need explicit confirmation.</p>
+                    </div>
+                  </div>
+                  <hr class="form-divider" />
+                  <div class="grid">
+                    <label class="check-row"><input type="checkbox" id="f-default" /> Set as default profile</label>
+                    <label class="check-row"><input type="checkbox" id="f-confirm-elevate" /> I confirm elevated access (write/admin)</label>
+                  </div>
                 </div>
-                <div style="grid-column:1/-1"><label class="field-label" for="f-url">URL (overrides fields below)</label><input id="f-url" placeholder="postgres://user@host:5432/db" /></div>
-                <div><label class="field-label" for="f-host">Host</label><input id="f-host" placeholder="127.0.0.1" /></div>
-                <div><label class="field-label" for="f-port">Port</label><input id="f-port" type="number" placeholder="5432" /></div>
-                <div><label class="field-label" for="f-dbname">Database</label><input id="f-dbname" /></div>
-                <div><label class="field-label" for="f-user">User</label><input id="f-user" /></div>
-                <div><label class="field-label" for="f-password">Password</label><input id="f-password" type="password" autocomplete="new-password" /></div>
-                <div><label class="field-label" for="f-password-command">Password command</label><input id="f-password-command" placeholder="op read op://…" /></div>
-                <div><label class="field-label" for="f-sslmode">SSL mode</label>
-                  <select id="f-sslmode"><option value="">prefer</option><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
+              </div>
+
+              <div class="form-step" data-step="2">
+                <div class="form-section">
+                  <h3 class="form-section-heading">Connection target</h3>
+                  <p class="form-section-desc">Paste a full URL, or fill host fields below. URL takes precedence when both are set.</p>
+                  <div>
+                    <label class="field-label" for="f-url">Connection URL</label>
+                    <input id="f-url" placeholder="postgres://user@host:5432/db" />
+                  </div>
+                </div>
+                <div class="form-section">
+                  <h3 class="form-section-heading">Host details</h3>
+                  <p class="form-section-desc">Used when no URL is provided.</p>
+                  <div class="grid">
+                    <div><label class="field-label" for="f-host">Host</label><input id="f-host" placeholder="127.0.0.1" /></div>
+                    <div><label class="field-label" for="f-port">Port</label><input id="f-port" type="number" placeholder="5432" /></div>
+                    <div><label class="field-label" for="f-dbname">Database</label><input id="f-dbname" placeholder="postgres" /></div>
+                    <div>
+                      <label class="field-label" for="f-sslmode">SSL mode</label>
+                      <select id="f-sslmode"><option value="">prefer</option><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <p class="section-title">Policy</p>
-              <div class="grid">
-                <div><label class="field-label" for="f-schemas">Schemas</label><input id="f-schemas" placeholder="public, billing" /></div>
-                <div><label class="field-label" for="f-deny-schemas">Deny schemas</label><input id="f-deny-schemas" /></div>
-                <div><label class="field-label" for="f-deny-tables">Deny tables</label><input id="f-deny-tables" placeholder="auth.*" /></div>
-                <div><label class="field-label" for="f-pii-columns">PII columns</label><input id="f-pii-columns" placeholder="public.users.email" /></div>
-                <div><label class="field-label" for="f-max-rows">Max rows</label><input id="f-max-rows" type="number" /></div>
-                <div><label class="field-label" for="f-timeout">Statement timeout (ms)</label><input id="f-timeout" type="number" /></div>
+
+              <div class="form-step" data-step="3">
+                <div class="form-section">
+                  <h3 class="form-section-heading">Authentication</h3>
+                  <p class="form-section-desc">Passwords are stored in the OS keyring or an encrypted file — never in config.toml. Use a password command for secret managers.</p>
+                  <div class="grid">
+                    <div><label class="field-label" for="f-user">User</label><input id="f-user" placeholder="postgres" /></div>
+                    <div><label class="field-label" for="f-password">Password</label><input id="f-password" type="password" autocomplete="new-password" /></div>
+                    <div style="grid-column:1/-1">
+                      <label class="field-label" for="f-password-command">Password command</label>
+                      <input id="f-password-command" placeholder="op read op://vault/item/password" />
+                      <p class="field-hint">Optional shell command that prints the password to stdout (1Password, pass, etc.).</p>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="toolbar" style="margin-top:1rem">
-                <label class="check-row"><input type="checkbox" id="f-default" /> Set as default</label>
-                <label class="check-row"><input type="checkbox" id="f-confirm-elevate" /> Confirm elevated access (write/admin)</label>
+
+              <div class="form-step" data-step="4">
+                <div class="form-section">
+                  <h3 class="form-section-heading">Schema access</h3>
+                  <p class="form-section-desc">Restrict which schemas and tables MCP can see. Leave blank to allow all (subject to access mode).</p>
+                  <div class="grid">
+                    <div><label class="field-label" for="f-schemas">Allowed schemas</label><input id="f-schemas" placeholder="public, billing" /></div>
+                    <div><label class="field-label" for="f-deny-schemas">Denied schemas</label><input id="f-deny-schemas" placeholder="pg_catalog" /></div>
+                    <div><label class="field-label" for="f-deny-tables">Denied tables</label><input id="f-deny-tables" placeholder="auth.*" /></div>
+                    <div><label class="field-label" for="f-pii-columns">PII columns</label><input id="f-pii-columns" placeholder="public.users.email" /></div>
+                  </div>
+                </div>
+                <div class="form-section">
+                  <h3 class="form-section-heading">Query limits</h3>
+                  <p class="form-section-desc">Optional guardrails for result size and statement duration.</p>
+                  <div class="grid">
+                    <div><label class="field-label" for="f-max-rows">Max rows</label><input id="f-max-rows" type="number" placeholder="1000" /></div>
+                    <div><label class="field-label" for="f-timeout">Statement timeout (ms)</label><input id="f-timeout" type="number" placeholder="30000" /></div>
+                  </div>
+                </div>
               </div>
-              <div class="toolbar">
-                <button type="button" class="btn-secondary" id="btn-test">Test connection</button>
-                <button type="submit" class="btn-primary">Save profile</button>
-                <button type="button" class="btn-secondary btn-danger hidden" id="btn-delete">Delete</button>
+
+              <div class="form-step" data-step="5">
+                <div class="form-section">
+                  <h3 class="form-section-heading">Review &amp; save</h3>
+                  <p class="form-section-desc">Confirm the settings below, test the connection, then save.</p>
+                  <div id="editor-review" class="review-summary" aria-live="polite"></div>
+                </div>
+                <div id="test-result"></div>
+              </div>
+
+              <div class="form-nav">
+                <div class="form-nav-group">
+                  <button type="button" class="btn-secondary hidden" id="btn-step-back">Back</button>
+                </div>
+                <div class="form-nav-group">
+                  <button type="button" class="btn-primary" id="btn-step-next">Continue</button>
+                  <div id="editor-final-actions" class="form-nav-group hidden">
+                    <button type="button" class="btn-secondary btn-danger hidden" id="btn-delete">Delete profile</button>
+                    <button type="button" class="btn-secondary" id="btn-test">Test connection</button>
+                    <button type="submit" class="btn-primary">Save profile</button>
+                  </div>
+                </div>
               </div>
             </form>
-            <div id="test-result"></div>
           </div>
         </section>
 
@@ -508,7 +1085,14 @@
           <div class="panel">
             <h2>Wire MCP clients</h2>
             <p class="lede">Merge into on-disk client configs with a diff preview — or copy snippets for clients without a safe merge target.</p>
-            <div class="grid" style="margin-bottom:0.5rem">
+            <nav class="subnav" aria-label="Wire sections">
+              <a href="#wire-launch">Launch</a>
+              <a href="#wire-profiles-section">Profiles</a>
+              <a href="#wire-mergeable-section">Mergeable</a>
+              <a href="#wire-copy-section">Copy-only</a>
+              <a href="#wire-preview-section">Preview</a>
+            </nav>
+            <div id="wire-launch" class="grid" style="margin-bottom:0.5rem">
               <div><label class="field-label" for="w-launch">Launch mode</label>
                 <select id="w-launch">
                   <option value="path">PATH binary (nexql-mcp)</option>
@@ -518,24 +1102,26 @@
               </div>
               <div><label class="field-label" for="w-npx-version">npx version pin</label><input id="w-npx-version" placeholder="0.3.3" /></div>
             </div>
-            <p class="section-title">Profiles to wire</p>
+            <p id="wire-profiles-section" class="section-title">Profiles to wire</p>
             <div id="wire-profiles" class="client-list"></div>
-            <p class="section-title">Mergeable clients</p>
+            <p id="wire-mergeable-section" class="section-title">Mergeable clients</p>
             <div id="wire-mergeable" class="client-list"></div>
-            <p class="section-title">Copy-only snippets</p>
+            <p id="wire-copy-section" class="section-title">Copy-only snippets</p>
             <div id="wire-copy" class="client-list"></div>
-            <div class="toolbar" style="margin-top:1rem">
+            <div class="toolbar" style="margin-top:1.25rem">
               <button type="button" class="btn-primary" id="btn-preview-wire">Preview changes</button>
               <button type="button" class="btn-secondary hidden" id="btn-apply-wire">Apply selected</button>
             </div>
+            <div id="wire-preview-section">
             <div id="wire-preview"></div>
+            </div>
           </div>
         </section>
 
         <section id="tab-import" class="tab hidden">
           <div class="panel">
             <h2>Import profiles</h2>
-            <p class="lede">Paste TOML with a <code style="font-family:var(--font-mono);color:var(--amber)">[profiles.*]</code> section. Secrets are routed to the keyring or encrypted file on import.</p>
+            <p class="lede">Paste TOML with a <code>[profiles.*]</code> section. Secrets are routed to the keyring or encrypted file on import.</p>
             <label class="field-label" for="import-toml">TOML</label>
             <textarea id="import-toml" placeholder="[profiles.local]&#10;url = &quot;postgres://…&quot;"></textarea>
             <div class="toolbar"><button type="button" class="btn-primary" id="btn-import">Import</button></div>
@@ -556,12 +1142,165 @@
     let token = params.get('token') || sessionStorage.getItem('nexql_setup_token') || '';
     if (params.get('token')) sessionStorage.setItem('nexql_setup_token', token);
 
+    const THEME_KEY = 'nexql_setup_theme';
+
+    function getTheme() {
+      return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem(THEME_KEY, theme);
+      const meta = document.getElementById('theme-color-meta');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#faf9f5' : '#0B0E14');
+      const toggle = document.getElementById('theme-toggle');
+      if (toggle) {
+        const next = theme === 'light' ? 'dark' : 'light';
+        const label = `Switch to ${next} mode`;
+        toggle.setAttribute('aria-label', label);
+        toggle.setAttribute('title', label);
+      }
+    }
+
+    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+      applyTheme(getTheme() === 'light' ? 'dark' : 'light');
+    });
+
     let meta = null;
     let profiles = [];
     let selectedProfile = null;
     let editingExisting = false;
     let wirePreview = null;
     let clients = { mergeable: [], copy_only: [] };
+    const EDITOR_STEP_COUNT = 5;
+    let editorStep = 1;
+    let editorMaxStep = 1;
+
+    function editorField(id) {
+      return document.getElementById(id)?.value.trim() || '';
+    }
+
+    function editorDisplay(value, fallback = '—') {
+      const v = value?.trim?.() ?? value;
+      return v ? escapeHtml(v) : `<span style="color:var(--muted)">${fallback}</span>`;
+    }
+
+    function validateEditorStep(step) {
+      if (step === 1) {
+        if (!editorField('f-name')) {
+          flash('Enter a profile name to continue', 'err');
+          document.getElementById('f-name')?.focus();
+          return false;
+        }
+        const access = document.getElementById('f-access').value;
+        if ((access === 'write' || access === 'admin') && !document.getElementById('f-confirm-elevate').checked) {
+          flash('Confirm elevated access for write/admin mode', 'err');
+          return false;
+        }
+      }
+      if (step === 2) {
+        const hasUrl = !!editorField('f-url');
+        const hasHost = !!editorField('f-host');
+        if (!hasUrl && !hasHost) {
+          flash('Provide a connection URL or at least a host', 'err');
+          document.getElementById(hasUrl ? 'f-url' : 'f-host')?.focus();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function renderEditorReview() {
+      const box = document.getElementById('editor-review');
+      if (!box) return;
+      const target = editorField('f-url')
+        || [editorField('f-host') || 'host', editorField('f-port') || '5432', editorField('f-dbname') || 'db'].join(':');
+      const auth = editorField('f-password-command')
+        ? 'password command'
+        : (editorField('f-password') ? 'password set' : 'none');
+      box.innerHTML = `
+        <div class="review-block">
+          <h3>Basics</h3>
+          <dl>
+            <div class="review-row"><dt>Name</dt><dd>${editorDisplay(editorField('f-name'))}</dd></div>
+            <div class="review-row"><dt>Access</dt><dd>${editorDisplay(document.getElementById('f-access').value)}</dd></div>
+            <div class="review-row"><dt>Default</dt><dd>${document.getElementById('f-default').checked ? 'yes' : 'no'}</dd></div>
+          </dl>
+        </div>
+        <div class="review-block">
+          <h3>Connection</h3>
+          <dl>
+            <div class="review-row"><dt>Target</dt><dd>${editorDisplay(target)}</dd></div>
+            <div class="review-row"><dt>SSL</dt><dd>${editorDisplay(document.getElementById('f-sslmode').value || 'prefer')}</dd></div>
+            <div class="review-row"><dt>User</dt><dd>${editorDisplay(editorField('f-user'))}</dd></div>
+            <div class="review-row"><dt>Auth</dt><dd>${auth}</dd></div>
+          </dl>
+        </div>
+        <div class="review-block">
+          <h3>Policy</h3>
+          <dl>
+            <div class="review-row"><dt>Schemas</dt><dd>${editorDisplay(editorField('f-schemas'), 'all')}</dd></div>
+            <div class="review-row"><dt>Denied</dt><dd>${editorDisplay([editorField('f-deny-schemas'), editorField('f-deny-tables')].filter(Boolean).join(', '), 'none')}</dd></div>
+            <div class="review-row"><dt>PII cols</dt><dd>${editorDisplay(editorField('f-pii-columns'), 'none')}</dd></div>
+            <div class="review-row"><dt>Limits</dt><dd>${editorDisplay([editorField('f-max-rows') && `max ${editorField('f-max-rows')} rows`, editorField('f-timeout') && `${editorField('f-timeout')} ms`].filter(Boolean).join(', '), 'default')}</dd></div>
+          </dl>
+        </div>`;
+    }
+
+    function setEditorStep(step, { focus = true } = {}) {
+      editorStep = Math.max(1, Math.min(EDITOR_STEP_COUNT, step));
+      editorMaxStep = Math.max(editorMaxStep, editorStep);
+      document.querySelectorAll('.form-step').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.step) === editorStep);
+      });
+      document.querySelectorAll('.step-pill').forEach(el => {
+        const n = Number(el.dataset.step);
+        const reachable = n <= editorMaxStep;
+        el.disabled = !reachable;
+        el.classList.toggle('active', n === editorStep);
+        el.classList.toggle('done', n < editorStep);
+        el.setAttribute('aria-current', n === editorStep ? 'step' : 'false');
+      });
+      document.getElementById('btn-step-back')?.classList.toggle('hidden', editorStep === 1);
+      const isLast = editorStep === EDITOR_STEP_COUNT;
+      document.getElementById('btn-step-next')?.classList.toggle('hidden', isLast);
+      document.getElementById('editor-final-actions')?.classList.toggle('hidden', !isLast);
+      if (isLast) renderEditorReview();
+      if (focus) {
+        const panel = document.querySelector(`.form-step[data-step="${editorStep}"]`);
+        const focusable = panel?.querySelector('input:not([readonly]), select, textarea, button');
+        focusable?.focus({ preventScroll: true });
+      }
+      document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetEditorWizard() {
+      editorStep = 1;
+      editorMaxStep = 1;
+      setEditorStep(1, { focus: false });
+    }
+
+    document.querySelectorAll('.step-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = Number(btn.dataset.step);
+        if (target > editorMaxStep || target === editorStep) return;
+        if (target > editorStep) {
+          for (let s = editorStep; s < target; s++) {
+            if (!validateEditorStep(s)) return;
+          }
+        }
+        setEditorStep(target);
+      });
+    });
+
+    document.getElementById('btn-step-next')?.addEventListener('click', () => {
+      if (!validateEditorStep(editorStep)) return;
+      setEditorStep(editorStep + 1);
+    });
+
+    document.getElementById('btn-step-back')?.addEventListener('click', () => {
+      setEditorStep(editorStep - 1);
+    });
 
     function headers() {
       return {
@@ -591,6 +1330,7 @@
       document.querySelectorAll('.tab').forEach(t => t.classList.add('hidden'));
       document.getElementById(`tab-${name}`).classList.remove('hidden');
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -649,6 +1389,14 @@
       document.getElementById('f-default').checked = !!p.is_default;
       document.getElementById('btn-delete').classList.toggle('hidden', !editingExisting);
       document.getElementById('editor-title').textContent = editingExisting ? `Edit · ${p.name}` : 'New profile';
+      document.getElementById('editor-lede').textContent = editingExisting
+        ? 'Update this profile step by step, then test and save.'
+        : 'Set up a named Postgres connection in five guided steps.';
+      resetEditorWizard();
+      if (editingExisting) {
+        editorMaxStep = EDITOR_STEP_COUNT;
+        document.querySelectorAll('.step-pill').forEach(el => { el.disabled = false; });
+      }
     }
 
     async function loadMeta() {
@@ -658,6 +1406,18 @@
       document.getElementById('header-meta').textContent = parts.join(' · ');
       document.getElementById('w-npx-version').placeholder = meta.version;
       renderKeyringBanner();
+      renderMobileMeta(parts.join(' · '));
+    }
+
+    function renderMobileMeta(text) {
+      let el = document.getElementById('mobile-meta');
+      if (!el) {
+        el = document.createElement('p');
+        el.id = 'mobile-meta';
+        el.className = 'meta mobile-meta';
+        document.querySelector('.content')?.prepend(el);
+      }
+      el.textContent = text;
     }
 
     function renderKeyringBanner() {
@@ -668,7 +1428,7 @@
         el.className = 'hidden';
         el.innerHTML = '';
         if (pw) { pw.disabled = false; pw.placeholder = ''; }
-        if (pwLabel) pwLabel.textContent = 'Password (OS keyring)';
+        if (pwLabel) pwLabel.textContent = 'Password';
         return;
       }
       el.className = 'status err';
@@ -682,7 +1442,7 @@
         ' Prefer <code>password_command</code> for production, or install gnome-keyring: ' +
         '<code>sudo apt install gnome-keyring dbus-x11</code> then <code>gnome-keyring-daemon --start --components=secrets</code>.';
       if (pw) { pw.disabled = false; pw.placeholder = 'stored encrypted on disk'; }
-      if (pwLabel) pwLabel.textContent = 'Password (encrypted file)';
+      if (pwLabel) pwLabel.textContent = 'Password';
     }
 
     async function loadProfiles() {
@@ -729,6 +1489,12 @@
 
     document.getElementById('profile-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      for (let s = 1; s <= 2; s++) {
+        if (!validateEditorStep(s)) {
+          setEditorStep(s);
+          return;
+        }
+      }
       try {
         const name = document.getElementById('f-name').value.trim();
         const body = profilePayload();
@@ -831,7 +1597,7 @@
         const box = document.getElementById('wire-preview');
         let html = '';
         wirePreview.diffs.forEach((d, i) => {
-          html += `<div class="panel" style="margin-top:0.75rem"><h2 style="font-size:1.15rem">${escapeHtml(d.display_name)}</h2><p class="meta">${escapeHtml(d.config_path)}</p>`;
+          html += `<div class="panel panel-compact" style="margin-top:1rem"><h2>${escapeHtml(d.display_name)}</h2><p class="meta">${escapeHtml(d.config_path)}</p>`;
           if (d.valid) {
             html += `<label class="diff-apply"><input type="checkbox" class="apply-diff" data-idx="${i}" data-key="${escapeHtml(d.client_key)}" checked /> Apply this change</label>`;
             html += `<pre class="diff">${escapeHtml(d.unified_diff)}</pre>`;
@@ -841,7 +1607,7 @@
           html += '</div>';
         });
         wirePreview.snippets.forEach(s => {
-          html += `<div class="panel" style="margin-top:0.75rem"><h2 style="font-size:1.15rem">${escapeHtml(s.display_name)} <span class="badge">copy</span></h2>`;
+          html += `<div class="panel panel-compact" style="margin-top:1rem"><h2>${escapeHtml(s.display_name)} <span class="badge">copy</span></h2>`;
           if (s.error) html += `<div class="status err">${escapeHtml(s.error)}</div>`;
           else html += `<textarea readonly>${escapeHtml(s.content)}</textarea>`;
           html += '</div>';
@@ -884,6 +1650,7 @@
     });
 
     async function boot() {
+      applyTheme(getTheme());
       if (!token) {
         flash('Missing setup token — run `nexql-mcp setup` and open the printed URL', 'err');
         return;

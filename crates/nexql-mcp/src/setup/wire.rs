@@ -441,7 +441,7 @@ pub fn finalize_tui_diffs(diffs: &[TuiDiffEntry]) -> Vec<TuiSummaryEntry> {
     summary
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn profile_from_wire_fields(
     url: Option<String>,
     host: Option<String>,

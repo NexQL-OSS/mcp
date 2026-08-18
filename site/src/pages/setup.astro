@@ -1,0 +1,104 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { SetupDemo } from "../islands/SetupDemo";
+---
+
+<BaseLayout
+  title="NexQL MCP — install and setup in five steps"
+  description="Copy-paste prompts for your AI agent: run the setup wizard, save a database profile, wire Cursor, verify with doctor, and ask your first question. No manual JSON."
+  canonical="https://nexql-mcp.astrx.dev/setup"
+>
+  <SetupDemo client:load />
+</BaseLayout>
+
+<style is:global>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0a0b0d;
+  }
+  body {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a {
+    color: #d2a76a;
+    text-decoration: none;
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+  }
+  ::selection {
+    background: rgba(210, 167, 106, 0.3);
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #20242b;
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @keyframes stRise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes stFade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes stBlink {
+    0%,
+    48% {
+      opacity: 1;
+    }
+    49%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .story-navlink:hover {
+    color: #f2f0ea;
+  }
+  .story-install-btn:hover {
+    border-color: #d2a76a;
+  }
+  .story-option:hover {
+    border-color: #4e545f;
+  }
+  .story-close:hover {
+    color: #f2f0ea;
+  }
+  .story-tab:hover {
+    border-color: #4e545f;
+  }
+  .story-tab[aria-pressed="true"]:hover {
+    border-color: #d2a76a;
+  }
+  .story-copy-btn:hover {
+    border-color: #d2a76a;
+    color: #f2f0ea;
+  }
+</style>
