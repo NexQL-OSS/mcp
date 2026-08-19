@@ -1,6 +1,6 @@
 {
   "name": "@nexql/mcp-win32-x64",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "nexql-mcp Windows x64 binary (optionalDependency of nexql-mcp)",
   "license": "GPL-3.0-only",
   "repository": "github:NexQL-OSS/mcp",

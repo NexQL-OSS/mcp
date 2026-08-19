@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-19
+
+### Changed
+- **Setup wizard UI**: tighter spacing/type scale in `crates/nexql-mcp/assets/setup/index.html` (denser touch targets, smaller headings/labels, reduced panel padding).
+
+### Added
+- **`crates/nexql-mcp/build.rs`**: reruns the build on setup-wizard `index.html` changes.
+
 ## [0.4.1] - 2026-08-18
 
 ### Fixed

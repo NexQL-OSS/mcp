@@ -2528,7 +2528,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "nexql-conn"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chacha20poly1305",
  "deadpool-postgres",
@@ -2550,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-index"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "candle-core",
@@ -2571,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-mcp"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -2597,7 +2597,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-policy"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "pg_query",
  "serde",
@@ -2607,7 +2607,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-proto"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -2622,7 +2622,7 @@ dependencies = [
 
 [[package]]
 name = "nexql-tools"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
