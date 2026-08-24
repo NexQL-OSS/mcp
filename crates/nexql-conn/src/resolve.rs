@@ -188,7 +188,8 @@ pub fn resolve_profile(
     profile: &ProfileConfig,
 ) -> Result<ConnectionParams, ConnError> {
     let mut cfg = ConfigFile::default();
-    cfg.profiles.insert(profile_name.to_string(), profile.clone());
+    cfg.profiles
+        .insert(profile_name.to_string(), profile.clone());
     let inputs = ResolveInputs {
         profile_names: vec![profile_name.to_string()],
         config: Some(cfg),

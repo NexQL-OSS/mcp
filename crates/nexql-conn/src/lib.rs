@@ -17,9 +17,9 @@ pub mod tls;
 
 pub use config::{
     ConfigFile, ProfileConfig, ProjectConfigFile, SecretMigrationReport,
-    config_plaintext_secret_warnings, find_project_config, load_path_migrated,
-    load_project_config, log_secret_migration_report, migrate_plaintext_secrets,
-    prepare_profile_for_persist, profile_has_plaintext_secret, write_with_backup,
+    config_plaintext_secret_warnings, find_project_config, load_path_migrated, load_project_config,
+    log_secret_migration_report, migrate_plaintext_secrets, prepare_profile_for_persist,
+    profile_has_plaintext_secret, write_with_backup,
 };
 pub use error::{ConnError, format_postgres_error};
 pub use pool::{
@@ -31,10 +31,10 @@ pub use resolve::{
     params_from_url, resolve, resolve_all, resolve_profile,
 };
 pub use secret::{
-    CommandRunner, ProcessCommandRunner, RoutedCredential, StoredCredential,
-    encrypted_file_storage_warning, read_password_file, resolve_keyring_password,
+    CommandRunner, ENCRYPTED_FILE_PROVIDER, ProcessCommandRunner, RoutedCredential,
+    StoredCredential, encrypted_file_storage_warning, read_password_file, resolve_keyring_password,
     resolve_profile_file_password, resolve_stored_profile_password, route_password_to_keyring,
-    store_keyring_password, store_profile_password, ENCRYPTED_FILE_PROVIDER,
+    store_keyring_password, store_profile_password,
 };
 pub use secret_encrypted::{
     delete_encrypted_profile_password, nexql_config_dir, resolve_encrypted_profile_password,

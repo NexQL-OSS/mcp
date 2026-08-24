@@ -36,16 +36,13 @@ pub fn rows_to_json_array_with_total(
     total_col: &str,
 ) -> (Option<i64>, Value) {
     let total = rows.first().and_then(|row| {
-        row.columns()
-            .iter()
-            .enumerate()
-            .find_map(|(i, col)| {
-                if col.name() == total_col {
-                    row.try_get::<_, Option<i64>>(i).ok().flatten()
-                } else {
-                    None
-                }
-            })
+        row.columns().iter().enumerate().find_map(|(i, col)| {
+            if col.name() == total_col {
+                row.try_get::<_, Option<i64>>(i).ok().flatten()
+            } else {
+                None
+            }
+        })
     });
     let values: Vec<Value> = rows
         .iter()

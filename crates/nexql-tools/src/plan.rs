@@ -83,8 +83,7 @@ pub fn extract_plan_metrics(explain_plan: &Value) -> Option<Value> {
         && ratio < 80.0
     {
         recommendations.push(
-            "Low buffer hit ratio; consider increasing work_mem or improving indexes"
-                .to_owned(),
+            "Low buffer hit ratio; consider increasing work_mem or improving indexes".to_owned(),
         );
     }
     if let Some(first) = bottlenecks.first() {

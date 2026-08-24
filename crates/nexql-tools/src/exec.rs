@@ -17,8 +17,8 @@ use nexql_policy::{
 use serde_json::{Value, json};
 
 use crate::cell_json::{
-    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload,
-    rows_to_json_array, rows_to_json_array_with_total,
+    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload, rows_to_json_array,
+    rows_to_json_array_with_total,
 };
 use crate::critique;
 use crate::error::ToolError;
@@ -1909,11 +1909,7 @@ impl ToolRouter {
                 let fk_cols: std::collections::HashSet<String> = entry
                     .foreign_keys
                     .as_ref()
-                    .map(|fks| {
-                        fks.iter()
-                            .flat_map(|fk| fk.columns.clone())
-                            .collect()
-                    })
+                    .map(|fks| fks.iter().flat_map(|fk| fk.columns.clone()).collect())
                     .unwrap_or_default();
                 let columns: Vec<Value> = entry
                     .columns
@@ -3720,11 +3716,7 @@ fn is_statement_timeout(err: &tokio_postgres::Error) -> bool {
 
 fn payload_to_row_objects(payload: &Value) -> Vec<Value> {
     if let Some(rows) = payload.get("rows").and_then(|v| v.as_array()) {
-        if rows
-            .first()
-            .and_then(|r| r.as_object())
-            .is_some()
-        {
+        if rows.first().and_then(|r| r.as_object()).is_some() {
             return rows.clone();
         }
         if let Some(cols) = payload.get("columns").and_then(|v| v.as_array()) {
@@ -3738,10 +3730,7 @@ fn payload_to_row_objects(payload: &Value) -> Vec<Value> {
                 .map(|cells| {
                     let mut obj = serde_json::Map::new();
                     for (idx, name) in col_names.iter().enumerate() {
-                        obj.insert(
-                            name.clone(),
-                            cells.get(idx).cloned().unwrap_or(Value::Null),
-                        );
+                        obj.insert(name.clone(), cells.get(idx).cloned().unwrap_or(Value::Null));
                     }
                     Value::Object(obj)
                 })
@@ -3760,10 +3749,7 @@ fn payload_to_columnar(payload: &Value) -> (Vec<String>, Vec<Vec<Value>>) {
             .iter()
             .filter_map(|c| c.as_str().map(str::to_owned))
             .collect();
-        let row_vecs: Vec<Vec<Value>> = rows
-            .iter()
-            .filter_map(|r| r.as_array().cloned())
-            .collect();
+        let row_vecs: Vec<Vec<Value>> = rows.iter().filter_map(|r| r.as_array().cloned()).collect();
         return (col_names, row_vecs);
     }
     let row_objs = payload_to_row_objects(payload);
@@ -3898,7 +3884,9 @@ fn parse_sql_params(args: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-fn sql_param_boxes(params: &[Value]) -> Result<Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>, ToolError> {
+fn sql_param_boxes(
+    params: &[Value],
+) -> Result<Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>, ToolError> {
     params
         .iter()
         .map(json_to_sql_param)

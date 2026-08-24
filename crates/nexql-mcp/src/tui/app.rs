@@ -343,14 +343,15 @@ impl App {
 
     fn finalize_diffs(&mut self) {
         let finalized = wire::finalize_tui_diffs(&self.diffs);
-        self.summary.extend(finalized.into_iter().map(|s| SummaryEntry {
-            display_name: s.display_name,
-            path: s.path,
-            backup: s.backup,
-            snippet: s.snippet,
-            error: s.error,
-            skipped: s.skipped,
-        }));
+        self.summary
+            .extend(finalized.into_iter().map(|s| SummaryEntry {
+                display_name: s.display_name,
+                path: s.path,
+                backup: s.backup,
+                snippet: s.snippet,
+                error: s.error,
+                skipped: s.skipped,
+            }));
         self.screen = Screen::Summary;
     }
 

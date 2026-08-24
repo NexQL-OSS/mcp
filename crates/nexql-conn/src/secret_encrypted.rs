@@ -31,7 +31,10 @@ pub fn nexql_config_dir() -> Result<PathBuf, ConnError> {
 pub fn secrets_dir() -> Result<PathBuf, ConnError> {
     let dir = nexql_config_dir()?.join(SECRETS_SUBDIR);
     fs::create_dir_all(&dir).map_err(|e| {
-        ConnError::Config(format!("could not create secrets directory {}: {e}", dir.display()))
+        ConnError::Config(format!(
+            "could not create secrets directory {}: {e}",
+            dir.display()
+        ))
     })?;
     #[cfg(unix)]
     {
@@ -101,19 +104,24 @@ fn load_or_create_master_key(config_dir: &Path) -> Result<[u8; MASTER_KEY_LEN], 
     })?;
 
     let mut key = [0u8; MASTER_KEY_LEN];
-    getrandom::fill(&mut key).map_err(|e| {
-        ConnError::Config(format!("could not generate master key entropy: {e}"))
-    })?;
+    getrandom::fill(&mut key)
+        .map_err(|e| ConnError::Config(format!("could not generate master key entropy: {e}")))?;
 
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
         .map_err(|e| {
-            ConnError::Config(format!("could not create master key {}: {e}", path.display()))
+            ConnError::Config(format!(
+                "could not create master key {}: {e}",
+                path.display()
+            ))
         })?;
     file.write_all(&key).map_err(|e| {
-        ConnError::Config(format!("could not write master key {}: {e}", path.display()))
+        ConnError::Config(format!(
+            "could not write master key {}: {e}",
+            path.display()
+        ))
     })?;
     #[cfg(unix)]
     {
@@ -148,9 +156,8 @@ fn decrypt_password(key: &[u8; MASTER_KEY_LEN], blob: &[u8]) -> Result<String, C
     let plaintext = cipher
         .decrypt(nonce, &blob[header_len..])
         .map_err(|e| ConnError::Config(format!("password decryption failed: {e}")))?;
-    let password = String::from_utf8(plaintext).map_err(|e| {
-        ConnError::Config(format!("decrypted password is not valid UTF-8: {e}"))
-    })?;
+    let password = String::from_utf8(plaintext)
+        .map_err(|e| ConnError::Config(format!("decrypted password is not valid UTF-8: {e}")))?;
     if password.is_empty() {
         return Err(ConnError::Config("decrypted password is empty".into()));
     }
@@ -202,7 +209,8 @@ pub fn store_encrypted_profile_password_at(
         let _ = fs::set_permissions(&abs, fs::Permissions::from_mode(0o600));
     }
 
-    let round_trip = resolve_encrypted_profile_password_at(config_dir, profile_name, Path::new(&rel))?;
+    let round_trip =
+        resolve_encrypted_profile_password_at(config_dir, profile_name, Path::new(&rel))?;
     if round_trip != password {
         return Err(ConnError::Config(
             "encrypted password store succeeded but read-back mismatch".into(),
@@ -256,7 +264,8 @@ mod tests {
     fn encrypted_password_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let config_dir = dir.path().join("nexql-mcp");
-        let rel = store_encrypted_profile_password_at(&config_dir, "Ecom DB", "wsl-secret").unwrap();
+        let rel =
+            store_encrypted_profile_password_at(&config_dir, "Ecom DB", "wsl-secret").unwrap();
         assert!(rel.starts_with("secrets/"));
         assert_eq!(
             resolve_encrypted_profile_password_at(&config_dir, "Ecom DB", Path::new(&rel)).unwrap(),
@@ -273,7 +282,8 @@ mod tests {
         let path = config_dir.join(&rel);
         fs::write(&path, b"not-a-nexql-secret").unwrap();
         load_or_create_master_key(&config_dir).unwrap();
-        let err = resolve_encrypted_profile_password_at(&config_dir, "prod", Path::new(&rel)).unwrap_err();
+        let err = resolve_encrypted_profile_password_at(&config_dir, "prod", Path::new(&rel))
+            .unwrap_err();
         assert!(matches!(err, ConnError::Config(_)));
     }
 }

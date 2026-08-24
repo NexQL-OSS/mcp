@@ -145,10 +145,7 @@ pub async fn smoke_env() -> Option<SmokeEnv> {
     let config_dir = TempDir::new().ok()?;
     unsafe {
         std::env::set_var("NEXQL_MCP_INDEX_DIR", index_dir.path());
-        std::env::set_var(
-            "NEXQL_MCP_CONFIG",
-            config_dir.path().join("config.toml"),
-        );
+        std::env::set_var("NEXQL_MCP_CONFIG", config_dir.path().join("config.toml"));
     }
 
     let params = params_from_url(&url).unwrap();
@@ -166,12 +163,12 @@ pub async fn smoke_env() -> Option<SmokeEnv> {
         ),
     };
     let store = IndexStore::new(index_dir.path());
-    let session = ToolSession::from_connections(vec![info], None)
-        .await
-        .ok()?;
+    let session = ToolSession::from_connections(vec![info], None).await.ok()?;
     let router = Arc::new(ToolRouter::with_index_store(session, Some(store)));
 
-    let build = router.call("rebuild_index", serde_json::json!({ "depth": "shallow" })).await;
+    let build = router
+        .call("rebuild_index", serde_json::json!({ "depth": "shallow" }))
+        .await;
     if build.is_error {
         eprintln!("skip: rebuild_index failed: {}", build.text);
         return None;

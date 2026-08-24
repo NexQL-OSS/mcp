@@ -244,10 +244,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("managed.pass");
         std::fs::write(&path, "file-secret\n").unwrap();
-        assert_eq!(
-            resolve_profile_file_password(&path).unwrap(),
-            "file-secret"
-        );
+        assert_eq!(resolve_profile_file_password(&path).unwrap(), "file-secret");
     }
 
     #[test]
@@ -266,9 +263,7 @@ mod tests {
 
         // Full store_profile_password may use keyring when available; encrypted path is covered above.
         let stored = store_profile_password("probe-only", "x").unwrap();
-        assert!(
-            stored.provider == "keyring" || stored.provider == ENCRYPTED_FILE_PROVIDER
-        );
+        assert!(stored.provider == "keyring" || stored.provider == ENCRYPTED_FILE_PROVIDER);
     }
 
     #[test]

@@ -1300,10 +1300,7 @@ fn emit_secret_migration_report(report: &nexql_conn::SecretMigrationReport) {
         );
     }
     if let Some(ref backup) = report.backup {
-        eprintln!(
-            "  (previous config backed up to {})",
-            backup.display()
-        );
+        eprintln!("  (previous config backed up to {})", backup.display());
     }
 }
 
@@ -2007,7 +2004,10 @@ mod main_cli_tests {
                 open,
                 ..
             }) => {
-                assert_eq!(workspace_root.as_deref(), Some(PathBuf::from("/tmp/proj").as_path()));
+                assert_eq!(
+                    workspace_root.as_deref(),
+                    Some(PathBuf::from("/tmp/proj").as_path())
+                );
                 assert!(!open);
             }
             _ => panic!("Expected Commands::Setup"),

@@ -216,7 +216,13 @@ async fn edit_row_insert(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
-    let rows = redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
+    let rows = redact_row_results(
+        session,
+        None,
+        Some(schema),
+        Some(table),
+        simple_rows_to_json(&rows),
+    );
     let mut payload = json!({
         "action": "insert",
         "table": format!("{schema}.{table}"),
@@ -301,8 +307,13 @@ async fn edit_row_update(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
-    let after =
-        redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
+    let after = redact_row_results(
+        session,
+        None,
+        Some(schema),
+        Some(table),
+        simple_rows_to_json(&rows),
+    );
     let mut payload = json!({
         "action": "update",
         "table": format!("{schema}.{table}"),
@@ -354,8 +365,13 @@ async fn edit_row_delete(
         .map(|p| p.as_ref() as &(dyn ToSql + Sync))
         .collect();
     let rows = client.query(&sql, &param_refs[..]).await?;
-    let after =
-        redact_row_results(session, None, Some(schema), Some(table), simple_rows_to_json(&rows));
+    let after = redact_row_results(
+        session,
+        None,
+        Some(schema),
+        Some(table),
+        simple_rows_to_json(&rows),
+    );
     let mut payload = json!({
         "action": "delete",
         "table": format!("{schema}.{table}"),
@@ -892,9 +908,8 @@ fn json_to_sql_param(
                 return Ok(Box::new(Json(val.clone())));
             }
             if typ.contains("uuid") {
-                let parsed = Uuid::parse_str(s).map_err(|e| {
-                    ToolError::InvalidArgs(format!("invalid uuid for column: {e}"))
-                })?;
+                let parsed = Uuid::parse_str(s)
+                    .map_err(|e| ToolError::InvalidArgs(format!("invalid uuid for column: {e}")))?;
                 return Ok(Box::new(parsed));
             }
             if typ.contains("int") || typ == "bigint" || typ == "smallint" {
@@ -904,9 +919,11 @@ fn json_to_sql_param(
                 return Ok(Box::new(n));
             }
             if typ.contains("numeric") || typ.contains("decimal") {
-                let d = Decimal::from_str_exact(s).or_else(|_| s.parse::<Decimal>()).map_err(
-                    |e| ToolError::InvalidArgs(format!("invalid numeric for column: {e}")),
-                )?;
+                let d = Decimal::from_str_exact(s)
+                    .or_else(|_| s.parse::<Decimal>())
+                    .map_err(|e| {
+                        ToolError::InvalidArgs(format!("invalid numeric for column: {e}"))
+                    })?;
                 return Ok(Box::new(d));
             }
             if typ.contains("timestamp") {
@@ -918,9 +935,8 @@ fn json_to_sql_param(
                 }
             }
             if typ == "date" {
-                let d = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|e| {
-                    ToolError::InvalidArgs(format!("invalid date for column: {e}"))
-                })?;
+                let d = NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map_err(|e| ToolError::InvalidArgs(format!("invalid date for column: {e}")))?;
                 return Ok(Box::new(d));
             }
             Ok(Box::new(s.clone()))
@@ -1277,7 +1293,9 @@ mod tests {
 
     #[test]
     fn execute_sql_enforces_read_table_policy() {
-        use nexql_policy::{PolicyFilter, SqlDecision, enforce_read_table_policy, validate_readonly_sql};
+        use nexql_policy::{
+            PolicyFilter, SqlDecision, enforce_read_table_policy, validate_readonly_sql,
+        };
 
         let sql = "SELECT * FROM auth.credentials";
         assert_eq!(validate_readonly_sql(sql).unwrap(), SqlDecision::Allow);

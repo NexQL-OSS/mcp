@@ -313,9 +313,7 @@ impl ConfigFile {
         ProjectConfigFile {
             default_profile: self.default_profile.clone(),
             access_mode: policy_source.and_then(|p| p.access_mode.clone()),
-            schemas: policy_source
-                .map(|p| p.schemas.clone())
-                .unwrap_or_default(),
+            schemas: policy_source.map(|p| p.schemas.clone()).unwrap_or_default(),
             deny_schemas: policy_source
                 .map(|p| p.deny_schemas.clone())
                 .unwrap_or_default(),
@@ -891,10 +889,7 @@ url = "postgres://evil.com/db"
         if report.migrated.is_empty() {
             assert_eq!(report.failed.len(), 1);
             assert_eq!(report.failed[0].0, "prod");
-            assert_eq!(
-                cfg.profiles["prod"].password.as_deref(),
-                Some(SECRET)
-            );
+            assert_eq!(cfg.profiles["prod"].password.as_deref(), Some(SECRET));
         } else {
             assert_eq!(report.migrated, vec!["prod".to_string()]);
             assert!(cfg.profiles["prod"].password.is_none());

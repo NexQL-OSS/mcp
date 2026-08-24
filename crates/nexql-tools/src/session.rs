@@ -9,8 +9,8 @@ use std::sync::{Arc, RwLock};
 
 use deadpool_postgres::{Object, Pool};
 use nexql_conn::{
-    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded, create_pool,
-    resolve_profile,
+    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded,
+    create_pool, resolve_profile,
 };
 use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter, clamp_statement_timeout_ms};
@@ -542,10 +542,7 @@ impl ToolSession {
         }
     }
 
-    pub async fn set_statement_timeout(
-        client: &Object,
-        timeout_ms: u32,
-    ) -> Result<(), ToolError> {
+    pub async fn set_statement_timeout(client: &Object, timeout_ms: u32) -> Result<(), ToolError> {
         let ms = clamp_statement_timeout_ms(timeout_ms);
         client
             .batch_execute(&format!("SET statement_timeout = '{ms}ms'"))
@@ -673,9 +670,7 @@ mod tests {
             connection_id: "b".into(),
             database: "postgres".into(),
         };
-        let _ = session
-            .checkout_for(CheckoutTarget::Scoped(&scoped))
-            .await;
+        let _ = session.checkout_for(CheckoutTarget::Scoped(&scoped)).await;
         let (active_id, _) = session.active_context().await;
         assert_eq!(active_id, "a");
     }
