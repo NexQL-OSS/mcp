@@ -426,7 +426,11 @@ impl ToolRouter {
             .get("include_diff")
             .and_then(|v| v.as_bool())
             .unwrap_or(dry_run);
-        let outcome = execute_sql(&self.session, sql, dry_run, include_diff).await?;
+        let timeout_ms = args
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32);
+        let outcome = execute_sql(&self.session, sql, dry_run, include_diff, timeout_ms).await?;
         Ok(self.attach_dml_critique(sql, outcome).await)
     }
 
@@ -500,7 +504,15 @@ impl ToolRouter {
             .get("dry_run")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        apply_ddl(&self.session, sql, dry_run).await
+        let confirm_destructive = args
+            .get("confirm_destructive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let timeout_ms = args
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32);
+        apply_ddl(&self.session, sql, dry_run, confirm_destructive, timeout_ms).await
     }
 
     async fn create_index_concurrently_tool(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1010,6 +1022,7 @@ impl ToolRouter {
                     match cat.as_str() {
                         "query" if !ToolName::QUERY_PROFILE.contains(&spec.name) => return false,
                         "dba" if !ToolName::DBA_PROFILE.contains(&spec.name) => return false,
+                        "meta" if !ToolName::META_PROFILE.contains(&spec.name) => return false,
                         "write" if !ToolName::PHASE9.contains(&spec.name) => return false,
                         _ => {}
                     }
@@ -1451,7 +1464,7 @@ impl ToolRouter {
         let routed =
             Self::route_password_to_keyring(name, args.get("password").and_then(|v| v.as_str()))?;
 
-        let p_config = nexql_conn::ProfileConfig {
+        let mut p_config = nexql_conn::ProfileConfig {
             url: args.get("url").and_then(|v| v.as_str()).map(String::from),
             host: args.get("host").and_then(|v| v.as_str()).map(String::from),
             port: args.get("port").and_then(|v| v.as_u64()).map(|n| n as u16),
@@ -1484,6 +1497,19 @@ impl ToolRouter {
         let mut cfg = nexql_conn::ConfigFile::load_path_migrated(&path)
             .map(|(c, _)| c)
             .unwrap_or_default();
+
+        // Default behavior is a merge, not a replace: a partial resave (e.g.
+        // changing only dbname) must not wipe host/user/deny_schemas/etc. that
+        // a previous save set. `replace: true` opts back into the old
+        // wholesale-replace behavior.
+        let replace = args
+            .get("replace")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !replace && let Some(existing) = cfg.profiles.get(name) {
+            p_config.merge_from(existing);
+        }
+
         cfg.upsert_profile(name, p_config.clone());
         let backup = cfg
             .save(&path)
@@ -2838,6 +2864,20 @@ impl ToolRouter {
             .and_then(|v| v.as_array())
             .map(|a| a.len() as u64);
         report.insert("blocking_lock_count".into(), json!(lock_count));
+        // Surface the ceilings a bulk job would run into before it starts
+        // one — this session hit both by trial and error (shrinking batch
+        // size against a fixed 30s pool default) before discovering
+        // execute_sql/apply_ddl's timeout_ms override existed.
+        let (connection_id, _) = self.session.active_context().await;
+        let caps = self.session.caps_for(&connection_id);
+        report.insert(
+            "statement_timeout_ms".into(),
+            json!({
+                "profile_default": caps.statement_timeout_ms,
+                "max_raised_via_timeout_ms": nexql_policy::max_raised_timeout_ms(),
+                "note": "execute_sql/apply_ddl accept a timeout_ms arg to raise above profile_default for one call, bounded by max_raised_via_timeout_ms (env NEXQL_MCP_MAX_TIMEOUT_MS).",
+            }),
+        );
         Ok(ToolOutcome::ok_json(Value::Object(report)))
     }
 
@@ -4015,6 +4055,56 @@ mod tests {
         }
     }
 
+    /// `discover_tools(category: "meta")` must filter to `META_PROFILE`, not fall
+    /// through to the unfiltered catalog — regression test for a bug where the
+    /// category match had no arm for `"meta"`.
+    #[tokio::test]
+    async fn discover_tools_category_meta_filters_to_meta_profile() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::with_index_store(session, None);
+        let out = router
+            .call("discover_tools", json!({ "category": "meta" }))
+            .await;
+        assert!(!out.is_error, "{}", out.text);
+        let structured = out.structured.unwrap();
+        let count = structured["count"].as_u64().unwrap() as usize;
+        // discover_tools always excludes itself from its own results, so a
+        // fully-covered META_PROFILE (which includes discover_tools) reports
+        // one fewer than META_PROFILE's own length.
+        assert_eq!(
+            count,
+            ToolName::META_PROFILE.len() - 1,
+            "expected only META_PROFILE tools (minus discover_tools itself), got: {}",
+            out.text
+        );
+        // Successful outcomes get columnarized (`columns`/`rows`) by `call()`'s
+        // shared reshape step, not left as an array of objects — locate the
+        // "name" column by index rather than assuming array-of-object shape.
+        let tools = &structured["tools"];
+        let columns = tools["columns"].as_array().unwrap();
+        let name_idx = columns
+            .iter()
+            .position(|c| c.as_str() == Some("name"))
+            .expect("tools table must have a name column");
+        let names: Vec<&str> = tools["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row[name_idx].as_str().unwrap())
+            .collect();
+        for tool in ToolName::META_PROFILE {
+            if *tool == ToolName::DiscoverTools {
+                continue;
+            }
+            assert!(
+                names.contains(&tool.as_str()),
+                "missing {tool:?} in {names:?}"
+            );
+        }
+        // Sanity: a non-meta tool must be excluded.
+        assert!(!names.contains(&"apply_ddl"));
+    }
+
     #[tokio::test]
     async fn table_stats_rejects_injection_ref() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
@@ -4880,6 +4970,159 @@ mod tests {
         assert!(!out.is_error, "{}", out.text);
     }
 
+    /// Regression test for the bug hit directly in a real session: a
+    /// `save_profile` call meant to change only `dbname` used to silently
+    /// wipe `host`/`user` (and every other omitted field) because
+    /// `save_profile_tool` built a fresh `ProfileConfig` from just that
+    /// call's args and did a raw `HashMap::insert`. Default behavior is now
+    /// a merge — omitted fields are preserved from the previously saved
+    /// profile.
+    #[tokio::test]
+    async fn save_profile_partial_resave_preserves_existing_fields() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let first = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "host": "127.0.0.1",
+                    "port": 5432,
+                    "dbname": "stage_db",
+                    "user": "stage_user",
+                }),
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.text);
+
+        // Resave naming only dbname — host/port/user must survive.
+        let second = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "dbname": "stage_db_v2",
+                }),
+            )
+            .await;
+        assert!(!second.is_error, "{}", second.text);
+
+        let raw = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(raw.contains("stage_db_v2"), "dbname must update: {raw}");
+        assert!(
+            raw.contains("127.0.0.1"),
+            "host must survive the partial resave: {raw}"
+        );
+        assert!(
+            raw.contains("stage_user"),
+            "user must survive the partial resave: {raw}"
+        );
+    }
+
+    /// `replace: true` opts back into the old wholesale-replace behavior —
+    /// omitted fields are cleared, matching the pre-merge-fix contract.
+    #[tokio::test]
+    async fn save_profile_replace_true_wipes_omitted_fields() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let first = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "host": "127.0.0.1",
+                    "user": "stage_user",
+                    "dbname": "stage_db",
+                }),
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.text);
+
+        let second = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "dbname": "stage_db_v2",
+                    "replace": true,
+                }),
+            )
+            .await;
+        assert!(!second.is_error, "{}", second.text);
+
+        let raw = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(raw.contains("stage_db_v2"), "dbname must update: {raw}");
+        assert!(
+            !raw.contains("127.0.0.1"),
+            "replace: true must clear host, got: {raw}"
+        );
+        assert!(
+            !raw.contains("stage_user"),
+            "replace: true must clear user, got: {raw}"
+        );
+    }
+
+    /// `Vec` fields (e.g. `deny_schemas`) aren't settable through
+    /// `save_profile`'s own args today, but a profile can carry them from
+    /// another source (config file edit, an older client) — the merge must
+    /// still inherit them wholesale when a call's own list is empty, not
+    /// just the `Option` scalar fields.
+    #[tokio::test]
+    async fn save_profile_vec_fields_inherit_when_call_omits_them() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let _env_guard = CONFIG_ENV_LOCK.lock().await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+default_profile = "staging"
+
+[profiles.staging]
+host = "127.0.0.1"
+dbname = "stage_db"
+deny_schemas = ["auth"]
+"#,
+        )
+        .unwrap();
+        unsafe {
+            std::env::set_var("NEXQL_MCP_CONFIG", &cfg_path);
+        }
+
+        let out = router
+            .call(
+                "save_profile",
+                json!({
+                    "name": "staging",
+                    "dbname": "stage_db_v2",
+                }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.text);
+
+        let raw = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(raw.contains("stage_db_v2"), "dbname must update: {raw}");
+        assert!(
+            raw.contains("auth"),
+            "deny_schemas must be inherited wholesale, got: {raw}"
+        );
+    }
+
     #[tokio::test]
     async fn check_ddl_safety_tool_dispatches_ast_report() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
@@ -4894,6 +5137,51 @@ mod tests {
         assert_eq!(
             structured.get("overall_risk").and_then(|v| v.as_str()),
             Some("CRITICAL")
+        );
+    }
+
+    /// Tool-level counterpart to `dba_guard::tests::test_create_database_flagged_as_forbidden_not_safe`:
+    /// an agent instructed to `check_ddl_safety` before `apply_ddl` must not
+    /// get a false green light for a statement that will always be refused.
+    #[tokio::test]
+    async fn check_ddl_safety_flags_create_database_as_forbidden_not_safe() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let out = router
+            .call(
+                "check_ddl_safety",
+                json!({ "ddl": "CREATE DATABASE analytics;" }),
+            )
+            .await;
+        let structured = out.structured.expect("structured outcome");
+        assert_eq!(
+            structured.get("overall_risk").and_then(|v| v.as_str()),
+            Some("CRITICAL")
+        );
+        assert_eq!(
+            structured.get("is_safe").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn check_ddl_safety_flags_drop_database_as_forbidden_not_safe() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session);
+        let out = router
+            .call(
+                "check_ddl_safety",
+                json!({ "ddl": "DROP DATABASE analytics;" }),
+            )
+            .await;
+        let structured = out.structured.expect("structured outcome");
+        assert_eq!(
+            structured.get("overall_risk").and_then(|v| v.as_str()),
+            Some("CRITICAL")
+        );
+        assert_eq!(
+            structured.get("is_safe").and_then(|v| v.as_bool()),
+            Some(false)
         );
     }
 }

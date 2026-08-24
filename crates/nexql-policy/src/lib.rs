@@ -11,8 +11,9 @@ pub mod sql;
 
 pub use access::{AccessMode, check_superuser_guard};
 pub use caps::{
-    AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS, DEFAULT_MAX_ROWS,
-    DEFAULT_STATEMENT_TIMEOUT_MS, PolicyCaps, clamp_max_rows, clamp_statement_timeout_ms,
+    AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RAISED_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS,
+    DEFAULT_MAX_ROWS, DEFAULT_STATEMENT_TIMEOUT_MS, PolicyCaps, clamp_max_rows,
+    clamp_statement_timeout_ms, max_raised_timeout_ms, resolve_raised_timeout_ms,
 };
 pub use error::PolicyError;
 pub use filter::{

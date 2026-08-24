@@ -33,6 +33,7 @@ pub async fn execute_sql(
     sql: &str,
     dry_run: bool,
     include_diff: bool,
+    timeout_ms: Option<u32>,
 ) -> Result<ToolOutcome, ToolError> {
     let mode = session.access_mode();
     match validate_write_sql(mode, sql)? {
@@ -49,6 +50,16 @@ pub async fn execute_sql(
     }
 
     let client = session.checkout().await?;
+    // Unlike `run_select`'s `timeout_ms` (which only ever lowers below the
+    // profile default), this may *raise* it — bounded by
+    // `nexql_policy::max_raised_timeout_ms()` (env: NEXQL_MCP_MAX_TIMEOUT_MS),
+    // not the profile ceiling. `None` (no timeout_ms in the call) leaves the
+    // connection's existing timeout untouched.
+    if let Some(ms) =
+        nexql_policy::resolve_raised_timeout_ms(timeout_ms, nexql_policy::max_raised_timeout_ms())
+    {
+        ToolSession::set_statement_timeout(&client, ms).await?;
+    }
     client.batch_execute("BEGIN").await?;
     let outcome = async {
         let (rows, command_tag) = run_simple_query(&client, sql).await?;
@@ -487,18 +498,81 @@ pub async fn apply_ddl(
     session: &Arc<ToolSession>,
     sql: &str,
     dry_run: bool,
+    confirm_destructive: bool,
+    timeout_ms: Option<u32>,
 ) -> Result<ToolOutcome, ToolError> {
     assert_ddl_statement(sql)?;
     match validate_write_sql(AccessMode::Admin, sql)? {
         SqlDecision::Allow => {}
         SqlDecision::Reject => {
+            // CREATE/DROP DATABASE are always rejected (never a permission an
+            // agent could fix by requesting more access) — say so explicitly
+            // instead of the generic denial.
+            if crate::dba_guard::is_database_ddl(sql) {
+                return Err(ToolError::Execution(format!(
+                    "Security Error: {}",
+                    crate::dba_guard::DATABASE_DDL_SCOPE_ERROR
+                )));
+            }
             return Err(ToolError::Execution(
                 "Security Error: DDL statement is not permitted.".into(),
             ));
         }
     }
 
+    // Destructive-confirm gate: `dry_run` calls are inherently safe (they
+    // always roll back) and never need confirmation — the gate only applies
+    // to statements that would actually execute. Reuses `check_ddl_safety`'s
+    // own classification so the two never disagree about what counts as
+    // CRITICAL.
+    if !dry_run && !confirm_destructive {
+        let report = crate::dba_guard::analyze_ddl_safety(sql);
+        if report.get("overall_risk").and_then(|v| v.as_str()) == Some("CRITICAL") {
+            let reasons: Vec<String> = report
+                .get("issues")
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|issue| issue.get("issue").and_then(|v| v.as_str()))
+                .map(str::to_string)
+                .collect();
+            let reason_text = reasons.join("; ");
+
+            // Prefer asking the human directly via MCP elicitation over the
+            // static error below — real human-in-the-loop, not just an
+            // agent-settable argument. Falls back to the static gate when no
+            // backend is injected, the client didn't advertise elicitation
+            // support, or the request itself fails — never silently
+            // proceeds on an elicitation failure.
+            match session.elicit_confirmation(&format!(
+                "nexql-mcp wants to run a DDL statement classified CRITICAL risk: {reason_text}\n\nSQL: {sql}\n\nProceed?"
+            )).await {
+                Some(Ok(crate::elicitation::ConfirmationOutcome::Confirmed)) => {
+                    // Fall through to execution below — treated the same as
+                    // an explicit confirm_destructive: true.
+                }
+                Some(Ok(crate::elicitation::ConfirmationOutcome::Declined)) => {
+                    return Err(ToolError::Execution(format!(
+                        "The user declined to confirm this CRITICAL-risk statement: {reason_text}"
+                    )));
+                }
+                Some(Err(_)) | None => {
+                    return Err(ToolError::Execution(format!(
+                        "This statement is classified CRITICAL risk by check_ddl_safety and was not executed: {reason_text}. Pass confirm_destructive: true to proceed, or dry_run: true to preview."
+                    )));
+                }
+            }
+        }
+    }
+
     let client = session.checkout().await?;
+    // See `execute_sql`'s identical comment: may raise above the profile
+    // default, bounded by `nexql_policy::max_raised_timeout_ms()`.
+    if let Some(ms) =
+        nexql_policy::resolve_raised_timeout_ms(timeout_ms, nexql_policy::max_raised_timeout_ms())
+    {
+        ToolSession::set_statement_timeout(&client, ms).await?;
+    }
     client.batch_execute("BEGIN").await?;
     let outcome = run_simple_query(&client, sql).await;
     let rolled_back = dry_run || outcome.is_err();
@@ -960,6 +1034,134 @@ fn redact_row_results(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::{ConnectionInfo, ConnectionPolicy};
+    use nexql_policy::{AccessMode as SessionAccessMode, PolicyCaps, PolicyFilter};
+
+    fn test_conn() -> ConnectionInfo {
+        ConnectionInfo {
+            id: "conn-1".into(),
+            name: "conn-1".into(),
+            host: Some("127.0.0.1".into()),
+            port: Some(5432),
+            database: Some("appdb".into()),
+            params: Default::default(),
+            policy: ConnectionPolicy {
+                access_mode: SessionAccessMode::Read,
+                caps: PolicyCaps::default(),
+                filter: PolicyFilter::default(),
+                environment: None,
+            },
+        }
+    }
+
+    /// Test double for `ElicitationRequester` — returns a fixed outcome
+    /// (or `Err`) without any live MCP transport, so the destructive-confirm
+    /// gate's elicitation path is testable without a real client.
+    struct FakeElicitationRequester {
+        supports: bool,
+        outcome: Result<crate::elicitation::ConfirmationOutcome, String>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::elicitation::ElicitationRequester for FakeElicitationRequester {
+        fn supports_elicitation(&self) -> bool {
+            self.supports
+        }
+        async fn request_confirmation(
+            &self,
+            _prompt: &str,
+        ) -> Result<crate::elicitation::ConfirmationOutcome, String> {
+            self.outcome.clone()
+        }
+    }
+
+    /// When the client supports elicitation and the human confirms, a
+    /// CRITICAL-risk statement proceeds without `confirm_destructive` —
+    /// real human-in-the-loop, not just an agent-settable argument.
+    #[tokio::test]
+    async fn apply_ddl_elicitation_confirmed_bypasses_confirm_destructive_arg() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        session.set_elicitation_backend(Arc::new(FakeElicitationRequester {
+            supports: true,
+            outcome: Ok(crate::elicitation::ConfirmationOutcome::Confirmed),
+        }));
+        let err = apply_ddl(&session, "DROP TABLE users", false, false, None)
+            .await
+            .expect_err("no live pool in for_tests()");
+        // Proceeded past the gate to attempt the real DB checkout — not
+        // rejected by the CRITICAL-risk gate.
+        assert!(err.to_string().contains("no active pool"), "{err}");
+    }
+
+    /// When the human declines via elicitation, the call is rejected with a
+    /// clear "declined" message — distinct from the generic
+    /// confirm_destructive-required error, since this is a final answer
+    /// from a human, not a missing argument the agent could just add.
+    #[tokio::test]
+    async fn apply_ddl_elicitation_declined_is_rejected() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        session.set_elicitation_backend(Arc::new(FakeElicitationRequester {
+            supports: true,
+            outcome: Ok(crate::elicitation::ConfirmationOutcome::Declined),
+        }));
+        let err = apply_ddl(&session, "DROP TABLE users", false, false, None)
+            .await
+            .expect_err("human declined");
+        let msg = err.to_string();
+        assert!(msg.contains("declined"), "{msg}");
+    }
+
+    /// A failed elicitation attempt (transport error, client bug, …) must
+    /// fall back to the static confirm_destructive-required gate — never
+    /// silently proceed just because the ask itself failed.
+    #[tokio::test]
+    async fn apply_ddl_elicitation_failure_falls_back_to_static_gate() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        session.set_elicitation_backend(Arc::new(FakeElicitationRequester {
+            supports: true,
+            outcome: Err("transport closed".into()),
+        }));
+        let err = apply_ddl(&session, "DROP TABLE users", false, false, None)
+            .await
+            .expect_err("elicitation failed, must not proceed");
+        let msg = err.to_string();
+        assert!(msg.contains("CRITICAL"), "{msg}");
+        assert!(msg.contains("confirm_destructive"), "{msg}");
+    }
+
+    /// A client that doesn't advertise elicitation support must fall back to
+    /// the static gate too, without ever attempting the request.
+    #[tokio::test]
+    async fn apply_ddl_elicitation_unsupported_falls_back_to_static_gate() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        session.set_elicitation_backend(Arc::new(FakeElicitationRequester {
+            supports: false,
+            outcome: Ok(crate::elicitation::ConfirmationOutcome::Confirmed),
+        }));
+        let err = apply_ddl(&session, "DROP TABLE users", false, false, None)
+            .await
+            .expect_err("client doesn't support elicitation");
+        let msg = err.to_string();
+        assert!(msg.contains("CRITICAL"), "{msg}");
+        assert!(msg.contains("confirm_destructive"), "{msg}");
+    }
+
+    /// `confirm_destructive: true` must still bypass the gate entirely
+    /// without ever consulting the elicitation backend — an explicit
+    /// argument from the agent is still honored on its own, not overridden
+    /// by an elicitation attempt.
+    #[tokio::test]
+    async fn apply_ddl_confirm_destructive_arg_skips_elicitation() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        session.set_elicitation_backend(Arc::new(FakeElicitationRequester {
+            supports: true,
+            outcome: Err("must not be called".into()),
+        }));
+        let err = apply_ddl(&session, "DROP TABLE users", false, true, None)
+            .await
+            .expect_err("no live pool in for_tests()");
+        assert!(err.to_string().contains("no active pool"), "{err}");
+    }
 
     #[test]
     fn assert_ddl_rejects_select() {
@@ -969,6 +1171,108 @@ mod tests {
     #[test]
     fn assert_ddl_accepts_create() {
         assert!(assert_ddl_statement("CREATE TABLE t (id int)").is_ok());
+    }
+
+    /// `apply_ddl` must short-circuit CREATE/DROP DATABASE with the specific
+    /// scope-boundary error, not the generic "not permitted" denial — an
+    /// agent needs the signal that this is architectural, not a permission
+    /// gap it could fix by requesting more access. Both statements are
+    /// rejected before any DB checkout (`validate_write_sql` runs first), so
+    /// this test needs no live connection.
+    #[tokio::test]
+    async fn apply_ddl_create_database_gives_scope_error_not_generic_denial() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        for sql in ["CREATE DATABASE foo", "DROP DATABASE foo"] {
+            let err = apply_ddl(&session, sql, false, false, None)
+                .await
+                .expect_err(&format!("{sql} must be rejected"));
+            let msg = err.to_string();
+            assert!(
+                msg.contains("outside this server's scope"),
+                "{sql}: expected scope-boundary error, got: {msg}"
+            );
+            assert!(
+                !msg.contains("DDL statement is not permitted"),
+                "{sql}: must not fall back to the generic denial, got: {msg}"
+            );
+        }
+    }
+
+    /// A single `apply_ddl` call with a CRITICAL-risk statement (per
+    /// `check_ddl_safety`'s own classification) must not execute without
+    /// `confirm_destructive: true` — closes the false-"SAFE" /
+    /// zero-friction-DROP gap. The gate fires before any DB checkout, so
+    /// this test needs no live connection.
+    #[tokio::test]
+    async fn apply_ddl_drop_table_without_confirm_destructive_is_rejected() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = apply_ddl(&session, "DROP TABLE users", false, false, None)
+            .await
+            .expect_err("DROP TABLE without confirm_destructive must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("CRITICAL"), "{msg}");
+        assert!(msg.contains("confirm_destructive"), "{msg}");
+    }
+
+    /// `confirm_destructive: true` must let the same statement past the
+    /// gate — it should proceed to attempt the real DB checkout instead of
+    /// being rejected by the gate. `ToolSession::for_tests` has no live
+    /// pool, so it still fails, but with "no active pool" (checkout), not
+    /// the CRITICAL-risk gate error — proving the gate was bypassed. Real
+    /// execution against a live database is out of scope for this crate's
+    /// unit tests (no testcontainers harness here).
+    #[tokio::test]
+    async fn apply_ddl_drop_table_with_confirm_destructive_succeeds() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = apply_ddl(&session, "DROP TABLE users", false, true, None)
+            .await
+            .expect_err("no live pool in for_tests()");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("CRITICAL") && !msg.contains("confirm_destructive"),
+            "confirm_destructive: true must bypass the gate, got: {msg}"
+        );
+        assert!(msg.contains("no active pool"), "{msg}");
+    }
+
+    /// `dry_run: true` calls are inherently safe (they always roll back) and
+    /// must never require `confirm_destructive` — the gate is only on
+    /// statements that would actually execute.
+    #[tokio::test]
+    async fn apply_ddl_dry_run_bypasses_confirm_requirement() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = apply_ddl(&session, "DROP TABLE users", true, false, None)
+            .await
+            .expect_err("no live pool in for_tests()");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("CRITICAL") && !msg.contains("confirm_destructive"),
+            "dry_run: true must bypass the gate, got: {msg}"
+        );
+        assert!(msg.contains("no active pool"), "{msg}");
+    }
+
+    /// Low-risk DDL (not classified CRITICAL by `check_ddl_safety`) must not
+    /// newly require `confirm_destructive` — the gate is scoped to CRITICAL
+    /// risk only.
+    #[tokio::test]
+    async fn apply_ddl_low_risk_ddl_unaffected() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = apply_ddl(
+            &session,
+            "ALTER TABLE users ADD COLUMN note text",
+            false,
+            false,
+            None,
+        )
+        .await
+        .expect_err("no live pool in for_tests()");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("CRITICAL") && !msg.contains("confirm_destructive"),
+            "low-risk DDL must not require confirm_destructive, got: {msg}"
+        );
+        assert!(msg.contains("no active pool"), "{msg}");
     }
 
     #[test]
@@ -982,6 +1286,55 @@ mod tests {
             ..Default::default()
         };
         assert!(enforce_read_table_policy(&filter, sql).is_err());
+    }
+
+    /// `execute_sql`'s `timeout_ms` — unlike `run_select`'s — may raise the
+    /// statement timeout above the profile default; the actual raise/cap
+    /// arithmetic is unit-tested directly on
+    /// `nexql_policy::resolve_raised_timeout_ms` (no DB needed there). This
+    /// test proves the wiring: a raised `timeout_ms` is accepted and the
+    /// call proceeds past validation to attempt the real DB checkout
+    /// (`ToolSession::for_tests` has no live pool, so it still fails, but
+    /// with "no active pool", not an argument or validation error).
+    #[tokio::test]
+    async fn execute_sql_timeout_ms_raises_above_profile_default() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = execute_sql(&session, "SELECT 1", true, false, Some(120_000))
+            .await
+            .expect_err("no live pool in for_tests()");
+        assert!(err.to_string().contains("no active pool"), "{err}");
+    }
+
+    /// A `timeout_ms` far beyond any sane bound must still be accepted here
+    /// (not rejected as invalid) — capping happens inside
+    /// `nexql_policy::resolve_raised_timeout_ms`, unit-tested directly
+    /// (`resolve_raised_timeout_ms_capped_by_server_max`); this proves
+    /// `execute_sql` doesn't reject an oversized value itself.
+    #[tokio::test]
+    async fn execute_sql_timeout_ms_capped_by_server_max() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = execute_sql(&session, "SELECT 1", true, false, Some(u32::MAX))
+            .await
+            .expect_err("no live pool in for_tests()");
+        assert!(err.to_string().contains("no active pool"), "{err}");
+    }
+
+    /// `apply_ddl` accepts `timeout_ms` the same way `execute_sql` does —
+    /// `set_statement_timeout` runs on the checked-out client immediately
+    /// after checkout, before `BEGIN`/execution (see the function body).
+    #[tokio::test]
+    async fn apply_ddl_timeout_ms_applied_before_execution() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let err = apply_ddl(
+            &session,
+            "ALTER TABLE users ADD COLUMN note text",
+            false,
+            false,
+            Some(120_000),
+        )
+        .await
+        .expect_err("no live pool in for_tests()");
+        assert!(err.to_string().contains("no active pool"), "{err}");
     }
 
     #[test]

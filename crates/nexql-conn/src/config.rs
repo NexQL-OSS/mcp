@@ -45,6 +45,82 @@ pub struct ProfileConfig {
     pub credential_provider: Option<String>,
 }
 
+impl ProfileConfig {
+    /// Merge `other` (the existing saved profile) into `self` (a fresh
+    /// profile built from one call's args) — fields `self` didn't set are
+    /// filled from `other`, so a partial `save_profile` call updates only
+    /// the fields it names instead of wiping the rest.
+    ///
+    /// `Vec` fields (`schemas`, `deny_schemas`, `deny_tables`, `pii_columns`)
+    /// are inherited wholesale from `other` when `self`'s is empty, not
+    /// merged element-by-element: a call that omits `deny_schemas` keeps the
+    /// existing list, and a call that supplies `deny_schemas: []` explicitly
+    /// clears it. Element-level union would make "remove a denied schema via
+    /// re-save" impossible.
+    pub fn merge_from(&mut self, other: &Self) {
+        if self.url.is_none() {
+            self.url = other.url.clone();
+        }
+        if self.host.is_none() {
+            self.host = other.host.clone();
+        }
+        if self.port.is_none() {
+            self.port = other.port;
+        }
+        if self.dbname.is_none() {
+            self.dbname = other.dbname.clone();
+        }
+        if self.user.is_none() {
+            self.user = other.user.clone();
+        }
+        if self.password.is_none() {
+            self.password = other.password.clone();
+        }
+        if self.password_command.is_none() {
+            self.password_command = other.password_command.clone();
+        }
+        if self.password_file.is_none() {
+            self.password_file = other.password_file.clone();
+        }
+        if self.sslmode.is_none() {
+            self.sslmode = other.sslmode.clone();
+        }
+        if self.sslcert.is_none() {
+            self.sslcert = other.sslcert.clone();
+        }
+        if self.sslkey.is_none() {
+            self.sslkey = other.sslkey.clone();
+        }
+        if self.sslrootcert.is_none() {
+            self.sslrootcert = other.sslrootcert.clone();
+        }
+        if self.access_mode.is_none() {
+            self.access_mode = other.access_mode.clone();
+        }
+        if self.schemas.is_empty() {
+            self.schemas = other.schemas.clone();
+        }
+        if self.deny_schemas.is_empty() {
+            self.deny_schemas = other.deny_schemas.clone();
+        }
+        if self.deny_tables.is_empty() {
+            self.deny_tables = other.deny_tables.clone();
+        }
+        if self.pii_columns.is_empty() {
+            self.pii_columns = other.pii_columns.clone();
+        }
+        if self.max_rows.is_none() {
+            self.max_rows = other.max_rows;
+        }
+        if self.statement_timeout_ms.is_none() {
+            self.statement_timeout_ms = other.statement_timeout_ms;
+        }
+        if self.credential_provider.is_none() {
+            self.credential_provider = other.credential_provider.clone();
+        }
+    }
+}
+
 /// Project-level configuration (`.nexql/config.toml` or `.nexql-mcp.toml`).
 /// Security: may select profiles and tighten policy only.
 /// Credentials, URLs, and loosening operations are rejected.
@@ -452,6 +528,60 @@ fn dirs_config() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_from_fills_empty_self_from_populated_other() {
+        let mut fresh = ProfileConfig {
+            dbname: Some("newdb".into()),
+            ..Default::default()
+        };
+        let existing = ProfileConfig {
+            host: Some("prod.example.com".into()),
+            user: Some("agent".into()),
+            dbname: Some("olddb".into()),
+            deny_schemas: vec!["auth".into()],
+            max_rows: Some(200),
+            ..Default::default()
+        };
+        fresh.merge_from(&existing);
+        // Fields the call set win.
+        assert_eq!(fresh.dbname.as_deref(), Some("newdb"));
+        // Fields the call omitted are inherited from the existing profile.
+        assert_eq!(fresh.host.as_deref(), Some("prod.example.com"));
+        assert_eq!(fresh.user.as_deref(), Some("agent"));
+        assert_eq!(fresh.deny_schemas, vec!["auth".to_string()]);
+        assert_eq!(fresh.max_rows, Some(200));
+    }
+
+    #[test]
+    fn merge_from_leaves_populated_self_untouched_by_empty_other() {
+        let mut fresh = ProfileConfig {
+            host: Some("prod.example.com".into()),
+            deny_schemas: vec!["auth".into()],
+            ..Default::default()
+        };
+        fresh.merge_from(&ProfileConfig::default());
+        assert_eq!(fresh.host.as_deref(), Some("prod.example.com"));
+        assert_eq!(fresh.deny_schemas, vec!["auth".to_string()]);
+    }
+
+    #[test]
+    fn merge_from_both_populated_prefers_self() {
+        let mut fresh = ProfileConfig {
+            host: Some("new-host".into()),
+            deny_schemas: vec!["billing".into()],
+            ..Default::default()
+        };
+        let existing = ProfileConfig {
+            host: Some("old-host".into()),
+            deny_schemas: vec!["auth".into()],
+            ..Default::default()
+        };
+        fresh.merge_from(&existing);
+        // self's own values are never overwritten by other's.
+        assert_eq!(fresh.host.as_deref(), Some("new-host"));
+        assert_eq!(fresh.deny_schemas, vec!["billing".to_string()]);
+    }
 
     #[test]
     fn parses_example_shaped_config() {

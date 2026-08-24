@@ -19,6 +19,12 @@ use crate::backend::{
 use crate::error::ProtoError;
 use crate::types::{JsonRpcRequest, JsonRpcResponse, negotiate_protocol_version};
 
+/// All fields are `Arc`-wrapped (or cheap owned data), so `Clone` is a
+/// shallow handle sharing the same underlying state — a clone taken before
+/// `outbound_tx` is set (e.g. to hand a `ClientRequester` handle to
+/// `nexql-tools` at startup) still sees it once the transport loop calls
+/// `set_outbound_tx`, since that mutates through the shared `Arc<RwLock<_>>`.
+#[derive(Clone)]
 pub struct McpHandler {
     tools: Arc<dyn ToolBackend>,
     resources: Option<Arc<dyn ResourceBackend>>,

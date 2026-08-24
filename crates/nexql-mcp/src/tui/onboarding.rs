@@ -87,12 +87,15 @@ pub enum ToolsOption {
 }
 
 impl ToolsOption {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Full => "Full (all 41 tools & discovery)",
-            Self::Query => "Query (read-only query & catalog search)",
-            Self::Dba => "DBA (monitoring, admin & maintenance)",
-            Self::Meta => "Meta (schema introspection & indexing)",
+            Self::Full => format!(
+                "Full (all {} tools & discovery)",
+                nexql_tools::ToolName::ACTIVE.len()
+            ),
+            Self::Query => "Query (read-only query & catalog search)".to_string(),
+            Self::Dba => "DBA (monitoring, admin & maintenance)".to_string(),
+            Self::Meta => "Meta (schema introspection & indexing)".to_string(),
         }
     }
 
@@ -323,9 +326,7 @@ impl OnboardingApp {
             KeyCode::Char('a') | KeyCode::Char('A') if self.connection_idx == 0 => {
                 self.use_custom_url = false;
                 let all_selected = self.selected_profiles.iter().all(|&b| b);
-                for b in &mut self.selected_profiles {
-                    *b = !all_selected;
-                }
+                self.selected_profiles.fill(!all_selected);
             }
             KeyCode::Char(c) if self.connection_idx == 1 => {
                 self.use_custom_url = true;
@@ -1218,6 +1219,18 @@ fn draw_status_line(frame: &mut Frame, app: &OnboardingApp, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Guards `ToolsOption::Full`'s label against drifting from the real active
+    /// tool surface count (this class of drift has regressed once before).
+    #[test]
+    fn onboarding_label_matches_active_surface() {
+        let expected = format!("all {} tools", nexql_tools::ToolName::ACTIVE.len());
+        assert!(
+            ToolsOption::Full.label().contains(&expected),
+            "ToolsOption::Full label is stale: expected to contain {expected:?}, got {:?}",
+            ToolsOption::Full.label()
+        );
+    }
 
     #[test]
     fn onboarding_app_initialization() {

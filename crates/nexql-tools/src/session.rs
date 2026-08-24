@@ -79,6 +79,10 @@ pub struct ToolSession {
     /// Schema index root; `None` disables Phase 3 tools with an actionable error.
     pub index_store: Option<IndexStore>,
     inner: AsyncRwLock<SessionInner>,
+    /// Set by the binary after the MCP transport is wired up (see
+    /// `crate::elicitation`) — `None` until then, and always `None` in tests
+    /// that don't explicitly inject one via [`Self::set_elicitation_backend`].
+    elicitation: RwLock<Option<Arc<dyn crate::elicitation::ElicitationRequester>>>,
 }
 
 fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
@@ -314,7 +318,37 @@ impl ToolSession {
                 database,
                 pools,
             }),
+            elicitation: RwLock::new(None),
         }))
+    }
+
+    /// Inject the elicitation backend — called once by the binary after the
+    /// MCP transport is constructed (see `crate::elicitation`'s module docs
+    /// for why this can't happen at construction time).
+    pub fn set_elicitation_backend(
+        &self,
+        backend: Arc<dyn crate::elicitation::ElicitationRequester>,
+    ) {
+        if let Ok(mut guard) = self.elicitation.write() {
+            *guard = Some(backend);
+        }
+    }
+
+    /// Ask the connected client to elicit a yes/no confirmation from the
+    /// human for `prompt`. Returns `None` when no backend is injected (e.g.
+    /// in tests) or the client didn't advertise elicitation support —
+    /// callers must treat `None` the same as an elicitation failure: fall
+    /// back to requiring an explicit confirm argument, not treat it as
+    /// either a yes or a no.
+    pub async fn elicit_confirmation(
+        &self,
+        prompt: &str,
+    ) -> Option<Result<crate::elicitation::ConfirmationOutcome, String>> {
+        let backend = self.elicitation.read().ok()?.clone()?;
+        if !backend.supports_elicitation() {
+            return None;
+        }
+        Some(backend.request_confirmation(prompt).await)
     }
 
     pub async fn from_connections_with_filter(
@@ -549,6 +583,7 @@ impl ToolSession {
                 database,
                 pools: HashMap::new(),
             }),
+            elicitation: RwLock::new(None),
         })
     }
 }

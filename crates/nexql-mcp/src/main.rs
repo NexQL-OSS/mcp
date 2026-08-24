@@ -24,8 +24,9 @@ use nexql_index::{
 };
 use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
 use nexql_proto::{
-    CompletionBackend, HttpAuth, HttpServer, McpHandler, PromptBackend, ResourceBackend,
-    RpcFailure, StdioServer, ToolAnnotations, ToolBackend, ToolCallResult, ToolDescriptor,
+    ClientRequester, CompletionBackend, HttpAuth, HttpServer, McpHandler, PromptBackend,
+    ResourceBackend, RpcFailure, StdioServer, ToolAnnotations, ToolBackend, ToolCallResult,
+    ToolDescriptor,
 };
 use nexql_tools::{
     CompletionsProvider, PromptCatalog, ResourceProvider, ToolRouter, ToolSession,
@@ -92,9 +93,18 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = EmbeddingsMode::Off, env = "NEXQL_MCP_EMBEDDINGS")]
     embeddings: EmbeddingsMode,
 
-    /// Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all 41 tools).
+    /// Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all tools).
     /// Env: `NEXQL_MCP_TOOLS=query|dba|full` (default full).
-    #[arg(long, value_enum, default_value_t = CliToolProfile::Full, env = "NEXQL_MCP_TOOLS")]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliToolProfile::Full,
+        env = "NEXQL_MCP_TOOLS",
+        long_help = format!(
+            "Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all {} tools).\nEnv: `NEXQL_MCP_TOOLS=query|dba|full` (default full).",
+            nexql_tools::ToolName::ACTIVE.len(),
+        )
+    )]
     tools: CliToolProfile,
 
     #[command(subcommand)]
@@ -203,6 +213,16 @@ enum Commands {
         /// Force interactive TUI onboarding wizard.
         #[arg(long)]
         tui: bool,
+
+        /// Write the merged config to the client's config file directly — no
+        /// browser, no TTY, nothing to hand-parse. For AI coding agents
+        /// setting this up on a user's behalf: requires an existing saved
+        /// profile (see --profile, or `setup_connection`/`save_profile`);
+        /// only supported for clients with a real mergeable config file
+        /// (i.e. not the copy/paste-only ones: continue, jetbrains,
+        /// openai-agents). Prints the diff applied and any backup path.
+        #[arg(long)]
+        apply: bool,
     },
     /// Interactive AI model onboarding & client configuration wizard TUI.
     Onboarding,
@@ -381,6 +401,49 @@ impl ToolBackend for RouterBackend {
     }
 }
 
+/// Bridges `nexql_proto`'s `ClientRequester` (real MCP `elicitation/create`)
+/// to `nexql_tools::ElicitationRequester` — the seam that lets `apply_ddl`'s
+/// destructive-confirm gate ask the human directly instead of only accepting
+/// an agent-settable `confirm_destructive` argument. Lives here (not in
+/// `nexql-tools`) because `nexql-tools` must never depend on `nexql-proto`.
+struct McpElicitationAdapter {
+    handler: McpHandler,
+}
+
+#[async_trait]
+impl nexql_tools::ElicitationRequester for McpElicitationAdapter {
+    fn supports_elicitation(&self) -> bool {
+        self.handler.client_capabilities().elicitation
+    }
+
+    async fn request_confirmation(
+        &self,
+        prompt: &str,
+    ) -> Result<nexql_tools::ConfirmationOutcome, String> {
+        // Minimal schema: MCP elicitation requires a `requestedSchema`, but
+        // the decision here hinges on the response's `action`
+        // (accept/decline/cancel), not the form content — a single boolean
+        // is enough for a client that renders this as a yes/no prompt.
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "confirm": {
+                    "type": "boolean",
+                    "title": "Proceed?",
+                }
+            },
+            "required": ["confirm"]
+        });
+        let result = self.handler.request_elicitation(prompt, schema).await?;
+        let action = result.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        Ok(if action == "accept" {
+            nexql_tools::ConfirmationOutcome::Confirmed
+        } else {
+            nexql_tools::ConfirmationOutcome::Declined
+        })
+    }
+}
+
 struct IndexResourceBackend {
     provider: ResourceProvider,
 }
@@ -545,7 +608,7 @@ async fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             },
-            Commands::Init { client, tui } => {
+            Commands::Init { client, tui, apply } => {
                 if *tui || client.is_none() {
                     return match tui::run_onboarding(cli.connection.config.clone()).await {
                         Ok(()) => ExitCode::SUCCESS,
@@ -556,11 +619,19 @@ async fn main() -> ExitCode {
                     };
                 }
                 let client_name = client.as_deref().unwrap();
-                match init_clients::init_snippet(client_name, cli.connection_string.as_deref()) {
-                    Ok(snippet) => println!("{snippet}"),
-                    Err(e) => {
+                if *apply {
+                    if let Err(e) = run_init_apply(&cli, client_name) {
                         eprintln!("{e}");
                         return ExitCode::FAILURE;
+                    }
+                } else {
+                    match init_clients::init_snippet(client_name, cli.connection_string.as_deref())
+                    {
+                        Ok(snippet) => println!("{snippet}"),
+                        Err(e) => {
+                            eprintln!("{e}");
+                            return ExitCode::FAILURE;
+                        }
                     }
                 }
             }
@@ -854,6 +925,15 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
             }));
     }
 
+    // Wire real human-in-the-loop confirmation for destructive DDL
+    // (apply_ddl's CRITICAL-risk gate) — `handler.clone()` is a cheap shared
+    // handle (see McpHandler's Clone impl doc comment); it keeps working
+    // once the transport loop calls `set_outbound_tx` on the original,
+    // since both share the same underlying state.
+    session.set_elicitation_backend(Arc::new(McpElicitationAdapter {
+        handler: handler.clone(),
+    }));
+
     Ok(handler)
 }
 
@@ -1124,6 +1204,89 @@ fn profile_config_path(cli: &Cli) -> Result<PathBuf, Box<dyn std::error::Error>>
         .clone()
         .or_else(ConfigFile::default_path)
         .ok_or_else(|| "could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG".into())
+}
+
+/// `nexql-mcp init <client> --apply` — reuses the same merge machinery
+/// `nexql-mcp setup`'s HTTP API (`setup::wire::preview_wire`/`apply_wire`)
+/// already exercises, in-process instead of over HTTP. Turns "hand-parse and
+/// merge JSON" into one non-interactive, no-browser, no-TTY command — the
+/// path an AI coding agent should use to set this up on a user's behalf.
+fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
+    let key = client_name.trim().to_ascii_lowercase();
+    // "claude" is init_snippet's copy-paste alias for Claude Desktop; the
+    // mergeable target is keyed "claude-desktop".
+    let key = if key == "claude" {
+        "claude-desktop".to_string()
+    } else {
+        key
+    };
+
+    let targets = client_targets::mergeable_targets();
+    if !targets.iter().any(|t| t.key == key.as_str()) {
+        let mergeable_list = targets.iter().map(|t| t.key).collect::<Vec<_>>().join(", ");
+        return Err(format!(
+            "--apply is only supported for clients with a mergeable config file: {mergeable_list}. \
+             \"{client_name}\" is copy/paste-only — run `nexql-mcp init {client_name}` (without --apply) to print its snippet."
+        ));
+    }
+
+    let config_path = profile_config_path(cli).map_err(|e| e.to_string())?;
+    let config = ConfigFile::load_path_migrated(&config_path)
+        .map(|(c, _)| c)
+        .unwrap_or_default();
+
+    let profile_names: Vec<String> = if !cli.connection.profiles.is_empty() {
+        cli.connection.profiles.clone()
+    } else if let Some(ref default) = config.default_profile {
+        vec![default.clone()]
+    } else {
+        return Err(
+            "no saved profile to wire — pass --profile <name>, or save one first \
+             (`nexql-mcp tui`, or the save_profile/setup_connection MCP tools)."
+                .into(),
+        );
+    };
+    for name in &profile_names {
+        if !config.profiles.contains_key(name) {
+            return Err(format!(
+                "profile \"{name}\" not found in {}",
+                config_path.display()
+            ));
+        }
+    }
+
+    let launch = setup::wire::LaunchConfig::default();
+    let preview = setup::wire::preview_wire(
+        &config,
+        &profile_names,
+        std::slice::from_ref(&key),
+        &[],
+        &launch,
+        cli.connection.workspace_root.as_deref(),
+    );
+    let results = setup::wire::apply_wire(&preview, std::slice::from_ref(&key));
+
+    let mut had_error = false;
+    for r in &results {
+        if let Some(ref err) = r.error {
+            had_error = true;
+            eprintln!("✗ {}: {err}", r.display_name);
+            continue;
+        }
+        if r.applied {
+            let path = r.config_path.as_deref().unwrap_or("?");
+            println!("✓ wrote {} ({path})", r.display_name);
+            if let Some(ref backup) = r.backup {
+                println!("  (previous config backed up to {backup})");
+            }
+        } else if r.skipped {
+            println!("- skipped {}", r.display_name);
+        }
+    }
+    if had_error {
+        return Err(format!("failed to apply config for \"{client_name}\""));
+    }
+    Ok(())
 }
 
 fn emit_secret_migration_report(report: &nexql_conn::SecretMigrationReport) {
@@ -1653,6 +1816,29 @@ mod main_cli_tests {
     use super::*;
     use clap::Parser;
 
+    /// Guards the `--tools` help text against drifting from the real active tool
+    /// surface count — this class of drift has regressed once before (see
+    /// `nexql-tools/src/registry.rs`'s `docs_tools_readme_matches_active_surface`).
+    #[test]
+    fn cli_help_tool_count_matches_active_surface() {
+        use clap::CommandFactory;
+        let command = Cli::command();
+        let tools_arg = command
+            .get_arguments()
+            .find(|a| a.get_id() == "tools")
+            .expect("--tools arg must exist");
+        let help = tools_arg
+            .get_long_help()
+            .or_else(|| tools_arg.get_help())
+            .expect("--tools must have help text")
+            .to_string();
+        let expected = format!("all {} tools", nexql_tools::ToolName::ACTIVE.len());
+        assert!(
+            help.contains(&expected),
+            "--tools help text is stale: expected to contain {expected:?}, got {help:?}"
+        );
+    }
+
     #[test]
     fn cli_subcommand_query_parse() {
         let cli =
@@ -1688,30 +1874,112 @@ mod main_cli_tests {
     fn cli_subcommand_init_optional_client_parse() {
         let cli = Cli::try_parse_from(["nexql-mcp", "init"]).unwrap();
         match cli.command {
-            Some(Commands::Init { client, tui }) => {
+            Some(Commands::Init { client, tui, apply }) => {
                 assert_eq!(client, None);
                 assert!(!tui);
+                assert!(!apply);
             }
             _ => panic!("Expected Commands::Init"),
         }
 
         let cli_with_client = Cli::try_parse_from(["nexql-mcp", "init", "claude"]).unwrap();
         match cli_with_client.command {
-            Some(Commands::Init { client, tui }) => {
+            Some(Commands::Init { client, tui, apply }) => {
                 assert_eq!(client.as_deref(), Some("claude"));
                 assert!(!tui);
+                assert!(!apply);
             }
             _ => panic!("Expected Commands::Init"),
         }
 
         let cli_tui = Cli::try_parse_from(["nexql-mcp", "init", "--tui"]).unwrap();
         match cli_tui.command {
-            Some(Commands::Init { client, tui }) => {
+            Some(Commands::Init { client, tui, apply }) => {
                 assert_eq!(client, None);
                 assert!(tui);
+                assert!(!apply);
             }
             _ => panic!("Expected Commands::Init"),
         }
+    }
+
+    #[test]
+    fn cli_subcommand_init_apply_parse() {
+        let cli = Cli::try_parse_from(["nexql-mcp", "init", "claude-code", "--apply"]).unwrap();
+        match cli.command {
+            Some(Commands::Init { client, tui, apply }) => {
+                assert_eq!(client.as_deref(), Some("claude-code"));
+                assert!(!tui);
+                assert!(apply);
+            }
+            _ => panic!("Expected Commands::Init"),
+        }
+    }
+
+    /// `init <client> --apply` reuses the exact merge machinery `nexql-mcp
+    /// setup`'s HTTP API uses (`setup::wire::preview_wire`/`apply_wire`) —
+    /// this proves the in-process path writes the same `.mcp.json` shape the
+    /// browser flow would have produced, non-interactively.
+    #[test]
+    fn init_client_apply_writes_merged_config_for_claude_code() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let workspace_dir = tempfile::tempdir().unwrap();
+
+        let mut cfg = ConfigFile::default();
+        cfg.upsert_profile(
+            "local",
+            nexql_conn::ProfileConfig {
+                url: Some("postgres://dev@localhost:5432/appdb".into()),
+                ..Default::default()
+            },
+        );
+        cfg.save(&cfg_path).unwrap();
+
+        let cli = Cli::try_parse_from([
+            "nexql-mcp",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--workspace-root",
+            workspace_dir.path().to_str().unwrap(),
+            "init",
+            "claude-code",
+            "--apply",
+        ])
+        .unwrap();
+
+        run_init_apply(&cli, "claude-code").expect("apply should succeed");
+
+        let written = workspace_dir.path().join(".mcp.json");
+        assert!(
+            written.exists(),
+            "expected {} to be written",
+            written.display()
+        );
+        let content = std::fs::read_to_string(&written).unwrap();
+        assert!(content.contains("nexql-mcp"), "{content}");
+        assert!(content.contains("--profile"), "{content}");
+        assert!(content.contains("local"), "{content}");
+    }
+
+    /// A copy-only client (no real mergeable config file) must refuse
+    /// `--apply` with an actionable error, not silently do nothing or panic.
+    #[test]
+    fn init_client_apply_rejects_copy_only_client() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let cli = Cli::try_parse_from([
+            "nexql-mcp",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "init",
+            "jetbrains",
+            "--apply",
+        ])
+        .unwrap();
+
+        let err = run_init_apply(&cli, "jetbrains").expect_err("jetbrains has no mergeable file");
+        assert!(err.contains("copy/paste-only"), "{err}");
     }
 
     #[test]

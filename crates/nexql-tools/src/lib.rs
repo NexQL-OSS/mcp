@@ -11,6 +11,7 @@ pub mod completions;
 pub mod critique;
 pub mod dba_guard;
 pub mod detect;
+pub mod elicitation;
 pub mod error;
 pub mod exec;
 pub mod export;
@@ -28,6 +29,7 @@ pub mod write;
 
 pub use completions::{CompletionResult, CompletionsProvider};
 pub use detect::{ConnectionDetector, DetectedCandidate};
+pub use elicitation::{ConfirmationOutcome, ElicitationRequester};
 pub use error::ToolError;
 pub use exec::{ToolOutcome, ToolRouter};
 pub use prompts::{PromptCatalog, PromptError, PromptGetResult, PromptInfo};

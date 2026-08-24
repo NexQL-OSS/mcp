@@ -8,7 +8,7 @@
  * NarrativePlayer.
  */
 
-import { AMBER, MINT, type Scene } from "./story-shared";
+import { AMBER, BLUE, INDIGO, type Scene } from "./story-shared";
 import { NarrativePlayer } from "./NarrativePlayer";
 
 const HOURLY = [3.9, 3.94, 3.88, 3.91, 3.86, 3.9, 3.72, 3.4, 3.05, 2.71, 2.66, 2.72, 3.1, 3.5, 3.78, 3.86, 3.9, 3.88];
@@ -225,7 +225,10 @@ const ACTS: [string, number][] = [
   ["RECOVERED", 6],
 ];
 
-const roleHue = (r: string) => (r === "HEAD OF ONLINE STORE" ? AMBER : r === "DATA ANALYST" ? "#93A9E6" : MINT);
+// Green (MINT, imported by NarrativePlayer for chart/success tones) is reserved
+// for the recovery arc's payoff — roles get distinct, non-overlapping hues so
+// "who's speaking" and "this metric recovered" never read as the same signal.
+const roleHue = (r: string) => (r === "HEAD OF ONLINE STORE" ? AMBER : r === "DATA ANALYST" ? BLUE : INDIGO);
 
 interface StoryDemoProps {
   autoplay?: boolean;

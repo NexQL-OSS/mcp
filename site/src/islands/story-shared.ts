@@ -67,7 +67,7 @@ export interface CodeMark {
 export type Mark = LineMark | TableMark | HbarsMark | ListMark | NoteMark | CodeMark;
 
 export const CODE_PRE_STYLE =
-  "margin:0;padding:12px 14px;border:1px solid #1E222A;border-radius:8px;background:#0A0B0D;font:400 11.5px/1.65 'JetBrains Mono',monospace;color:#D2A76A;white-space:pre-wrap;word-break:break-word";
+  "margin:0;padding:12px 14px;border:1px solid #1E222A;border-radius:8px;background:#0A0B0D;font:400 11.5px/1.65 'JetBrains Mono',monospace;color:#CC785C;white-space:pre-wrap;word-break:break-word";
 
 export interface Scene {
   act: number;
@@ -81,9 +81,21 @@ export interface Scene {
   alts: [number, number];
 }
 
-export const AMBER = "#D2A76A";
-export const MINT = "#77CBA4";
-export const HOT = "#E0885B";
+/**
+ * Palette sourced from nexql.astrx.dev's brand tokens (`--accent`, `--nex-blue`,
+ * `--nex-indigo`, `--nex-magenta`, `--nex-amber`, plus the green used on its
+ * "Production guardrails" feature card) — kept on this site's existing dark
+ * background rather than adopting astrx.dev's light theme wholesale. Names
+ * (AMBER/MINT/HOT) are legacy — they no longer describe the literal hue, only
+ * the semantic role each still plays (primary accent / success-recovery /
+ * critical-warning) so call sites didn't need touching.
+ */
+export const AMBER = "#CC785C"; // primary accent (was a literal amber; now nexql.astrx.dev's terracotta --accent)
+export const MINT = "#4ADE80"; // success / recovery (now nexql.astrx.dev's guardrails green)
+export const HOT = "#F26B3A"; // critical / warning (now nexql.astrx.dev's --nex-amber)
+export const BLUE = "#3D6FE0"; // nexql.astrx.dev's --nex-blue
+export const INDIGO = "#6C4CD6"; // nexql.astrx.dev's --nex-indigo
+export const MAGENTA = "#E0388F"; // nexql.astrx.dev's --nex-magenta — available, unused by default marks
 export const NEUT = "rgba(242,240,234,.19)";
 export const BODY = "400 13px/1.5 'Space Grotesk',system-ui,sans-serif";
 export const BODY_M = "400 12px/1.5 'JetBrains Mono',monospace";
@@ -216,7 +228,7 @@ export function buildTurn(
 
   const steps = sc.steps.slice(0, shown).map((s) => {
     const done = !live || shown >= sc.steps.length ? t >= toolsStart + sc.steps.length * stepGap || !live : false;
-    return { tool: s[0], arg: s[1], dot: done ? "#4A505A" : hue };
+    return { tool: s[0], arg: s[1], dot: done ? "#5B6169" : hue };
   });
 
   return {
