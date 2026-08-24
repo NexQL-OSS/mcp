@@ -40,7 +40,10 @@ pub fn rows_to_markdown(columns: &[String], rows: &[Vec<Value>]) -> String {
     for row in rows {
         out.push('|');
         for (idx, _) in columns.iter().enumerate() {
-            let cell = row.get(idx).map(value_to_display_string).unwrap_or_default();
+            let cell = row
+                .get(idx)
+                .map(value_to_display_string)
+                .unwrap_or_default();
             out.push(' ');
             out.push_str(&escape_markdown_cell(&cell));
             out.push_str(" |");

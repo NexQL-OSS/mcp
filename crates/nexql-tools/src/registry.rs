@@ -10,7 +10,7 @@ pub enum ToolProfile {
     Query,
     /// DBA health checks, index suggestions, table stats, locks, slow queries, and maintenance.
     Dba,
-    /// Minimal initial tool surface (5 core tools) + discover_tools meta-tool for lazy tool activation.
+    /// Minimal initial tool surface + discover_tools meta-tool for lazy tool activation.
     Meta,
     /// All active MCP surface tools.
     #[default]

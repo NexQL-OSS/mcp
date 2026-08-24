@@ -74,7 +74,10 @@ pub fn build_enum_index(
             if entry.kind == nexql_index::model::DbObjectKind::Enum
                 && let Some(values) = &entry.values
             {
-                out.insert(ref_.rsplit('.').next().unwrap_or(&ref_).to_string(), values.clone());
+                out.insert(
+                    ref_.rsplit('.').next().unwrap_or(&ref_).to_string(),
+                    values.clone(),
+                );
                 out.insert(ref_.clone(), values.clone());
             }
         }
@@ -156,7 +159,11 @@ pub async fn resolve_fks_on_payload(
                 if filter.is_pii_column(&table.schema, &table.name, col) {
                     continue;
                 }
-                let ref_col = fk.ref_columns.get(idx).cloned().unwrap_or_else(|| "id".into());
+                let ref_col = fk
+                    .ref_columns
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| "id".into());
                 let ref_entry = parse_ref(&fk.ref_table)
                     .ok()
                     .and_then(|(s, n)| store.get_object_entry(&base, &manifest, &s, &n).ok())
@@ -170,9 +177,9 @@ pub async fn resolve_fks_on_payload(
         }
     }
 
-    let obj = payload.as_object_mut().ok_or_else(|| {
-        ToolError::Execution("run_select payload must be an object".into())
-    })?;
+    let obj = payload
+        .as_object_mut()
+        .ok_or_else(|| ToolError::Execution("run_select payload must be an object".into()))?;
     let col_names: Vec<String> = obj
         .get("columns")
         .and_then(|v| v.as_array())
@@ -205,7 +212,11 @@ pub async fn resolve_fks_on_payload(
             continue;
         }
         let ids: Vec<String> = distinct.into_iter().collect();
-        let ref_col = fk.ref_columns.get(ref_idx).cloned().unwrap_or_else(|| "id".into());
+        let ref_col = fk
+            .ref_columns
+            .get(ref_idx)
+            .cloned()
+            .unwrap_or_else(|| "id".into());
         let resolved = batch_resolve_fk_values(
             client,
             &fk.ref_table,
@@ -224,10 +235,7 @@ pub async fn resolve_fks_on_payload(
             .position(|c| c == &resolved_col)
             .unwrap_or(col_names.len().saturating_sub(1));
         for row in rows.iter_mut() {
-            let key = row
-                .get(col_idx)
-                .map(value_to_key)
-                .unwrap_or_default();
+            let key = row.get(col_idx).map(value_to_key).unwrap_or_default();
             let label = resolved.get(&key).cloned().unwrap_or_default();
             if let Some(row_arr) = row.as_array_mut() {
                 if row_arr.len() <= resolved_idx {
@@ -311,7 +319,8 @@ pub async fn enrich_describe_object_with_store(
                 .get(ref_idx)
                 .cloned()
                 .unwrap_or_else(|| "id".into());
-            let label = label_column_for_fk(store, &base, &manifest, &fk).unwrap_or(ref_col.clone());
+            let label =
+                label_column_for_fk(store, &base, &manifest, &fk).unwrap_or(ref_col.clone());
             let mut fk_meta = json!({
                 "refTable": fk.ref_table,
                 "refColumns": fk.ref_columns,
@@ -336,11 +345,7 @@ pub async fn enrich_describe_object_with_store(
                     && let Some(c) = client
                 {
                     let ids: Vec<String> = resolved.keys().cloned().collect();
-                    let sample_ids = if ids.is_empty() {
-                        Vec::new()
-                    } else {
-                        ids
-                    };
+                    let sample_ids = if ids.is_empty() { Vec::new() } else { ids };
                     if !sample_ids.is_empty()
                         && let Ok(live) = batch_resolve_fk_values(
                             c,

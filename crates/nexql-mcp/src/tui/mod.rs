@@ -39,9 +39,7 @@ pub(crate) fn secret_migration_status(report: &SecretMigrationReport) -> Option<
     Some(parts.join("; "))
 }
 
-pub(crate) fn load_config_migrated(
-    config_path: &Path,
-) -> (ConfigFile, Option<String>) {
+pub(crate) fn load_config_migrated(config_path: &Path) -> (ConfigFile, Option<String>) {
     if !config_path.exists() {
         return (ConfigFile::default(), None);
     }

@@ -11,13 +11,12 @@ pub mod sql;
 
 pub use access::{AccessMode, check_superuser_guard};
 pub use caps::{
-    AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS, DEFAULT_MAX_ROWS,
-    DEFAULT_STATEMENT_TIMEOUT_MS, PolicyCaps, clamp_max_rows, clamp_statement_timeout_ms,
+    AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RAISED_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS,
+    DEFAULT_MAX_ROWS, DEFAULT_STATEMENT_TIMEOUT_MS, PolicyCaps, clamp_max_rows,
+    clamp_statement_timeout_ms, max_raised_timeout_ms, resolve_raised_timeout_ms,
 };
 pub use error::PolicyError;
-pub use filter::{
-    ObjectRef, PolicyFilter, PII_REDACTED, column_matches_pii_policy, is_pii_column,
-};
+pub use filter::{ObjectRef, PII_REDACTED, PolicyFilter, column_matches_pii_policy, is_pii_column};
 pub use sql::{
     SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
     validate_write_sql,

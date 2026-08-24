@@ -37,6 +37,34 @@ pub fn clamp_statement_timeout_ms(ms: u32) -> u32 {
     ms.clamp(MIN_STATEMENT_TIMEOUT_MS, MAX_STATEMENT_TIMEOUT_MS)
 }
 
+/// Default ceiling for `timeout_ms` on calls that may *raise* the statement
+/// timeout above a profile's configured default (`execute_sql`, `apply_ddl`)
+/// — as opposed to `run_select`'s `timeout_ms`, which may only lower it
+/// below `PolicyCaps::statement_timeout_ms`. 10 minutes: generous enough for
+/// bulk INSERT/DDL, still bounded so a single call can't hold a connection
+/// open indefinitely.
+pub const DEFAULT_MAX_RAISED_TIMEOUT_MS: u32 = 600_000;
+
+/// Ceiling for a call's raised `timeout_ms`, from `NEXQL_MCP_MAX_TIMEOUT_MS`
+/// (falls back to [`DEFAULT_MAX_RAISED_TIMEOUT_MS`] if unset or unparsable),
+/// itself still bounded by [`MAX_STATEMENT_TIMEOUT_MS`].
+pub fn max_raised_timeout_ms() -> u32 {
+    std::env::var("NEXQL_MCP_MAX_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(DEFAULT_MAX_RAISED_TIMEOUT_MS)
+        .clamp(MIN_STATEMENT_TIMEOUT_MS, MAX_STATEMENT_TIMEOUT_MS)
+}
+
+/// Resolve the statement timeout to apply for a call that may raise the
+/// timeout above the connection's current default — `None` means "the
+/// caller passed no `timeout_ms`; leave the connection's existing timeout
+/// alone" (preserves the pre-Phase-2 behavior of a fixed pool-wide default).
+/// `Some` is always clamped to `max_raised`, never left unbounded.
+pub fn resolve_raised_timeout_ms(requested: Option<u32>, max_raised: u32) -> Option<u32> {
+    requested.map(|n| n.min(max_raised))
+}
+
 impl PolicyCaps {
     pub fn with_max_rows(mut self, n: u32) -> Self {
         self.max_rows = clamp_max_rows(n);
@@ -65,6 +93,34 @@ impl PolicyCaps {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unlike `run_select`'s `timeout_ms` (which only ever lowers below the
+    /// profile default), `execute_sql`/`apply_ddl` may raise it — bounded by
+    /// the server ceiling, not the profile default.
+    #[test]
+    fn resolve_raised_timeout_ms_allows_raising_above_profile_default() {
+        let profile_default = DEFAULT_STATEMENT_TIMEOUT_MS; // 30_000
+        let requested = 120_000; // well above the profile default
+        let resolved = resolve_raised_timeout_ms(Some(requested), DEFAULT_MAX_RAISED_TIMEOUT_MS);
+        assert_eq!(resolved, Some(requested));
+        assert!(resolved.unwrap() > profile_default);
+    }
+
+    #[test]
+    fn resolve_raised_timeout_ms_capped_by_server_max() {
+        let resolved = resolve_raised_timeout_ms(Some(u32::MAX), DEFAULT_MAX_RAISED_TIMEOUT_MS);
+        assert_eq!(resolved, Some(DEFAULT_MAX_RAISED_TIMEOUT_MS));
+    }
+
+    #[test]
+    fn resolve_raised_timeout_ms_none_when_not_requested() {
+        // No timeout_ms in the call → don't touch the connection's existing
+        // timeout at all (preserves pre-Phase-2 behavior).
+        assert_eq!(
+            resolve_raised_timeout_ms(None, DEFAULT_MAX_RAISED_TIMEOUT_MS),
+            None
+        );
+    }
 
     #[test]
     fn max_rows_defaults_and_clamps() {

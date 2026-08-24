@@ -50,10 +50,7 @@ impl LaunchConfig {
                     .as_deref()
                     .filter(|v| !v.is_empty())
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
-                let mut args = vec![
-                    "-y".into(),
-                    format!("nexql-mcp@{version}"),
-                ];
+                let mut args = vec!["-y".into(), format!("nexql-mcp@{version}")];
                 args.extend(profile_args);
                 ("npx".into(), args)
             }
@@ -187,13 +184,8 @@ pub fn preview_wire(
             continue;
         };
         let old_content = std::fs::read_to_string(&path).unwrap_or_default();
-        match client_targets::merge_entry(
-            &old_content,
-            target.shape,
-            "nexql-mcp",
-            &command,
-            &args,
-        ) {
+        match client_targets::merge_entry(&old_content, target.shape, "nexql-mcp", &command, &args)
+        {
             Ok(new_content) => {
                 let diff = TextDiff::from_lines(&old_content, &new_content);
                 let unified_diff = diff.unified_diff().context_radius(2).to_string();
@@ -247,16 +239,10 @@ pub fn preview_wire(
         }
     }
 
-    WirePreview {
-        diffs,
-        snippets,
-    }
+    WirePreview { diffs, snippets }
 }
 
-pub fn apply_wire(
-    preview: &WirePreview,
-    apply_keys: &[String],
-) -> Vec<WireApplyResult> {
+pub fn apply_wire(preview: &WirePreview, apply_keys: &[String]) -> Vec<WireApplyResult> {
     let mut results = Vec::new();
     for diff in &preview.diffs {
         if !apply_keys.iter().any(|k| k == &diff.client_key) {
@@ -511,7 +497,14 @@ mod tests {
     #[test]
     fn preview_empty_profiles_returns_empty() {
         let cfg = ConfigFile::default();
-        let preview = preview_wire(&cfg, &[], &["cursor".into()], &[], &LaunchConfig::default(), None);
+        let preview = preview_wire(
+            &cfg,
+            &[],
+            &["cursor".into()],
+            &[],
+            &LaunchConfig::default(),
+            None,
+        );
         assert!(preview.diffs.is_empty());
         assert!(preview.snippets.is_empty());
     }

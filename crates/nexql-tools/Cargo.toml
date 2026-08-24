@@ -12,6 +12,7 @@ rust-version.workspace = true
 description = "MCP tool registry, JSON schemas, executors"
 
 [dependencies]
+async-trait = { workspace = true }
 nexql-conn = { workspace = true }
 nexql-index = { workspace = true }
 nexql-policy = { workspace = true }

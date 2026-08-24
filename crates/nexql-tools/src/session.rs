@@ -9,8 +9,8 @@ use std::sync::{Arc, RwLock};
 
 use deadpool_postgres::{Object, Pool};
 use nexql_conn::{
-    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded, create_pool,
-    resolve_profile,
+    ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded,
+    create_pool, resolve_profile,
 };
 use nexql_index::IndexStore;
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter, clamp_statement_timeout_ms};
@@ -79,6 +79,10 @@ pub struct ToolSession {
     /// Schema index root; `None` disables Phase 3 tools with an actionable error.
     pub index_store: Option<IndexStore>,
     inner: AsyncRwLock<SessionInner>,
+    /// Set by the binary after the MCP transport is wired up (see
+    /// `crate::elicitation`) — `None` until then, and always `None` in tests
+    /// that don't explicitly inject one via [`Self::set_elicitation_backend`].
+    elicitation: RwLock<Option<Arc<dyn crate::elicitation::ElicitationRequester>>>,
 }
 
 fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
@@ -314,7 +318,37 @@ impl ToolSession {
                 database,
                 pools,
             }),
+            elicitation: RwLock::new(None),
         }))
+    }
+
+    /// Inject the elicitation backend — called once by the binary after the
+    /// MCP transport is constructed (see `crate::elicitation`'s module docs
+    /// for why this can't happen at construction time).
+    pub fn set_elicitation_backend(
+        &self,
+        backend: Arc<dyn crate::elicitation::ElicitationRequester>,
+    ) {
+        if let Ok(mut guard) = self.elicitation.write() {
+            *guard = Some(backend);
+        }
+    }
+
+    /// Ask the connected client to elicit a yes/no confirmation from the
+    /// human for `prompt`. Returns `None` when no backend is injected (e.g.
+    /// in tests) or the client didn't advertise elicitation support —
+    /// callers must treat `None` the same as an elicitation failure: fall
+    /// back to requiring an explicit confirm argument, not treat it as
+    /// either a yes or a no.
+    pub async fn elicit_confirmation(
+        &self,
+        prompt: &str,
+    ) -> Option<Result<crate::elicitation::ConfirmationOutcome, String>> {
+        let backend = self.elicitation.read().ok()?.clone()?;
+        if !backend.supports_elicitation() {
+            return None;
+        }
+        Some(backend.request_confirmation(prompt).await)
     }
 
     pub async fn from_connections_with_filter(
@@ -508,10 +542,7 @@ impl ToolSession {
         }
     }
 
-    pub async fn set_statement_timeout(
-        client: &Object,
-        timeout_ms: u32,
-    ) -> Result<(), ToolError> {
+    pub async fn set_statement_timeout(client: &Object, timeout_ms: u32) -> Result<(), ToolError> {
         let ms = clamp_statement_timeout_ms(timeout_ms);
         client
             .batch_execute(&format!("SET statement_timeout = '{ms}ms'"))
@@ -549,6 +580,7 @@ impl ToolSession {
                 database,
                 pools: HashMap::new(),
             }),
+            elicitation: RwLock::new(None),
         })
     }
 }
@@ -638,9 +670,7 @@ mod tests {
             connection_id: "b".into(),
             database: "postgres".into(),
         };
-        let _ = session
-            .checkout_for(CheckoutTarget::Scoped(&scoped))
-            .await;
+        let _ = session.checkout_for(CheckoutTarget::Scoped(&scoped)).await;
         let (active_id, _) = session.active_context().await;
         assert_eq!(active_id, "a");
     }

@@ -307,7 +307,7 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::SaveProfile,
-            description: "Save or update a database connection profile in user configuration with atomic backup and dynamic session reload.",
+            description: "Save or update a database connection profile in user configuration with atomic backup and dynamic session reload. Merges into the existing named profile by default — omitted fields are preserved, not cleared. Pass replace: true to wholesale-replace instead.",
             input_schema: object_schema(&[
                 ("name", "string", true, "Profile name to save under."),
                 (
@@ -354,6 +354,12 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "number",
                     false,
                     "Row cap applied to run_select/export_query for this profile.",
+                ),
+                (
+                    "replace",
+                    "boolean",
+                    false,
+                    "If true, replace the profile wholesale instead of merging with existing saved fields. Default false.",
                 ),
             ]),
         },
@@ -918,6 +924,12 @@ pub fn phase9_write_tools() -> Vec<ToolSpec> {
                     false,
                     "When true (default when dry_run), capture before/after row snapshots for UPDATE/DELETE.",
                 ),
+                (
+                    "timeout_ms",
+                    "number",
+                    false,
+                    "Override statement_timeout for this call, in milliseconds. Unlike run_select, may exceed the profile's configured ceiling — useful for bulk INSERT/DDL. Bounded by NEXQL_MCP_MAX_TIMEOUT_MS.",
+                ),
             ]),
         },
         ToolSpec {
@@ -978,7 +990,7 @@ pub fn phase9_write_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::ApplyDdl,
-            description: "Apply a DDL statement (CREATE, ALTER, DROP, TRUNCATE, …) in admin mode inside a transaction. Set dry_run=true to roll back.",
+            description: "Apply a DDL statement (CREATE, ALTER, DROP, TRUNCATE, …) in admin mode inside a transaction. Set dry_run=true to roll back. Scope: objects within the connected database only — CREATE DATABASE / DROP DATABASE are always rejected, in every access mode.",
             input_schema: object_schema(&[
                 ("sql", "string", true, "A single DDL statement to apply."),
                 (
@@ -986,6 +998,18 @@ pub fn phase9_write_tools() -> Vec<ToolSpec> {
                     "boolean",
                     false,
                     "If true, execute then roll back so no change persists. Default false.",
+                ),
+                (
+                    "confirm_destructive",
+                    "boolean",
+                    false,
+                    "Required (true) when the statement is classified CRITICAL risk by check_ddl_safety's rules (e.g. DROP TABLE, TRUNCATE), unless the client supports MCP elicitation — in that case the server asks the human directly instead of requiring this argument. Call check_ddl_safety first, or dry_run:true to preview. Not required when dry_run is true. Default false.",
+                ),
+                (
+                    "timeout_ms",
+                    "number",
+                    false,
+                    "Override statement_timeout for this call, in milliseconds. Unlike run_select, may exceed the profile's configured ceiling — useful for bulk INSERT/DDL. Bounded by NEXQL_MCP_MAX_TIMEOUT_MS.",
                 ),
             ]),
         },

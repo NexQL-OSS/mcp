@@ -2,6 +2,8 @@
 
 Database inspection, performance tuning, DDL safety analysis, and lock monitoring with `nexql-mcp`.
 
+> **If you are an AI coding agent setting this up on a user's behalf:** run `nexql-mcp init <client> --apply` (non-interactive, no browser needed), or drive `nexql-mcp setup`'s HTTP API directly (`POST /api/v1/clients/preview` → `POST /api/v1/clients/apply`, bearer token printed to stderr on startup). See [docs/clients/README.md](clients/README.md) for exact config paths per client (e.g. `.mcp.json` for `claude-code`).
+
 ## 1. Multi-Environment Profile Setup
 
 Configure production and staging environments with explicit access policies:
@@ -23,6 +25,7 @@ nexql-mcp profile add prod \
 
 ## 2. Key Tools for DBAs
 
+- `orient`: Call this first on an unfamiliar database — one-call schema bootstrap (tables, FK joins, enum-like columns) instead of several manual lookups.
 - `auto_tune_query`: Analyzes execution plan metrics and recommends targeted index creations.
 - `suggest_indexes`: Detects high sequential-scan tables and unindexed foreign keys.
 - `check_ddl_safety`: Uses PostgreSQL AST parsing (`pg_query`) to inspect proposed DDL for locking risks (`AccessExclusiveLock`, missing `CONCURRENTLY`, table rewrites).

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-24
+
+### Added
+- **`nexql-mcp init <client> --apply`**: writes the merged MCP client config directly — no browser, no TTY, reuses the same merge machinery `nexql-mcp setup`'s HTTP API uses. The recommended path for an AI agent setting nexql-mcp up on a user's behalf.
+- **Real human-in-the-loop confirmation for destructive DDL**: `apply_ddl` now asks the connected MCP client to elicit a direct yes/no from the human (`elicitation/create`) before running a CRITICAL-risk statement, when the client supports it — not just an agent-settable `confirm_destructive` flag. Falls back to the existing argument gate when elicitation isn't available or fails; never proceeds silently.
+- **`apply_ddl` destructive-confirm gate**: CRITICAL-risk statements (e.g. `DROP TABLE`, `TRUNCATE`) are refused unless `confirm_destructive: true` is passed or `dry_run: true` previews instead. Closes a false-"SAFE" / zero-friction-DROP gap.
+- **`timeout_ms` on `execute_sql`/`apply_ddl`**: may *raise* the statement timeout above the profile default for one call (unlike `run_select`'s, which can only lower it), bounded by new `NEXQL_MCP_MAX_TIMEOUT_MS` (default 10 min). `db_health_check` now surfaces both ceilings. See `docs/bulk-operations.md`.
+- **`save_profile` `replace` argument**: opts back into the old wholesale-replace behavior when explicitly wanted.
+- `orient` given "start here" framing across `docs/tools/README.md` and every quickstart doc.
+
+### Fixed
+- **`save_profile` silently wiped previously-saved fields** on a partial resave (e.g. changing only `dbname` used to clear `host`/`user`/etc.) — now merges into the existing profile by default.
+- **`check_ddl_safety` reported a false "SAFE"** for `CREATE DATABASE` / `DROP DATABASE` — now classified CRITICAL, matching `apply_ddl`'s own rejection of those statements in every access mode.
+- **`apply_ddl`'s generic denial** for `CREATE DATABASE` / `DROP DATABASE` replaced with a scope-boundary error explaining this server manages objects within a connected database, not the database catalog — signals "architectural, not a permission gap" instead of inviting a retry with higher `access_mode`.
+- **`discover_tools(category: "meta")`** silently fell through to the unfiltered catalog instead of filtering to `META_PROFILE`.
+- Stale tool-count literals ("41 tools") in `--tools` help and the onboarding TUI now compute from `ToolName::ACTIVE.len()` instead of a hardcoded number that had already drifted once before.
+
+### Changed
+- **Installation instructions now lead with `npx -y nexql-mcp@latest`** across `README.md`, `docs/clients/README.md`, and `docs/quickstart-developer.md` — zero install, always the latest release, works identically for a human or an AI agent. Every other method (quick-install script, cargo, uv, manual download, Docker, MCPB, Homebrew) is now framed as a fallback for when npx isn't an option.
+- **Site (`nexql-mcp.astrx.dev`)**: accent palette re-sourced from nexql.astrx.dev's actual brand tokens (terracotta accent, blue, indigo, magenta) on this site's existing dark background; smallest text sizes and lowest-contrast muted grays bumped for readability; narrative player now pauses (instead of fighting) manual scrolling or a click on any message, with a 2-minute auto-resume; setup-flow prompts corrected to not assume a real database URL, to not stall agents without browser access, and to explicitly forbid installing any way other than the documented command.
+- `--tools`/`NEXQL_MCP_TOOLS` documented as a context-window budgeting knob only — `access_mode` remains the real security boundary.
+
 ## [0.4.2] - 2026-08-19
 
 ### Changed

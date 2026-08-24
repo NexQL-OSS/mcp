@@ -13,17 +13,17 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::Router;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Json;
 use dto::{
     ClientsApplyRequest, ClientsApplyResponse, ClientsPreviewRequest, ErrorBody, ExportResponse,
     ImportRequest, ImportResponse, MetaResponse, ProfileCreateRequest, ProfileListItem,
-    ProfileResponse, ProfileUpsertRequest, SanitizedProfile, SetPasswordRequest,
-    TestStartResponse, TestStatusResponse,
+    ProfileResponse, ProfileUpsertRequest, SanitizedProfile, SetPasswordRequest, TestStartResponse,
+    TestStatusResponse,
 };
 use nexql_conn::{ConfigFile, ProfileConfig};
 use nexql_policy::AccessMode;
@@ -116,17 +116,12 @@ pub async fn run(options: SetupOptions) -> Result<(), Box<dyn std::error::Error>
         .route("/api/v1/profiles", get(list_profiles).post(create_profile))
         .route(
             "/api/v1/profiles/{name}",
-            get(get_profile)
-                .put(update_profile)
-                .delete(delete_profile),
+            get(get_profile).put(update_profile).delete(delete_profile),
         )
         .route("/api/v1/profiles/{name}/default", post(set_default))
         .route("/api/v1/profiles/{name}/test", post(start_test))
         .route("/api/v1/profiles/{name}/test/{job_id}", get(test_status))
-        .route(
-            "/api/v1/profiles/{name}/set-password",
-            post(set_password),
-        )
+        .route("/api/v1/profiles/{name}/set-password", post(set_password))
         .route("/api/v1/profiles/{name}/export", get(export_profile))
         .route("/api/v1/profiles/import", post(import_profiles))
         .route("/api/v1/clients", get(list_clients_handler))
@@ -254,10 +249,7 @@ async fn serve_index() -> Html<&'static str> {
     Html(SETUP_HTML)
 }
 
-async fn meta_handler(
-    State(state): State<Arc<SetupState>>,
-    headers: HeaderMap,
-) -> Response {
+async fn meta_handler(State(state): State<Arc<SetupState>>, headers: HeaderMap) -> Response {
     if !auth_ok(&headers, &state.token) {
         return unauthorized();
     }
@@ -266,7 +258,10 @@ async fn meta_handler(
         Ok(c) => c,
         Err(e) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
-    let workspace = state.workspace_root.as_ref().map(|p| p.display().to_string());
+    let workspace = state
+        .workspace_root
+        .as_ref()
+        .map(|p| p.display().to_string());
     let detected = ConnectionDetector::detect_all(state.workspace_root.as_deref());
     let (password_storage, secrets_dir) = password_storage_mode();
     let body = MetaResponse {
@@ -284,9 +279,8 @@ async fn meta_handler(
     if let Ok(value) = serde_json::to_value(&detected) {
         resp.headers_mut().insert(
             "x-detected-connections",
-            header::HeaderValue::from_str(&value.to_string()).unwrap_or_else(|_| {
-                header::HeaderValue::from_static("[]")
-            }),
+            header::HeaderValue::from_str(&value.to_string())
+                .unwrap_or_else(|_| header::HeaderValue::from_static("[]")),
         );
     }
     resp
@@ -459,7 +453,8 @@ async fn delete_profile(
         Ok(b) => b,
         Err(e) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
-    Json(json!({ "deleted": name, "backup": backup.map(|b| b.display().to_string()) })).into_response()
+    Json(json!({ "deleted": name, "backup": backup.map(|b| b.display().to_string()) }))
+        .into_response()
 }
 
 async fn set_default(
@@ -584,11 +579,7 @@ async fn test_status(
             error,
         } => Json(TestStatusResponse {
             job_id,
-            status: if error.is_some() {
-                "error"
-            } else {
-                "ok"
-            },
+            status: if error.is_some() { "error" } else { "ok" },
             server_version: server_version.clone(),
             is_superuser: *is_superuser,
             latency_ms: *latency_ms,
@@ -759,10 +750,7 @@ async fn clients_apply(
     Json(ClientsApplyResponse { results }).into_response()
 }
 
-async fn shutdown_handler(
-    State(state): State<Arc<SetupState>>,
-    headers: HeaderMap,
-) -> Response {
+async fn shutdown_handler(State(state): State<Arc<SetupState>>, headers: HeaderMap) -> Response {
     if !auth_ok(&headers, &state.token) {
         return unauthorized();
     }

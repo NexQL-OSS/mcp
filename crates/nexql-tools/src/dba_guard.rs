@@ -35,6 +35,39 @@ pub struct DdlSafetyIssue {
 
 use pg_query::{NodeRef, parse};
 
+/// Shared scope-boundary message for `CREATE DATABASE` / `DROP DATABASE` —
+/// `nexql_policy::sql::is_forbidden_always` rejects these in every access
+/// mode, unconditionally; the message conveys "not performable at any risk
+/// tolerance, this server doesn't manage the database catalog" rather than
+/// "permission denied, try a higher access_mode". Shared between
+/// [`apply_ddl`](crate::write::apply_ddl)'s pre-execution short-circuit and
+/// [`analyze_ddl_safety`]'s CRITICAL classification so the two never drift.
+pub const DATABASE_DDL_SCOPE_ERROR: &str = "CREATE DATABASE / DROP DATABASE are outside this server's scope — nexql-mcp manages objects within the connected database, not the database catalog. Connect directly to the target database, or use external tooling for database-level operations.";
+
+/// True when `sql`'s single root statement is `CREATE DATABASE` / `DROP
+/// DATABASE` — statements `nexql_policy` rejects in every access mode
+/// (`is_forbidden_always`). Returns `false` on parse failure or any other
+/// statement shape; callers should still run the real validator afterward.
+pub fn is_database_ddl(sql: &str) -> bool {
+    let Ok(parsed) = parse(sql) else {
+        return false;
+    };
+    let Some(node) = parsed
+        .protobuf
+        .stmts
+        .first()
+        .and_then(|raw| raw.stmt.as_ref())
+        .and_then(|s| s.node.as_ref())
+    else {
+        return false;
+    };
+    matches!(
+        node,
+        pg_query::protobuf::node::Node::CreatedbStmt(_)
+            | pg_query::protobuf::node::Node::DropdbStmt(_)
+    )
+}
+
 pub fn analyze_ddl_safety(ddl: &str) -> Value {
     let parse_result = match parse(ddl) {
         Ok(res) => res,
@@ -74,6 +107,21 @@ pub fn analyze_ddl_safety(ddl: &str) -> Value {
                     update_overall_risk(&mut overall_risk, RiskLevel::Critical);
                     issues.push(issue);
                 }
+            }
+            NodeRef::CreatedbStmt(_) | NodeRef::DropdbStmt(_) => {
+                // Reused verbatim from `apply_ddl`'s scope-boundary error
+                // (write.rs) so the two never contradict each other — a
+                // false "SAFE" verdict here would defeat the point of
+                // checking safety before applying.
+                let issue = DdlSafetyIssue {
+                    risk_level: RiskLevel::Critical,
+                    lock_type: "N/A — rejected in every access mode",
+                    issue: DATABASE_DDL_SCOPE_ERROR.to_string(),
+                    recommendation: "Connect directly to the target database, or use external tooling, for database-level operations.".into(),
+                    safe_alternative_sql: None,
+                };
+                update_overall_risk(&mut overall_risk, RiskLevel::Critical);
+                issues.push(issue);
             }
             NodeRef::DropStmt(_drop) => {
                 let issue = DdlSafetyIssue {
@@ -235,6 +283,40 @@ mod tests {
         let res = analyze_ddl_safety(sql);
         assert_eq!(res["overall_risk"], "SAFE");
         assert_eq!(res["issue_count"], 0);
+    }
+
+    /// `nexql_policy::sql::is_forbidden_always` rejects `CREATE DATABASE` in
+    /// every access mode — `analyze_ddl_safety` must not report a false
+    /// "SAFE" verdict for a statement `apply_ddl` will always refuse.
+    #[test]
+    fn test_create_database_flagged_as_forbidden_not_safe() {
+        let sql = "CREATE DATABASE analytics;";
+        let res = analyze_ddl_safety(sql);
+        assert_eq!(res["overall_risk"], "CRITICAL");
+        assert_eq!(res["is_safe"], false);
+        assert_eq!(res["issue_count"], 1);
+        assert!(
+            res["issues"][0]["issue"]
+                .as_str()
+                .unwrap()
+                .contains("outside this server's scope")
+        );
+    }
+
+    /// Same as above for `DROP DATABASE`.
+    #[test]
+    fn test_drop_database_flagged_as_forbidden_not_safe() {
+        let sql = "DROP DATABASE analytics;";
+        let res = analyze_ddl_safety(sql);
+        assert_eq!(res["overall_risk"], "CRITICAL");
+        assert_eq!(res["is_safe"], false);
+        assert_eq!(res["issue_count"], 1);
+        assert!(
+            res["issues"][0]["issue"]
+                .as_str()
+                .unwrap()
+                .contains("outside this server's scope")
+        );
     }
 
     #[test]

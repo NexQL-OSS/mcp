@@ -1,19 +1,23 @@
 # Client setup
 
-For an interactive, guided flow — profile add/edit, live test-connect, and wiring into several clients at once with a diff before writing — run `nexql-mcp tui` instead of the steps below. Everything here still applies to the 3 clients the TUI can't safely merge into (`continue`, `jetbrains`, `openai-agents`) and to anyone who prefers copy-paste.
+For an interactive, guided flow — profile add/edit, live test-connect, and wiring into several clients at once with a diff before writing — run `npx -y nexql-mcp@latest tui` instead of the steps below. Everything here still applies to the 3 clients the TUI can't safely merge into (`continue`, `jetbrains`, `openai-agents`) and to anyone who prefers copy-paste.
 
-Generate paste-ready configs:
+> **If you are an AI coding agent setting this up on a user's behalf:** run `npx -y nexql-mcp@latest init <client> --apply` instead of copy-pasting the snippet below — non-interactive, no browser, no TTY, and it writes the merged config directly (exact paths per client below). Works for any client with a real mergeable config file (everything below except `continue`/`jetbrains`/`openai-agents`, which stay copy-paste-only). Or drive `nexql-mcp setup`'s HTTP API directly: `POST /api/v1/clients/preview` → `POST /api/v1/clients/apply` (bearer token printed to stderr on startup).
+
+Generate paste-ready configs — `npx -y nexql-mcp@latest` is the desired way to run these (no install step, always the latest release); `nexql-mcp` alone works too if you've installed a permanent binary (see [README.md § Install](../README.md#install) for that and other fallback methods):
 
 ```bash
-nexql-mcp init <client>
-nexql-mcp init <client> postgres://user:pass@localhost:5432/dbname
+npx -y nexql-mcp@latest init <client>
+npx -y nexql-mcp@latest init <client> postgres://user:pass@localhost:5432/dbname
 # or
-nexql-mcp postgres://… init <client>
+npx -y nexql-mcp@latest postgres://… init <client>
+# or, to write the merged config directly instead of printing a snippet:
+npx -y nexql-mcp@latest init <client> --apply
 ```
 
 Supported clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `antigravity` | `deepseek` | `kimi` | `ollama` | `qwen` | `continue` | `jetbrains` | `openai-agents`
 
-Install the binary first (`cargo install --path crates/nexql-mcp`, GitHub Release, `npx -y nexql-mcp`, or Docker) so the `command` resolves on `PATH`.
+**Context-window budget:** add `--tools query|dba|meta|full` (env `NEXQL_MCP_TOOLS`) to any of the commands above to restrict which tools are advertised to the client — advisory only, not a security boundary (that's `access_mode`). See [README.md § Tool surface / context budget](../README.md#tool-surface--context-budget).
 
 ---
 
@@ -25,7 +29,7 @@ Config file:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```bash
-nexql-mcp init claude-desktop postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init claude-desktop postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -48,7 +52,7 @@ Restart Claude Desktop after editing.
 Project file `.mcp.json` (or user-level Claude Code MCP settings):
 
 ```bash
-nexql-mcp init claude-code postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init claude-code postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -69,7 +73,7 @@ nexql-mcp init claude-code postgres://dev@localhost:5432/appdb
 Project: `.cursor/mcp.json` — or Cursor Settings → MCP.
 
 ```bash
-nexql-mcp init cursor postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init cursor postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -90,7 +94,7 @@ nexql-mcp init cursor postgres://dev@localhost:5432/appdb
 Workspace: `.vscode/mcp.json`.
 
 ```bash
-nexql-mcp init vscode postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init vscode postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -112,7 +116,7 @@ nexql-mcp init vscode postgres://dev@localhost:5432/appdb
 Same shape as VS Code MCP (`.vscode/mcp.json`):
 
 ```bash
-nexql-mcp init vscode-copilot postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init vscode-copilot postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -134,7 +138,7 @@ nexql-mcp init vscode-copilot postgres://dev@localhost:5432/appdb
 Merge into Zed `settings.json` under `context_servers`:
 
 ```bash
-nexql-mcp init zed postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init zed postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -156,7 +160,7 @@ nexql-mcp init zed postgres://dev@localhost:5432/appdb
 Cascade MCP config (`mcp_config.json` / Settings → Cascade):
 
 ```bash
-nexql-mcp init windsurf postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init windsurf postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -177,7 +181,7 @@ nexql-mcp init windsurf postgres://dev@localhost:5432/appdb
 Merge into `~/.continue/config.yaml` (or project `.continue/config.yaml`):
 
 ```bash
-nexql-mcp init continue postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init continue postgres://dev@localhost:5432/appdb
 ```
 
 ```yaml
@@ -195,7 +199,7 @@ mcpServers:
 Settings → Tools → AI Assistant → MCP:
 
 ```bash
-nexql-mcp init jetbrains postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init jetbrains postgres://dev@localhost:5432/appdb
 ```
 
 ```json
@@ -214,7 +218,7 @@ nexql-mcp init jetbrains postgres://dev@localhost:5432/appdb
 ## OpenAI Agents SDK (`openai-agents`)
 
 ```bash
-nexql-mcp init openai-agents postgres://dev@localhost:5432/appdb
+npx -y nexql-mcp@latest init openai-agents postgres://dev@localhost:5432/appdb
 ```
 
 Python (`agents.mcp.MCPServerStdio`):

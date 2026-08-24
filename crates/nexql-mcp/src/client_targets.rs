@@ -137,9 +137,8 @@ pub fn config_path_for(key: &str, workspace_root: Option<&Path>) -> Option<PathB
                 .join("antigravity-ide")
                 .join("mcp_config.json")
         }),
-        "deepseek" => project_or_workspace_path(workspace_root, ".deepseek/mcp.json").or_else(|| {
-            home_dir().map(|h| h.join(".config/deepseek/mcp.json"))
-        }),
+        "deepseek" => project_or_workspace_path(workspace_root, ".deepseek/mcp.json")
+            .or_else(|| home_dir().map(|h| h.join(".config/deepseek/mcp.json"))),
         "kimi" => project_or_workspace_path(workspace_root, ".kimi/mcp.json")
             .or_else(|| home_dir().map(|h| h.join(".config/kimi/mcp.json"))),
         "ollama" => project_or_workspace_path(workspace_root, ".ollama/mcp.json")

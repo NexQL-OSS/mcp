@@ -38,6 +38,10 @@ Paths are relative to the sibling `nexql-pro` checkout in the NexQL-OSS workspac
 
 - `select_connection_context` — replaced by MCP `elicitation/create`
 
+## Scope boundary: no database-catalog operations
+
+`nexql-tools::exec`'s `apply_ddl` (ported from `ToolExecutor.ts`) manages objects *within* the connected database, not the database catalog. `CreatedbStmt`/`DropdbStmt` are rejected in every access mode by `nexql-policy::sql::is_forbidden_always` — permanent, intentional scope, not a placeholder for a future `create_database` tool. See [docs/tools/README.md](tools/README.md#scope-boundary-no-database-catalog-operations).
+
 ## Golden-file test (phase 3 gate)
 
 Run TS `IndexBuilder` and Rust builder against the same seeded schema; assert byte-identical manifests, shards, and postings.
