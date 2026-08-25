@@ -910,6 +910,7 @@
         <span class="brand-badge">SETUP</span>
       </div>
       <div class="topbar-actions">
+        <button type="button" class="btn-primary" id="btn-finish-close" title="Save and return to the terminal">Finish &amp; Close</button>
         <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light mode" title="Switch to light mode">
           <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -1142,6 +1143,9 @@
     let token = params.get('token') || sessionStorage.getItem('nexql_setup_token') || '';
     if (params.get('token')) sessionStorage.setItem('nexql_setup_token', token);
 
+    let requestInFlight = 0;
+    let shuttingDown = false;
+
     const THEME_KEY = 'nexql_setup_theme';
 
     function getTheme() {
@@ -1310,13 +1314,26 @@
       };
     }
 
+    function updateFinishCloseButton() {
+      const btn = document.getElementById('btn-finish-close');
+      if (!btn) return;
+      btn.disabled = shuttingDown || requestInFlight > 0;
+    }
+
     async function api(path, opts = {}) {
-      const res = await fetch(`/api/v1${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
-      const text = await res.text();
-      let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
-      if (!res.ok) throw new Error(data?.error || res.statusText);
-      return data;
+      requestInFlight += 1;
+      updateFinishCloseButton();
+      try {
+        const res = await fetch(`/api/v1${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      } finally {
+        requestInFlight -= 1;
+        updateFinishCloseButton();
+      }
     }
 
     function flash(msg, kind = 'info') {
@@ -1647,6 +1664,20 @@
         const res = await api(`/profiles/${encodeURIComponent(selectedProfile)}/export`);
         document.getElementById('export-toml').value = res.toml;
       } catch (err) { flash(err.message, 'err'); }
+    });
+
+    document.getElementById('btn-finish-close').addEventListener('click', async () => {
+      if (shuttingDown || requestInFlight > 0) return;
+      shuttingDown = true;
+      updateFinishCloseButton();
+      try {
+        await api('/shutdown', { method: 'POST' });
+        flash('Setup finished. You can close this tab — the terminal is ready.', 'ok');
+      } catch (err) {
+        shuttingDown = false;
+        updateFinishCloseButton();
+        flash(err.message, 'err');
+      }
     });
 
     async function boot() {

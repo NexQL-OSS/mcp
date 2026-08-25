@@ -609,7 +609,12 @@ export function NarrativePlayer({
               </div>
               <pre style="margin:0;padding:11px 13px;border:1px solid #1E222A;border-radius:8px;background:#0A0B0D;font:400 11.5px/1.6 'JetBrains Mono',monospace;color:#CC785C;white-space:pre-wrap;word-break:break-all">npx -y nexql-mcp setup</pre>
               <p style="margin:0;font:400 11.5px/1.5 'Space Grotesk',system-ui,sans-serif;color:#8E949E">
-                Opens a local page in your browser: pick which clients to wire up, preview the exact config diff per file, then apply. Nothing leaves your machine.
+                Opens a local page in your browser: add a profile, pick which MCP clients to wire, preview the exact config diff per file, then apply. Click Finish & Close when done. Nothing leaves your machine.
+              </p>
+              <p style="margin:0;font:400 11px/1.5 'Space Grotesk',system-ui,sans-serif;color:#6E7480">
+                Agent doing setup for you? One terminal command instead:{" "}
+                <code style="color:#8E949E">nexql-mcp setup --name mydb --dsn "$NEXQL_MCP_DSN" --client &lt;client&gt; --apply --no-open --exit</code>
+                — swap <code style="color:#8E949E">&lt;client&gt;</code> for your MCP client (claude-code, cursor, vscode-copilot, …).
               </p>
             </div>
 

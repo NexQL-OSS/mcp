@@ -16,8 +16,8 @@ const PROMPT_INSTALL = `Set up NexQL MCP — a standalone Postgres MCP server (h
    Do not install it any other way — no "npm install -g", no cloning the repo, no building from source. That one command is the entire install.
 2. It will print a local URL on 127.0.0.1 in the terminal output. Tell me that URL.
 3. You most likely cannot see or click inside a web browser yourself — do not assume you can, and do not go quiet waiting for something to happen there. Pick one, based on what you actually have:
-   - If I ask you to walk me through the wizard, guide me one tab at a time (Profiles, then Clients) — tell me exactly what to enter or click next, and wait for me to confirm each step before moving on. I'll do the clicking.
-   - Otherwise, skip the browser entirely: ask me for my database connection string and do the whole setup yourself over the terminal (profile add, then init <client> --apply) — no browser needed either way.
+   - If I ask you to walk me through the wizard, guide me one tab at a time (Profiles, then Clients) — tell me exactly what to enter or click next, and wait for me to confirm each step before moving on. When we're done, tell me to click Finish & Close so the terminal returns.
+   - Otherwise, skip the browser entirely: ask me for my database connection string and which MCP client I use (Claude Code, Claude Desktop, Cursor, VS Code, Windsurf, Zed, Antigravity, or another supported client), then run the whole setup yourself in the terminal — no browser needed.
 4. Either path: if I have not already told you my database connection string, ask me for it now — do not guess one, and do not reuse an example from documentation.`;
 
 const PROMPT_PROFILE = `Guide me through the NexQL setup wizard's Profiles tab to create a stored profile — tell me exactly what to enter and click, since you likely can't see the browser yourself. I'll do the clicking.
@@ -33,11 +33,15 @@ const PROMPT_WIRE = `Guide me through the NexQL setup wizard's Clients tab to wi
 
 Ask me which client I'm using if you don't already know (Claude Code, Claude Desktop, Cursor, VS Code, Windsurf, or another supported client), then tell me which one to select and which profile to wire it to.
 
-Ask me to confirm the config diff looks right before I click Apply — the wizard backs up the existing file automatically. After I apply it, tell me which client setting to reload (e.g. Cursor: Settings → MCP → refresh) so the new server shows up.`;
+Ask me to confirm the config diff looks right before I click Apply — the wizard backs up the existing file automatically. After I apply it, tell me how to reload MCP in my client (e.g. restart the client, open MCP settings and refresh, or reload the window — depends on the client).`;
+
+const PROMPT_HEADLESS = `${NPX} setup --name ${PROFILE} --dsn "$NEXQL_MCP_DSN" --client <client> --apply --no-open --exit --skip-test
+
+One-shot non-interactive setup — no browser. Replace <client> with the MCP client I'm using (claude-code, claude-desktop, cursor, vscode-copilot, zed, windsurf, antigravity, or another supported mergeable client — ask me if you don't know). Set NEXQL_MCP_DSN to my connection string instead of putting the password on the command line. Replace "${PROFILE}" if we named the profile differently. Creates the profile, merges the client config (with backup), and exits.`;
 
 const PROMPT_WIRE_APPLY = `${NPX} init <client> --apply --profile ${PROFILE}
 
-Non-interactive alternative to the wizard's Clients tab — no browser needed. Replace <client> with whichever one I'm using: claude-code, claude-desktop, cursor, vscode-copilot, zed, windsurf, or another supported client — ask me if you don't already know. Replace "${PROFILE}" with whatever we actually named the profile in the previous step if it wasn't that. It writes the merged config file directly (with a backup of what was there) and prints the diff it applied.`;
+Alternative when a profile already exists — no browser needed. Replace <client> with whichever MCP client I'm using (claude-code, claude-desktop, cursor, vscode-copilot, zed, windsurf, antigravity, or another supported client — ask me if you don't already know). Replace "${PROFILE}" with whatever we actually named the profile in the previous step if it wasn't that. It writes the merged config file directly (with a backup of what was there) and prints the diff it applied.`;
 
 const PROMPT_VERIFY = `Verify NexQL MCP is working. Run this exact command in the terminal, using whatever profile name we saved earlier (this assumes "${PROFILE}" — swap it if we called it something else):
 
@@ -62,7 +66,7 @@ const STANDING_RULE = `Whenever you need to read, search, or modify data in this
 - If a statement is flagged CRITICAL risk (e.g. DROP TABLE, TRUNCATE), stop and get my explicit confirmation before proceeding — never pass \`confirm_destructive: true\` on your own judgment.
 - nexql-mcp is read-only by default — check \`get_current_context\` before assuming you can write.`;
 
-const CURSOR_CONFIG = `{
+const EXAMPLE_MCP_CONFIG = `{
   "mcpServers": {
     "nexql-mcp": {
       "command": "npx",
@@ -76,9 +80,9 @@ const SCENES: Scene[] = [
     act: 0,
     role: ROLE,
     where: "Step 1",
-    prompt: "I want NexQL MCP in Cursor — give me a prompt to paste.",
+    prompt: "I want NexQL MCP in my coding agent — give me a prompt to paste.",
     steps: [
-      ["1", "you paste the prompt into Cursor chat", "—"],
+      ["1", "you paste the prompt into your agent chat", "—"],
       ["2", `agent runs ${NPX} setup in the terminal`, "—"],
       ["3", "browser wizard opens — agent walks you through it", "local only"],
     ],
@@ -91,7 +95,7 @@ const SCENES: Scene[] = [
     mark: {
       kind: "code",
       title: "Start here",
-      sub: "Copy → paste into Cursor, Claude Code, or any agent with terminal access",
+      sub: "Copy → paste into any AI coding agent with terminal access",
       blocks: [
         {
           label: "PASTE INTO YOUR AGENT",
@@ -145,21 +149,21 @@ const SCENES: Scene[] = [
     act: 2,
     role: ROLE,
     where: "Step 3 · Clients",
-    prompt: "Wire Cursor — I want to see the config diff before anything is written.",
+    prompt: "Wire my MCP client — I want to see the config diff before anything is written.",
     steps: [
       ["1", "you paste the wire-up prompt", "—"],
-      ["2", "agent selects Cursor in the Clients tab", "—"],
-      ["3", "shows .cursor/mcp.json diff → Apply with backup", "—"],
+      ["2", "agent selects your client in the Clients tab", "—"],
+      ["3", "shows config diff → Apply with backup", "—"],
     ],
     insight:
       "The wizard merges into your existing MCP config — it won't remove other servers. You see the exact diff before Apply. An agent with terminal access can skip the browser entirely with one non-interactive command.",
     figures: [
-      ["1 file", ".CURSOR/MCP.JSON"],
+      ["1 file", "CLIENT MCP CONFIG"],
       ["+6 lines", "TYPICAL DIFF"],
     ],
     mark: {
       kind: "code",
-      title: "Wire Cursor",
+      title: "Wire your client",
       sub: "What gets written — profile name, not a connection string",
       blocks: [
         {
@@ -167,14 +171,19 @@ const SCENES: Scene[] = [
           code: PROMPT_WIRE,
         },
         {
-          label: "OR — NO BROWSER NEEDED",
-          code: PROMPT_WIRE_APPLY,
-          hint: "This is the recommended path when an agent is doing the setup on your behalf — non-interactive, writes the file directly.",
+          label: "OR — ONE COMMAND, NO BROWSER",
+          code: PROMPT_HEADLESS,
+          hint: "Recommended when an agent is doing greenfield setup — profile + client wiring in one shot.",
         },
         {
-          label: "RESULTING CONFIG",
-          code: CURSOR_CONFIG,
-          hint: "Claude Desktop, VS Code, Windsurf work the same — tick them in the wizard Clients tab, or swap the client name in init --apply.",
+          label: "OR — PROFILE ALREADY EXISTS",
+          code: PROMPT_WIRE_APPLY,
+          hint: "Wires a saved profile into a client config — non-interactive, writes the file directly.",
+        },
+        {
+          label: "EXAMPLE CONFIG (CLAUDE SHAPE)",
+          code: EXAMPLE_MCP_CONFIG,
+          hint: "VS Code uses a servers block; Antigravity and Windsurf use their own paths — pick the client in the wizard or swap <client> in setup/init.",
         },
       ],
     },
@@ -188,7 +197,7 @@ const SCENES: Scene[] = [
     steps: [
       ["1", "you paste the verify prompt", "—"],
       ["2", "agent runs doctor against your profile", "14 checks"],
-      ["3", "you reload Cursor MCP panel if all green", "—"],
+      ["3", "reload MCP in your client if all green", "—"],
     ],
     insight: "doctor opens a real connection and checks permissions + index state. If it passes, your agent will work too.",
     figures: [
@@ -264,9 +273,9 @@ const SCENES: Scene[] = [
       sub: "Add once — every agent session picks it up automatically",
       blocks: [
         {
-          label: "PASTE INTO CLAUDE.md / .cursorrules / AGENTS.md",
+          label: "PASTE INTO YOUR AGENT RULES FILE",
           code: STANDING_RULE,
-          hint: "Works verbatim for Claude Code, Cursor, Windsurf, Gemini CLI, or any agent that reads a project rules file — nothing NexQL-specific to translate.",
+          hint: "Claude Code → CLAUDE.md; Cursor → .cursorrules; many agents → AGENTS.md or project instructions — same block, no NexQL-specific rewriting.",
         },
       ],
     },

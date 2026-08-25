@@ -245,6 +245,24 @@ enum Commands {
         /// Workspace root for project-scoped client configs (.cursor/mcp.json, etc.).
         #[arg(long = "workspace-root")]
         workspace_root: Option<PathBuf>,
+        /// Profile name for non-interactive setup (required with `--dsn`).
+        #[arg(long)]
+        name: Option<String>,
+        /// Connection string for non-interactive setup (`NEXQL_MCP_DSN` env).
+        #[arg(long, env = "NEXQL_MCP_DSN")]
+        dsn: Option<String>,
+        /// Client to wire when using `--apply` (repeatable).
+        #[arg(long, action = clap::ArgAction::Append)]
+        client: Vec<String>,
+        /// Write merged client config in-process (requires `--client`).
+        #[arg(long)]
+        apply: bool,
+        /// Run headless pipeline and exit without starting the HTTP server.
+        #[arg(long)]
+        exit: bool,
+        /// Skip connection probe during headless setup (CI / air-gapped).
+        #[arg(long)]
+        skip_test: bool,
     },
     /// Execute a read-only SELECT or WITH query and format results in the terminal.
     Query {
@@ -677,6 +695,12 @@ async fn main() -> ExitCode {
                 open,
                 idle_timeout_secs,
                 workspace_root,
+                name,
+                dsn,
+                client,
+                apply,
+                exit,
+                skip_test,
             } => {
                 let config_path = match profile_config_path(&cli) {
                     Ok(path) => path,
@@ -685,15 +709,56 @@ async fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 };
+                let workspace = workspace_root
+                    .clone()
+                    .or_else(|| cli.connection.workspace_root.clone());
+
+                let headless = dsn.is_some() || *exit;
+                if headless {
+                    let profile_name = match name.as_deref() {
+                        Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+                        _ => {
+                            eprintln!(
+                                "setup error: --name is required for headless setup (with --dsn or --exit)"
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    };
+                    let connection_dsn = match dsn.as_deref() {
+                        Some(d) if !d.trim().is_empty() => d.trim().to_string(),
+                        _ => {
+                            eprintln!(
+                                "setup error: headless setup requires --dsn or NEXQL_MCP_DSN"
+                            );
+                            return ExitCode::FAILURE;
+                        }
+                    };
+                    return match setup::headless::run(setup::headless::HeadlessOptions {
+                        name: profile_name,
+                        dsn: connection_dsn,
+                        clients: client.clone(),
+                        apply: *apply,
+                        skip_test: *skip_test,
+                        config_path,
+                        workspace_root: workspace,
+                    })
+                    .await
+                    {
+                        Ok(()) => ExitCode::SUCCESS,
+                        Err(e) => {
+                            eprintln!("setup error: {e}");
+                            ExitCode::FAILURE
+                        }
+                    };
+                }
+
                 return match setup::run(setup::SetupOptions {
                     bind: bind.clone(),
                     port: *port,
                     open_browser: *open,
                     idle_timeout_secs: *idle_timeout_secs,
                     config_path,
-                    workspace_root: workspace_root
-                        .clone()
-                        .or_else(|| cli.connection.workspace_root.clone()),
+                    workspace_root: workspace,
                 })
                 .await
                 {
@@ -1996,12 +2061,27 @@ mod main_cli_tests {
             "--workspace-root",
             "/tmp/proj",
             "--no-open",
+            "--name",
+            "dev",
+            "--dsn",
+            "postgres://u@h/db",
+            "--client",
+            "cursor",
+            "--apply",
+            "--exit",
+            "--skip-test",
         ])
         .unwrap();
         match cli.command {
             Some(Commands::Setup {
                 workspace_root,
                 open,
+                name,
+                dsn,
+                client,
+                apply,
+                exit,
+                skip_test,
                 ..
             }) => {
                 assert_eq!(
@@ -2009,8 +2089,66 @@ mod main_cli_tests {
                     Some(PathBuf::from("/tmp/proj").as_path())
                 );
                 assert!(!open);
+                assert_eq!(name.as_deref(), Some("dev"));
+                assert_eq!(dsn.as_deref(), Some("postgres://u@h/db"));
+                assert_eq!(client, vec!["cursor".to_string()]);
+                assert!(apply);
+                assert!(exit);
+                assert!(skip_test);
             }
             _ => panic!("Expected Commands::Setup"),
         }
+    }
+
+    #[test]
+    fn setup_headless_missing_dsn_errors() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let err = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(setup::headless::run(setup::headless::HeadlessOptions {
+                name: "x".into(),
+                dsn: "".into(),
+                clients: vec![],
+                apply: false,
+                skip_test: true,
+                config_path: cfg_path,
+                workspace_root: None,
+            }))
+            .expect_err("empty dsn should fail");
+        assert!(err.contains("NEXQL_MCP_DSN"), "{err}");
+    }
+
+    #[test]
+    fn setup_headless_creates_profile_and_applies_cursor() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let workspace_dir = tempfile::tempdir().unwrap();
+
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(setup::headless::run(setup::headless::HeadlessOptions {
+                name: "local".into(),
+                dsn: "postgres://dev@localhost:5432/appdb".into(),
+                clients: vec!["cursor".to_string()],
+                apply: true,
+                skip_test: true,
+                config_path: cfg_path.clone(),
+                workspace_root: Some(workspace_dir.path().to_path_buf()),
+            }))
+            .expect("headless setup should succeed");
+
+        let loaded = nexql_conn::ConfigFile::load_path_migrated(&cfg_path)
+            .expect("config should load")
+            .0;
+        assert!(loaded.profiles.contains_key("local"));
+        assert_eq!(loaded.default_profile.as_deref(), Some("local"));
+
+        let written = workspace_dir.path().join(".cursor/mcp.json");
+        assert!(written.exists(), "expected {} to exist", written.display());
+        let content = std::fs::read_to_string(&written).unwrap();
+        assert!(content.contains("nexql-mcp"), "{content}");
+        assert!(content.contains("--profile"), "{content}");
+        assert!(content.contains("local"), "{content}");
     }
 }

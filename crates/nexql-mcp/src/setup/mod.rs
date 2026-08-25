@@ -4,6 +4,7 @@
 //! Browser-based setup wizard — local HTTP API + embedded UI.
 
 mod dto;
+pub mod headless;
 pub mod wire;
 
 use std::collections::HashMap;
@@ -172,6 +173,7 @@ pub async fn run(options: SetupOptions) -> Result<(), Box<dyn std::error::Error>
 
     serve.await?;
     idle_task.abort();
+    eprintln!("nexql-mcp setup finished — shutting down");
     Ok(())
 }
 

@@ -136,7 +136,25 @@ install_binary() {
     install -m 0755 "$bin" "${dest}/nexql-mcp"
   fi
 
+  maybe_offer_nexql_shim "$dest"
   print_next_steps "$dest"
+}
+
+maybe_offer_nexql_shim() {
+  local dest="$1"
+  [[ -t 0 ]] || return 0
+  [[ -e "${dest}/nexql" ]] && return 0
+  case ":${PATH}:" in *":${dest}:"*) ;; *) return 0 ;; esac
+
+  read -r -p "Link ${dest}/nexql → nexql-mcp for faster CLI? [y/N] " ans
+  case "${ans,,}" in
+    y|yes)
+      ln -sf nexql-mcp "${dest}/nexql"
+      info "Created ${dest}/nexql → nexql-mcp"
+      ;;
+    *)
+      ;;
+  esac
 }
 
 print_next_steps() {
