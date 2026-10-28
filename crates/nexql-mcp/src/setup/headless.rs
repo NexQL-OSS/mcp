@@ -51,6 +51,10 @@ pub async fn run(options: HeadlessOptions) -> Result<(), String> {
         let report = test_connection(&params)
             .await
             .map_err(|e| format!("connection test failed for profile \"{name}\": {e}"))?;
+        if report.is_superuser {
+            eprintln!("{}", nexql_policy::superuser_warning());
+            eprintln!("{}", nexql_policy::readonly_role_sql());
+        }
         println!(
             "✓ Connection verified: {} (latency: {:.0}ms)",
             report.server_version,

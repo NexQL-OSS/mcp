@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use deadpool_postgres::Object;
+use nexql_conn::BEGIN_READ_ONLY;
 use nexql_policy::{
-    AccessMode, ObjectRef, SqlDecision, enforce_read_table_policy, select_table_refs,
-    validate_readonly_sql, validate_write_sql,
+    AccessMode, ObjectRef, SqlDecision, column_should_redact, enforce_read_table_policy,
+    select_table_refs, validate_readonly_sql, validate_write_sql,
 };
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
@@ -18,7 +19,7 @@ use tokio_postgres::SimpleQueryMessage;
 use tokio_postgres::types::{Json, ToSql};
 use uuid::Uuid;
 
-use crate::cell_json::{redact_pii_in_rows, rows_to_json_vec};
+use crate::cell_json::{redact_named_columns_in_payload, rows_to_json_vec, sensitive_output_names};
 use crate::error::ToolError;
 use crate::exec::ToolOutcome;
 use crate::session::ToolSession;
@@ -60,7 +61,13 @@ pub async fn execute_sql(
     {
         ToolSession::set_statement_timeout(&client, ms).await?;
     }
-    client.batch_execute("BEGIN").await?;
+    let lineage_names = sensitive_output_names(&client, sql, &session.filter()).await?;
+    let begin = if mode == AccessMode::Read {
+        BEGIN_READ_ONLY
+    } else {
+        "BEGIN"
+    };
+    client.batch_execute(begin).await?;
     let outcome = async {
         let (rows, command_tag) = run_simple_query(&client, sql).await?;
         Ok::<_, ToolError>((rows, command_tag))
@@ -76,7 +83,7 @@ pub async fn execute_sql(
 
     match outcome {
         Ok((rows, rows_affected)) => {
-            let rows = redact_row_results(session, Some(sql), None, None, rows);
+            let rows = redact_row_results(session, Some(sql), None, None, rows, &lineage_names);
             let mut payload = json!({
                 "dry_run": dry_run,
                 "rolled_back": rolled_back,
@@ -222,6 +229,7 @@ async fn edit_row_insert(
         Some(schema),
         Some(table),
         simple_rows_to_json(&rows),
+        &[],
     );
     let mut payload = json!({
         "action": "insert",
@@ -313,6 +321,7 @@ async fn edit_row_update(
         Some(schema),
         Some(table),
         simple_rows_to_json(&rows),
+        &[],
     );
     let mut payload = json!({
         "action": "update",
@@ -371,6 +380,7 @@ async fn edit_row_delete(
         Some(schema),
         Some(table),
         simple_rows_to_json(&rows),
+        &[],
     );
     let mut payload = json!({
         "action": "delete",
@@ -1032,11 +1042,9 @@ fn redact_row_results(
     schema: Option<&str>,
     table: Option<&str>,
     rows: Vec<Value>,
+    extra_names: &[String],
 ) -> Vec<Value> {
     let filter = session.filter();
-    if filter.pii_columns.is_empty() {
-        return rows;
-    }
     let tables = if let (Some(schema), Some(table)) = (schema, table) {
         vec![ObjectRef::new(schema, table)]
     } else if let Some(sql) = sql {
@@ -1044,7 +1052,24 @@ fn redact_row_results(
     } else {
         Vec::new()
     };
-    redact_pii_in_rows(rows, &filter.pii_columns, &tables).0
+    let mut names = extra_names.to_vec();
+    if let Some(Value::Object(map)) = rows.first() {
+        for key in map.keys() {
+            if column_should_redact(&filter, &tables, key)
+                && !names.iter().any(|name| name.eq_ignore_ascii_case(key))
+            {
+                names.push(key.clone());
+            }
+        }
+    }
+    if names.is_empty() {
+        return rows;
+    }
+    redact_named_columns_in_payload(Value::Array(rows), &names)
+        .0
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

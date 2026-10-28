@@ -777,15 +777,21 @@ fn draw_testing(frame: &mut Frame, app: &App, area: Rect) {
                 ),
                 Span::styled(
                     if report.is_superuser {
-                        "Yes (Warning: elevated permissions)"
+                        "Yes — WARNING: superuser. Create nexql_readonly (GRANT pg_read_all_data) via `nexql-mcp profile readonly-role`"
                     } else {
                         "No (Standard user)"
                     },
-                    Style::default().fg(if report.is_superuser {
-                        Color::Yellow
-                    } else {
-                        Color::Green
-                    }),
+                    Style::default()
+                        .fg(if report.is_superuser {
+                            Color::Red
+                        } else {
+                            Color::Green
+                        })
+                        .add_modifier(if report.is_superuser {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
                 ),
             ]));
             lines.push(Line::from(""));

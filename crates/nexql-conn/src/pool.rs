@@ -48,6 +48,11 @@ pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Resul
         .map_err(|e| ConnError::Pool(e.to_string()))
 }
 
+/// Explicit transaction for user SQL in read mode. Session GUCs already set
+/// `default_transaction_read_only`, and this wraps the statement so
+/// `set_config` cannot flip the current transaction.
+pub const BEGIN_READ_ONLY: &str = "BEGIN READ ONLY";
+
 /// Apply session guards on a checked-out client. Fail closed.
 pub async fn apply_session_guards(client: &Client, opts: &PoolOptions) -> Result<(), ConnError> {
     if opts.read_only {

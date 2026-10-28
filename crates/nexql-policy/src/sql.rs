@@ -34,6 +34,8 @@ pub fn validate_readonly_sql(sql: &str) -> Result<SqlDecision, PolicyError> {
         return Ok(decision);
     }
 
+    enforce_dangerous_calls(&result, false)?;
+
     let Some(node) = root_node(&result) else {
         return Ok(SqlDecision::Reject);
     };
@@ -106,6 +108,9 @@ struct AdminPolicy;
 
 trait SqlModePolicy {
     fn allows_ddl() -> bool;
+    /// `pg_terminate_backend`, `pg_reload_conf`, and `COPY` to a file or
+    /// program. File-read and session-escape functions stay blocked.
+    fn allows_admin_server_ops() -> bool;
     fn allows_select_into() -> bool;
     fn is_allowed_root(node: &NodeEnum) -> bool;
     fn reject_node_in_walk(node_ref: NodeRef<'_>) -> bool;
@@ -115,6 +120,10 @@ trait SqlModePolicy {
 
 impl SqlModePolicy for WritePolicy {
     fn allows_ddl() -> bool {
+        false
+    }
+
+    fn allows_admin_server_ops() -> bool {
         false
     }
 
@@ -155,6 +164,10 @@ impl SqlModePolicy for WritePolicy {
 
 impl SqlModePolicy for AdminPolicy {
     fn allows_ddl() -> bool {
+        true
+    }
+
+    fn allows_admin_server_ops() -> bool {
         true
     }
 
@@ -233,6 +246,8 @@ fn validate_mode_sql<P: SqlModePolicy>(sql: &str) -> Result<SqlDecision, PolicyE
     if let Some(decision) = reject_if_stacked(&result) {
         return Ok(decision);
     }
+
+    enforce_dangerous_calls(&result, P::allows_admin_server_ops())?;
 
     let Some(node) = root_node(&result) else {
         return Ok(SqlDecision::Reject);
@@ -351,6 +366,65 @@ fn is_ddl_or_admin_utility(node_ref: NodeRef<'_>) -> bool {
             | NodeRef::CreatedbStmt(_)
             | NodeRef::DropdbStmt(_)
     )
+}
+
+/// File reads, large-object I/O, dblink, and session escapes are rejected in
+/// every mode. Backend cancel/terminate, `pg_reload_conf`, and `COPY` to a
+/// file or program are rejected unless `allow_admin_ops`.
+fn enforce_dangerous_calls(result: &ParseResult, allow_admin_ops: bool) -> Result<(), PolicyError> {
+    for (node_ref, _depth, _ctx, _) in result.protobuf.nodes() {
+        match node_ref {
+            NodeRef::FuncCall(func) => {
+                if let Some(name) = function_name(func)
+                    && let Some(reason) = denied_function(&name, allow_admin_ops)
+                {
+                    return Err(PolicyError::SqlRejected(reason));
+                }
+            }
+            NodeRef::CopyStmt(copy) => {
+                let file_or_program = copy.is_program || !copy.filename.is_empty();
+                if file_or_program && !allow_admin_ops {
+                    let via = if copy.is_program { "PROGRAM" } else { "file" };
+                    return Err(PolicyError::SqlRejected(format!(
+                        "COPY {via} is blocked outside admin mode"
+                    )));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn function_name(func: &pg_query::protobuf::FuncCall) -> Option<String> {
+    let last = func.funcname.last()?;
+    match last.node.as_ref()? {
+        NodeEnum::String(value) => Some(value.sval.clone()),
+        _ => None,
+    }
+}
+
+fn denied_function(name: &str, allow_admin_ops: bool) -> Option<String> {
+    let name = name.to_ascii_lowercase();
+    let always_blocked = name.starts_with("pg_read_file")
+        || name.starts_with("pg_read_binary_file")
+        || name.starts_with("pg_ls_")
+        || name.starts_with("pg_stat_file")
+        || name.starts_with("lo_")
+        || name.starts_with("dblink")
+        || name == "set_config"
+        || name.starts_with("pg_sleep");
+    if always_blocked {
+        return Some(format!("function {name} is blocked in every access mode"));
+    }
+    let admin_only = matches!(
+        name.as_str(),
+        "pg_terminate_backend" | "pg_cancel_backend" | "pg_reload_conf"
+    );
+    if admin_only && !allow_admin_ops {
+        return Some(format!("function {name} is allowed only in admin mode"));
+    }
+    None
 }
 
 fn is_ddl_node(node_ref: NodeRef<'_>) -> bool {
@@ -535,6 +609,96 @@ mod tests {
     fn enforce_read_table_policy_allows_public_default() {
         let filter = crate::filter::PolicyFilter::default();
         enforce_read_table_policy(&filter, "SELECT * FROM users").unwrap();
+    }
+
+    #[test]
+    fn read_mode_blocks_file_and_session_functions() {
+        let cases = [
+            "SELECT pg_read_file('/etc/passwd')",
+            "SELECT pg_catalog.pg_read_file('/etc/passwd')",
+            "SELECT (SELECT pg_read_file('/etc/passwd'))",
+            "WITH f AS (SELECT pg_read_file('/etc/passwd') AS body) SELECT body FROM f",
+            "SELECT pg_read_file('/etc/passwd') FROM LATERAL (SELECT 1) s",
+            "SELECT set_config('default_transaction_read_only', 'off', false)",
+            "SELECT pg_sleep(10)",
+            "SELECT pg_read_binary_file('/etc/passwd')",
+            "SELECT pg_ls_dir('/tmp')",
+            "SELECT pg_stat_file('/etc/passwd')",
+            "SELECT lo_import('/etc/passwd')",
+            "SELECT lo_export(1, '/tmp/x')",
+            "SELECT lo_get(1)",
+            "SELECT dblink_connect('host=localhost')",
+            "SELECT pg_terminate_backend(1)",
+            "SELECT pg_cancel_backend(1)",
+            "SELECT pg_reload_conf()",
+            "COPY t TO '/tmp/x'",
+            "COPY t FROM PROGRAM 'cat /etc/passwd'",
+        ];
+        for sql in cases {
+            let err = validate_readonly_sql(sql).expect_err(sql);
+            let msg = err.to_string();
+            assert!(
+                msg.contains("blocked") || msg.contains("allowed only"),
+                "{sql}: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_pg_read_file_in_function_args_is_blocked() {
+        let err = validate_readonly_sql("SELECT length(pg_catalog.pg_read_file('/etc/passwd'))")
+            .unwrap_err();
+        assert!(err.to_string().contains("pg_read_file"), "{err}");
+    }
+
+    #[test]
+    fn write_mode_blocks_file_copy_and_admin_functions() {
+        for sql in [
+            "SELECT pg_read_file('/etc/passwd')",
+            "SELECT set_config('default_transaction_read_only', 'off', false)",
+            "COPY t TO '/tmp/x'",
+            "COPY t FROM PROGRAM 'id'",
+            "SELECT pg_terminate_backend(1)",
+        ] {
+            assert!(validate_write_sql(AccessMode::Write, sql).is_err(), "{sql}");
+        }
+    }
+
+    #[test]
+    fn admin_allows_terminate_and_file_copy_but_not_file_read() {
+        assert_eq!(
+            validate_write_sql(AccessMode::Admin, "SELECT pg_terminate_backend(1)").unwrap(),
+            SqlDecision::Allow
+        );
+        assert_eq!(
+            validate_write_sql(AccessMode::Admin, "COPY t TO '/tmp/x'").unwrap(),
+            SqlDecision::Allow
+        );
+        assert_eq!(
+            validate_write_sql(AccessMode::Admin, "COPY t FROM PROGRAM 'id'").unwrap(),
+            SqlDecision::Allow
+        );
+        let err = validate_write_sql(AccessMode::Admin, "SELECT pg_read_file('/etc/passwd')")
+            .unwrap_err();
+        assert!(err.to_string().contains("pg_read_file"), "{err}");
+        let err = validate_write_sql(
+            AccessMode::Admin,
+            "SELECT set_config('default_transaction_read_only', 'off', false)",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("set_config"), "{err}");
+    }
+
+    #[test]
+    fn ordinary_functions_stay_allowed() {
+        assert_eq!(
+            validate_readonly_sql("SELECT lower('A')").unwrap(),
+            SqlDecision::Allow
+        );
+        assert_eq!(
+            validate_readonly_sql("SELECT 1").unwrap(),
+            SqlDecision::Allow
+        );
     }
 
     #[test]

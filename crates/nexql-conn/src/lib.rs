@@ -23,8 +23,8 @@ pub use config::{
 };
 pub use error::{ConnError, format_postgres_error};
 pub use pool::{
-    ConnectionReport, PoolOptions, apply_session_guards, checkout_guarded, connect_once,
-    create_pool, test_connection,
+    BEGIN_READ_ONLY, ConnectionReport, PoolOptions, apply_session_guards, checkout_guarded,
+    connect_once, create_pool, test_connection,
 };
 pub use resolve::{
     ConnectionParams, ConnectionSource, DbEngine, ResolveInputs, ResolvedConnection,

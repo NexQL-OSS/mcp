@@ -24,7 +24,7 @@ impl ObjectRef {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PolicyFilter {
     /// If non-empty, only these schemas are visible.
     pub allow_schemas: Vec<String>,
@@ -33,6 +33,23 @@ pub struct PolicyFilter {
     pub deny_tables: Vec<String>,
     /// `schema.table.column` entries excluded from sample/search.
     pub pii_columns: Vec<String>,
+    /// When true (the default), also redact columns whose names match
+    /// `password*`, `*_hash`, `*token*`, `*secret*`, or `ssn` even if
+    /// `pii_columns` is empty. Set `sensitive_name_heuristics = false` on a
+    /// profile to opt out.
+    pub sensitive_name_heuristics: bool,
+}
+
+impl Default for PolicyFilter {
+    fn default() -> Self {
+        Self {
+            allow_schemas: Vec::new(),
+            deny_schemas: Vec::new(),
+            deny_tables: Vec::new(),
+            pii_columns: Vec::new(),
+            sensitive_name_heuristics: true,
+        }
+    }
 }
 
 impl PolicyFilter {
@@ -98,6 +115,49 @@ pub fn column_matches_pii_policy(
         .any(|t| is_pii_column(pii_columns, &t.schema, &t.name, column))
 }
 
+/// Default sensitive-name heuristics. Match is case-insensitive.
+///
+/// - `password*` and `*_password` (`password`, `password_hash`, `user_password`)
+/// - `*_hash`
+/// - `*token*`
+/// - `*secret*`
+/// - `ssn` as a whole identifier or an `_ssn` / `ssn_` segment
+pub fn is_sensitive_column_name(column: &str) -> bool {
+    let name = column.to_ascii_lowercase();
+    if name.starts_with("password") || name.ends_with("_password") {
+        return true;
+    }
+    if name.ends_with("_hash") {
+        return true;
+    }
+    if name.contains("token") || name.contains("secret") {
+        return true;
+    }
+    name == "ssn" || name.ends_with("_ssn") || name.starts_with("ssn_")
+}
+
+/// Configured PII or (when enabled) a sensitive column name.
+pub fn column_should_redact(filter: &PolicyFilter, tables: &[ObjectRef], column: &str) -> bool {
+    if column_matches_pii_policy(&filter.pii_columns, tables, column) {
+        return true;
+    }
+    filter.sensitive_name_heuristics && is_sensitive_column_name(column)
+}
+
+/// Configured PII columns (`schema.table.column`) that belong to one relation.
+pub fn configured_pii_names<'a>(
+    pii_columns: &'a [String],
+    schema: &str,
+    table: &str,
+) -> Vec<&'a str> {
+    let prefix = format!("{schema}.{table}.");
+    pii_columns
+        .iter()
+        .filter_map(|entry| entry.strip_prefix(&prefix))
+        .filter(|col| !col.is_empty() && !col.contains('.'))
+        .collect()
+}
+
 fn table_glob_matches(glob: &str, schema: &str, table: &str) -> bool {
     if let Some((gs, gt)) = glob.split_once('.') {
         let schema_ok = gs == "*" || gs == schema;
@@ -148,6 +208,54 @@ mod tests {
         assert!(column_matches_pii_policy(&pii, &tables, "ssn"));
         assert!(!column_matches_pii_policy(&pii, &tables, "id"));
         assert!(!column_matches_pii_policy(&pii, &[], "ssn"));
+    }
+
+    #[test]
+    fn sensitive_name_heuristics_match_the_documented_shapes() {
+        let cases = [
+            ("password", true),
+            ("password_hash", true),
+            ("user_password", true),
+            ("api_hash", true),
+            ("access_token", true),
+            ("token", true),
+            ("client_secret", true),
+            ("ssn", true),
+            ("user_ssn", true),
+            ("email", false),
+            ("id", false),
+            ("hash", false),
+            ("secretary", true), // contains "secret" — documented *secret* match
+        ];
+        for (name, expect) in cases {
+            assert_eq!(
+                is_sensitive_column_name(name),
+                expect,
+                "{name} heuristic mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn heuristics_apply_without_configured_pii_and_can_be_disabled() {
+        let tables = vec![ObjectRef::new("public", "users")];
+        let on = PolicyFilter::default();
+        assert!(on.sensitive_name_heuristics);
+        assert!(column_should_redact(&on, &tables, "password_hash"));
+        assert!(!column_should_redact(&on, &tables, "email"));
+
+        let off = PolicyFilter {
+            sensitive_name_heuristics: false,
+            ..Default::default()
+        };
+        assert!(!column_should_redact(&off, &tables, "password_hash"));
+
+        let configured = PolicyFilter {
+            pii_columns: vec!["public.users.email".into()],
+            sensitive_name_heuristics: false,
+            ..Default::default()
+        };
+        assert!(column_should_redact(&configured, &tables, "email"));
     }
 
     #[test]

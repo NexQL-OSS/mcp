@@ -127,6 +127,7 @@ impl From<SanitizedProfile> for ProfileConfig {
             max_rows: s.max_rows,
             statement_timeout_ms: s.statement_timeout_ms,
             credential_provider: s.credential_provider,
+            sensitive_name_heuristics: None,
         }
     }
 }

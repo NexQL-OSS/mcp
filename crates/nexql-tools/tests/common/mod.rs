@@ -102,6 +102,10 @@ pub fn start_temp_pg() -> Option<TempPg> {
 }
 
 /// Seed a minimal FK-linked schema used by tool smoke tests.
+///
+/// `dead_code` is allowed because each integration-test binary compiles this
+/// module on its own; `all_tools_smoke` is the caller.
+#[allow(dead_code)]
 pub async fn seed_smoke_schema(url: &str) {
     let params = params_from_url(url).unwrap();
     let client = nexql_conn::connect_once(&params).await.unwrap();
@@ -136,6 +140,10 @@ pub struct SmokeEnv {
 }
 
 /// Admin-mode router with a built schema index over the smoke fixture.
+///
+/// `dead_code` is allowed because each integration-test binary compiles this
+/// module on its own; `all_tools_smoke` is the caller.
+#[allow(dead_code)]
 pub async fn smoke_env() -> Option<SmokeEnv> {
     let pg = start_temp_pg()?;
     let url = pg.url.clone();

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Read mode rejects file and server escape functions on the SQL AST, including schema-qualified and nested calls: `pg_read_file`, `pg_read_binary_file`, `pg_ls_*`, `pg_stat_file`, `lo_*`, `dblink*`, `set_config`, and `pg_sleep`. `pg_terminate_backend`, `pg_cancel_backend`, `pg_reload_conf`, and `COPY` to a file or program are admin-only. Read-mode user SQL runs inside `BEGIN READ ONLY`.
+- PII redaction follows column lineage (`email AS contact`, `lower(email)`, subquery and CTE outputs). Whole-row constructors (`row_to_json`, `to_json`/`to_jsonb`, `json_agg`, `ROW`) over a relation that has configured PII or a sensitive column are rejected. Sensitive-name heuristics (`password*`, `*_hash`, `*token*`, `*secret*`, `ssn`) apply even when `pii_columns` is empty; set `sensitive_name_heuristics = false` to opt out.
+- `nexql-mcp init <client> postgres://user:pass@…` no longer writes the password into client config. The URL is saved as a keyring (or encrypted-file) profile and the snippet references `--profile`. `init <client> --apply <url>` creates that profile and wires it.
+- `doctor`, `profile test`, the setup wizard, and the TUI warn when the connection is a superuser and print `nexql-mcp profile readonly-role` (SQL for a `nexql_readonly` role with `GRANT pg_read_all_data`).
+
+### Fixed
+- Tool calls that arrive while the startup index build holds the lock wait for that build instead of failing with "another process is building the index". `orient` reports a missing or failed index as an error (`indexStatus`) instead of `tables: []` with `isError: false`.
+- MCP `readOnlyHint` / `destructiveHint` match behaviour: `save_profile`, `import_profile`, and `setup_connection` are not read-only; `discover_tools` and `check_ddl_safety` are. `switch_connection`, `resolve_target`, `rebuild_index`, and `refresh_index` are not read-only.
+- `async-trait` 0.1.92 (lockfile): current stable Clippy rejects the bare `#[must_use]` that 0.1.91 emits on async trait methods (`clippy::double_must_use`).
+
 ## [0.5.0] - 2026-08-24
 
 ### Added

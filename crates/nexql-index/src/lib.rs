@@ -8,6 +8,7 @@
 //!
 //! Reference: `nexql-pro/pro/src/features/dbindex/`
 
+pub mod build_gate;
 pub mod builder;
 pub mod catalog;
 pub mod embed;
@@ -21,6 +22,7 @@ pub mod query;
 pub mod rrf;
 pub mod store;
 
+pub use build_gate::{BuildLease, GateRole, IndexBuildGate};
 pub use builder::{
     BuildProgress, BuildRequest, CatalogDb, MAX_OBJECTS_PER_SHARD, MAX_SHARD_BYTES, PgCatalogDb,
     build_index, format_schema_fingerprint,

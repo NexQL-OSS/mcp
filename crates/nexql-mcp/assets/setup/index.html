@@ -1551,8 +1551,13 @@
           if (result.status !== 'running') break;
         }
         if (result.status === 'ok') {
-          box.className = 'status ok';
-          box.textContent = `Connected · ${result.server_version} · ${Math.round(result.latency_ms)}ms · superuser=${result.is_superuser}`;
+          if (result.is_superuser) {
+            box.className = 'status err';
+            box.textContent = `WARNING: connected as a superuser. A prompt-injected query can read server files (pg_read_file). Create role nexql_readonly with GRANT pg_read_all_data and reconnect as that role. SQL: nexql-mcp profile readonly-role`;
+          } else {
+            box.className = 'status ok';
+            box.textContent = `Connected · ${result.server_version} · ${Math.round(result.latency_ms)}ms · superuser=false`;
+          }
         } else {
           box.className = 'status err';
           box.textContent = result.error || 'Connection failed';

@@ -23,15 +23,45 @@ pub const SUPPORTED_CLIENTS: &[&str] = &[
     "qwen",
 ];
 
+/// True when `url` carries a userinfo password. Those must never be written
+/// into a client config; save a profile and pass `--profile` instead.
+pub fn url_contains_password(url: &str) -> bool {
+    nexql_conn::params_from_url(url)
+        .ok()
+        .and_then(|params| params.password)
+        .is_some_and(|password| !password.is_empty())
+}
+
 /// Build a paste-ready config snippet for `client`.
 ///
 /// When `url` is `Some`, it is included in the server's `args` (or equivalent).
+/// A URL that contains a password is refused.
 /// Returns `Err` with a helpful message for unknown clients.
 pub fn init_snippet(client: &str, url: Option<&str>) -> Result<String, String> {
+    if let Some(url) = url
+        && url_contains_password(url)
+    {
+        return Err(
+            "refusing to write a database password into client config. Save a profile \
+             (`nexql-mcp init <client> <url>` stores it in the keyring) and reference it \
+             with --profile."
+                .into(),
+        );
+    }
+    let args = url.map(|value| vec![value.to_owned()]).unwrap_or_default();
+    render_snippet(client, &args)
+}
+
+/// Snippet that references a saved profile instead of embedding a URL.
+pub fn init_snippet_with_profile(client: &str, profile: &str) -> Result<String, String> {
+    render_snippet(client, &["--profile".to_owned(), profile.to_owned()])
+}
+
+fn render_snippet(client: &str, args: &[String]) -> Result<String, String> {
     let key = client.trim().to_ascii_lowercase();
-    let args_json = args_as_json_array(url);
-    let args_yaml = args_as_yaml_list(url);
-    let args_toml = args_as_toml_array(url);
+    let args_json = args_as_json_array(args);
+    let args_yaml = args_as_yaml_list(args);
+    let args_toml = args_as_toml_array(args);
 
     let body = match key.as_str() {
         "claude" | "claude-desktop" => format!(
@@ -111,9 +141,10 @@ pub fn init_snippet(client: &str, url: Option<&str>) -> Result<String, String> {
             args = args_json
         ),
         "continue" => {
-            let args_block = match url {
-                Some(_) => format!("    args:\n{args_yaml}"),
-                None => "    args: []".into(),
+            let args_block = if args.is_empty() {
+                "    args: []".to_owned()
+            } else {
+                format!("    args:\n{args_yaml}")
             };
             format!(
                 r#"# Continue — merge into ~/.continue/config.yaml (or .continue/config.yaml)
@@ -218,25 +249,33 @@ args = {args}"#,
     Ok(body)
 }
 
-fn args_as_json_array(url: Option<&str>) -> String {
-    match url {
-        Some(u) => format!("[\"{}\"]", escape_json_string(u)),
-        None => "[]".into(),
+fn args_as_json_array(args: &[String]) -> String {
+    if args.is_empty() {
+        return "[]".into();
     }
+    let parts: Vec<String> = args
+        .iter()
+        .map(|arg| format!("\"{}\"", escape_json_string(arg)))
+        .collect();
+    format!("[{}]", parts.join(", "))
 }
 
-fn args_as_yaml_list(url: Option<&str>) -> String {
-    match url {
-        Some(u) => format!("      - \"{}\"", escape_yaml_double_quoted(u)),
-        None => String::new(), // omit list items; caller uses `args:` with nothing → empty
-    }
+fn args_as_yaml_list(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| format!("      - \"{}\"", escape_yaml_double_quoted(arg)))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-fn args_as_toml_array(url: Option<&str>) -> String {
-    match url {
-        Some(u) => format!("[\"{}\"]", escape_toml_string(u)),
-        None => "[]".into(),
+fn args_as_toml_array(args: &[String]) -> String {
+    if args.is_empty() {
+        return "[]".into();
     }
+    let parts: Vec<String> = args
+        .iter()
+        .map(|arg| format!("\"{}\"", escape_toml_string(arg)))
+        .collect();
+    format!("[{}]", parts.join(", "))
 }
 
 fn escape_json_string(s: &str) -> String {
@@ -270,7 +309,7 @@ mod tests {
 
     #[test]
     fn supported_clients_nonempty_and_mention_nexql_mcp() {
-        let url = Some("postgres://u:p@localhost:5432/db");
+        let url = Some("postgres://u@localhost:5432/db");
         for &client in SUPPORTED_CLIENTS {
             let snippet = init_snippet(client, url).unwrap_or_else(|e| panic!("{client}: {e}"));
             assert!(!snippet.trim().is_empty(), "{client}: empty snippet");
@@ -279,10 +318,21 @@ mod tests {
                 "{client}: snippet must mention nexql-mcp\n{snippet}"
             );
             assert!(
-                snippet.contains("postgres://u:p@localhost:5432/db"),
+                snippet.contains("postgres://u@localhost:5432/db"),
                 "{client}: URL missing from args\n{snippet}"
             );
         }
+    }
+
+    #[test]
+    fn password_url_is_refused_and_profile_snippet_omits_it() {
+        let url = "postgres://u:s3cret-batch1@localhost:5432/db";
+        let err = init_snippet("cursor", Some(url)).unwrap_err();
+        assert!(err.contains("password"), "{err}");
+        let snippet = init_snippet_with_profile("cursor", "u_db").unwrap();
+        assert!(snippet.contains("--profile"), "{snippet}");
+        assert!(snippet.contains("u_db"), "{snippet}");
+        assert!(!snippet.contains("s3cret-batch1"), "{snippet}");
     }
 
     #[test]

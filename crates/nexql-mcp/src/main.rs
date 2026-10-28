@@ -216,10 +216,11 @@ enum Commands {
 
         /// Write the merged config to the client's config file directly — no
         /// browser, no TTY, nothing to hand-parse. For AI coding agents
-        /// setting this up on a user's behalf: requires an existing saved
-        /// profile (see --profile, or `setup_connection`/`save_profile`);
-        /// only supported for clients with a real mergeable config file
-        /// (i.e. not the copy/paste-only ones: continue, jetbrains,
+        /// setting this up on a user's behalf. A positional connection URL is
+        /// saved as a profile first (password goes to the keyring, never the
+        /// client JSON) and then wired. Without a URL, pass --profile or have
+        /// a default profile. Only supported for clients with a real mergeable
+        /// config file (i.e. not the copy/paste-only ones: continue, jetbrains,
         /// openai-agents). Prints the diff applied and any backup path.
         #[arg(long)]
         apply: bool,
@@ -380,6 +381,8 @@ enum ProfileAction {
     },
     /// Migrate legacy plaintext passwords to the OS keyring (also runs automatically on load).
     MigrateSecrets,
+    /// Print SQL that creates a least-privilege `nexql_readonly` login.
+    ReadonlyRole,
 }
 
 struct RouterBackend {
@@ -642,9 +645,29 @@ async fn main() -> ExitCode {
                         eprintln!("{e}");
                         return ExitCode::FAILURE;
                     }
+                } else if let Some(url) = cli.connection_string.as_deref() {
+                    let snippet = if init_clients::url_contains_password(url) {
+                        match persist_profile_from_url(&cli, url) {
+                            Ok(name) => {
+                                eprintln!(
+                                    "saved profile '{name}' (password stored in the keyring or encrypted file, not in client config)"
+                                );
+                                init_clients::init_snippet_with_profile(client_name, &name)
+                            }
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        init_clients::init_snippet(client_name, Some(url))
+                    };
+                    match snippet {
+                        Ok(snippet) => println!("{snippet}"),
+                        Err(e) => {
+                            eprintln!("{e}");
+                            return ExitCode::FAILURE;
+                        }
+                    }
                 } else {
-                    match init_clients::init_snippet(client_name, cli.connection_string.as_deref())
-                    {
+                    match init_clients::init_snippet(client_name, None) {
                         Ok(snippet) => println!("{snippet}"),
                         Err(e) => {
                             eprintln!("{e}");
@@ -929,18 +952,23 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
                 BuildDepth::Structure,
                 cli.embeddings.is_local(),
             );
-            let resolved_for_index = resolved.clone();
-            tokio::task::spawn_blocking(move || {
-                eprintln!(
-                    "index: no schema index for {connection_id}/{database} — building automatically"
-                );
-                let handle = tokio::runtime::Handle::current();
-                if let Err(e) = handle.block_on(run_build_request(&resolved_for_index, req)) {
+            let key = format!("{connection_id}\0{database}");
+            if let nexql_index::GateRole::Leader(lease) = session.index_builds.enter(&key).await {
+                let resolved_for_index = resolved.clone();
+                tokio::task::spawn_blocking(move || {
                     eprintln!(
-                        "warning: automatic index build failed for {connection_id}/{database}: {e}"
+                        "index: no schema index for {connection_id}/{database} — building automatically"
                     );
-                }
-            });
+                    let handle = tokio::runtime::Handle::current();
+                    let result = handle.block_on(run_build_request(&resolved_for_index, req));
+                    if let Err(e) = &result {
+                        eprintln!(
+                            "warning: automatic index build failed for {connection_id}/{database}: {e}"
+                        );
+                    }
+                    lease.finish(result.map(|_| ()).map_err(|e| e.to_string()));
+                });
+            }
         }
     }
 
@@ -1271,6 +1299,59 @@ fn profile_config_path(cli: &Cli) -> Result<PathBuf, Box<dyn std::error::Error>>
         .ok_or_else(|| "could not resolve a config path — set $HOME or $NEXQL_MCP_CONFIG".into())
 }
 
+/// Save `url` as a profile. A password in the URL is stored via
+/// [`nexql_conn::prepare_profile_for_persist`] (keyring, or encrypted file)
+/// and is not left in the TOML.
+fn persist_profile_from_url(cli: &Cli, url: &str) -> Result<String, String> {
+    let params = nexql_conn::params_from_url(url).map_err(|e| e.to_string())?;
+    let user = params.user.clone().unwrap_or_else(|| "nexql".into());
+    let db = params.dbname.clone().unwrap_or_else(|| "postgres".into());
+    let mut name: String = format!("{user}_{db}")
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+    if name.is_empty() || name.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        name.insert_str(0, "p_");
+    }
+
+    let path = profile_config_path(cli).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut config = ConfigFile::load_path_migrated(&path)
+        .map(|(c, _)| c)
+        .unwrap_or_default();
+    let profile = nexql_conn::ProfileConfig {
+        url: Some(url.to_owned()),
+        ..Default::default()
+    };
+    let prepared =
+        nexql_conn::prepare_profile_for_persist(&name, profile).map_err(|e| e.to_string())?;
+    if let Some(stored) = prepared.url.as_deref()
+        && init_clients::url_contains_password(stored)
+    {
+        return Err(format!(
+            "refusing to save profile '{name}': password was still present in the URL"
+        ));
+    }
+    if config.default_profile.is_none() {
+        config.default_profile = Some(name.clone());
+    }
+    config.upsert_profile(name.clone(), prepared);
+    config.save(&path).map_err(|e| e.to_string())?;
+
+    let written = std::fs::read_to_string(&path).unwrap_or_default();
+    if let Some(password) = params.password.as_deref().filter(|p| !p.is_empty())
+        && written.contains(password)
+    {
+        return Err(format!(
+            "refusing to save profile '{name}': password was written to {}",
+            path.display()
+        ));
+    }
+    Ok(name)
+}
+
 /// `nexql-mcp init <client> --apply` — reuses the same merge machinery
 /// `nexql-mcp setup`'s HTTP API (`setup::wire::preview_wire`/`apply_wire`)
 /// already exercises, in-process instead of over HTTP. Turns "hand-parse and
@@ -1295,6 +1376,12 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
         ));
     }
 
+    let created_from_url = if let Some(url) = cli.connection_string.as_deref() {
+        Some(persist_profile_from_url(cli, url)?)
+    } else {
+        None
+    };
+
     let config_path = profile_config_path(cli).map_err(|e| e.to_string())?;
     let config = ConfigFile::load_path_migrated(&config_path)
         .map(|(c, _)| c)
@@ -1302,12 +1389,14 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
 
     let profile_names: Vec<String> = if !cli.connection.profiles.is_empty() {
         cli.connection.profiles.clone()
+    } else if let Some(name) = created_from_url {
+        vec![name]
     } else if let Some(ref default) = config.default_profile {
         vec![default.clone()]
     } else {
         return Err(
-            "no saved profile to wire — pass --profile <name>, or save one first \
-             (`nexql-mcp tui`, or the save_profile/setup_connection MCP tools)."
+            "no saved profile to wire — pass a postgres URL (a profile is created \
+             automatically) or --profile <name>."
                 .into(),
         );
     };
@@ -1489,11 +1578,19 @@ async fn run_profile_action(
                 return Err(format!("profile not found: {profile_name}").into());
             };
             let report = nexql_conn::test_connection(&params).await?;
+            if report.is_superuser {
+                eprintln!("{}", nexql_policy::superuser_warning());
+                eprintln!("{}", nexql_policy::readonly_role_sql());
+            }
+            let superuser = if report.is_superuser {
+                "WARNING"
+            } else {
+                "false"
+            };
             println!(
-                "connected in {:.0}ms: {} (superuser={})",
+                "connected in {:.0}ms: {} (superuser={superuser})",
                 report.latency.as_secs_f64() * 1000.0,
                 report.server_version,
-                report.is_superuser
             );
             Ok(())
         }
@@ -1540,6 +1637,10 @@ async fn run_profile_action(
             if let Some(b) = backup {
                 println!("  (previous config backed up to {})", b.display());
             }
+            Ok(())
+        }
+        ProfileAction::ReadonlyRole => {
+            println!("{}", nexql_policy::readonly_role_sql());
             Ok(())
         }
         ProfileAction::MigrateSecrets => {
@@ -1589,7 +1690,13 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let is_super: String = row.get(0);
     let is_superuser = is_super.eq_ignore_ascii_case("on");
     check_superuser_guard(mode, is_superuser, cli.access.i_know_what_im_doing)?;
-    println!("access_mode={mode:?} superuser={is_superuser}");
+    if is_superuser {
+        eprintln!("{}", nexql_policy::superuser_warning());
+        eprintln!("{}", nexql_policy::readonly_role_sql());
+        println!("access_mode={mode:?} superuser=WARNING");
+    } else {
+        println!("access_mode={mode:?} superuser=false");
+    }
 
     let opts = PoolOptions::default();
     apply_session_guards(&client, &opts).await?;
@@ -2022,6 +2129,40 @@ mod main_cli_tests {
         assert!(content.contains("nexql-mcp"), "{content}");
         assert!(content.contains("--profile"), "{content}");
         assert!(content.contains("local"), "{content}");
+    }
+
+    /// `init <client> --apply <url>` creates the keyring profile it then wires,
+    /// and the password never lands in the client JSON or config.toml.
+    #[test]
+    fn init_client_apply_url_creates_profile_without_password() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let url = "postgres://appuser:s3cret-batch1@localhost:5432/appdb";
+        let cli = Cli::try_parse_from([
+            "nexql-mcp",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--workspace-root",
+            workspace_dir.path().to_str().unwrap(),
+            url,
+            "init",
+            "claude-code",
+            "--apply",
+        ])
+        .unwrap();
+
+        run_init_apply(&cli, "claude-code").expect("apply should create a profile and wire it");
+
+        let written = std::fs::read_to_string(workspace_dir.path().join(".mcp.json")).unwrap();
+        let config = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(written.contains("--profile"), "{written}");
+        assert!(!written.contains("s3cret-batch1"), "{written}");
+        assert!(!config.contains("s3cret-batch1"), "{config}");
+        assert!(
+            config.contains("appuser_appdb") || config.contains("appuser"),
+            "{config}"
+        );
     }
 
     /// A copy-only client (no real mergeable config file) must refuse
