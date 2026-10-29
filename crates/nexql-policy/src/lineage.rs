@@ -31,6 +31,17 @@ pub struct CatalogColumn {
     pub column: String,
 }
 
+/// A view or materialized view expanded before column lineage, so
+/// `SELECT email FROM user_emails` still sees `users.email`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewBody {
+    /// `pg_get_viewdef` text (a SELECT).
+    pub sql: String,
+    /// View column names in `attnum` order. Applied when the analyzed target
+    /// list has the same length.
+    pub columns: Vec<String>,
+}
+
 /// A base relation whose column list was not available, so a whole-row or
 /// star reference could not be classified. Callers load `pg_attribute` and
 /// re-analyze; if it is still unresolved the query fails closed.
@@ -84,11 +95,25 @@ pub fn analyze_output_lineage_resolved(
     known_columns: &[CatalogColumn],
     schema_of: &HashMap<String, String>,
 ) -> Result<OutputLineage, PolicyError> {
+    analyze_output_lineage_with_views(sql, filter, known_columns, schema_of, &HashMap::new())
+}
+
+/// Like [`analyze_output_lineage_resolved`], expanding `views` (keyed
+/// `schema.name`, lowercased) so PII inside a view or matview is not laundered.
+pub fn analyze_output_lineage_with_views(
+    sql: &str,
+    filter: &PolicyFilter,
+    known_columns: &[CatalogColumn],
+    schema_of: &HashMap<String, String>,
+    views: &HashMap<String, ViewBody>,
+) -> Result<OutputLineage, PolicyError> {
     let parsed = parse(sql.trim()).map_err(|e| PolicyError::SqlParse(e.to_string()))?;
     let mut analysis = Analysis {
         filter,
         known: known_columns,
         schema_of,
+        views,
+        view_stack: Vec::new(),
         ctes: HashMap::new(),
         redact: Vec::new(),
         rejections: Vec::new(),
@@ -112,6 +137,24 @@ pub fn analyze_output_lineage_resolved(
                     analysis.analyze_select(sel, &[], false);
                 }
             }
+            NodeEnum::InsertStmt(stmt) => analysis.analyze_returning(
+                stmt.with_clause.as_ref(),
+                stmt.relation.as_ref(),
+                &[],
+                &stmt.returning_list,
+            ),
+            NodeEnum::UpdateStmt(stmt) => analysis.analyze_returning(
+                stmt.with_clause.as_ref(),
+                stmt.relation.as_ref(),
+                &stmt.from_clause,
+                &stmt.returning_list,
+            ),
+            NodeEnum::DeleteStmt(stmt) => analysis.analyze_returning(
+                stmt.with_clause.as_ref(),
+                stmt.relation.as_ref(),
+                &stmt.using_clause,
+                &stmt.returning_list,
+            ),
             _ => {}
         }
     }
@@ -173,6 +216,8 @@ struct Analysis<'a> {
     filter: &'a PolicyFilter,
     known: &'a [CatalogColumn],
     schema_of: &'a HashMap<String, String>,
+    views: &'a HashMap<String, ViewBody>,
+    view_stack: Vec<String>,
     ctes: HashMap<String, Vec<DerivedCol>>,
     redact: Vec<String>,
     rejections: Vec<String>,
@@ -233,6 +278,38 @@ impl Analysis<'_> {
         }
         self.ctes = saved;
         cols
+    }
+
+    /// `INSERT`/`UPDATE`/`DELETE … RETURNING` output columns. The target
+    /// relation is in scope, plus `UPDATE FROM` / `DELETE USING`.
+    fn analyze_returning(
+        &mut self,
+        with: Option<&pg_query::protobuf::WithClause>,
+        relation: Option<&RangeVar>,
+        extra_from: &[Node],
+        returning: &[Node],
+    ) {
+        if returning.is_empty() {
+            return;
+        }
+        let saved = self.ctes.clone();
+        if let Some(with) = with {
+            for cte in &with.ctes {
+                self.define_cte(cte, with.recursive);
+            }
+        }
+        let mut scope = Vec::new();
+        if let Some(rv) = relation {
+            scope.push(self.rel_from_range(rv));
+        }
+        self.bind_from(extra_from, &mut scope);
+        for target in returning {
+            let Some(NodeEnum::ResTarget(rt)) = target.node.as_ref() else {
+                continue;
+            };
+            self.analyze_target(rt, &scope, true);
+        }
+        self.ctes = saved;
     }
 
     fn define_cte(&mut self, node: &Node, recursive: bool) {
@@ -396,11 +473,81 @@ impl Analysis<'_> {
             }
             "public".to_owned()
         };
+        let key = format!(
+            "{}.{}",
+            schema.to_ascii_lowercase(),
+            rv.relname.to_ascii_lowercase()
+        );
+        if self.views.contains_key(&key) {
+            return self.expand_view(&key, &schema, &rv.relname, alias);
+        }
         Rel {
             schema,
             name: rv.relname.clone(),
             alias,
             kind: RelKind::Table,
+        }
+    }
+
+    /// Bind a view as the columns of its query. A cycle, a denylisted call
+    /// inside the view, or a body we cannot parse fails closed.
+    fn expand_view(&mut self, key: &str, schema: &str, name: &str, alias: String) -> Rel {
+        let opaque = Rel {
+            schema: schema.to_owned(),
+            name: name.to_owned(),
+            alias: alias.clone(),
+            kind: RelKind::Opaque { tainted: true },
+        };
+        if self.view_stack.iter().any(|seen| seen == key) {
+            self.rejections.push(format!(
+                "refusing cyclic view {key}: its output could not be classified"
+            ));
+            return opaque;
+        }
+        let Some(body) = self.views.get(key).cloned() else {
+            return opaque;
+        };
+        if let Err(err) = crate::sql::reject_dangerous_calls(&body.sql) {
+            self.rejections
+                .push(format!("view {key} is blocked: {err}"));
+            return opaque;
+        }
+        let parsed = match parse(body.sql.trim()) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                self.rejections.push(format!(
+                    "refusing view {key}: could not parse its query ({err})"
+                ));
+                return opaque;
+            }
+        };
+        self.view_stack.push(key.to_owned());
+        let mut cols = Vec::new();
+        let mut saw_select = false;
+        for stmt in &parsed.protobuf.stmts {
+            if let Some(NodeEnum::SelectStmt(sel)) =
+                stmt.stmt.as_ref().and_then(|n| n.node.as_ref())
+            {
+                saw_select = true;
+                cols = self.analyze_select(sel, &[], false);
+            }
+        }
+        self.view_stack.pop();
+        if !saw_select {
+            self.rejections
+                .push(format!("refusing view {key}: its query is not a SELECT"));
+            return opaque;
+        }
+        if !body.columns.is_empty() && body.columns.len() == cols.len() {
+            for (col, name) in cols.iter_mut().zip(&body.columns) {
+                col.name = name.clone();
+            }
+        }
+        Rel {
+            schema: schema.to_owned(),
+            name: name.to_owned(),
+            alias,
+            kind: RelKind::Derived(cols),
         }
     }
 
@@ -562,6 +709,15 @@ impl Analysis<'_> {
                 let kinds = expr
                     .args
                     .iter()
+                    .map(|n| self.eval_expr(n, scope))
+                    .collect::<Vec<_>>();
+                self.fold_kinds(kinds, scope)
+            }
+            NodeEnum::XmlExpr(expr) => {
+                let kinds = expr
+                    .named_args
+                    .iter()
+                    .chain(expr.args.iter())
                     .map(|n| self.eval_expr(n, scope))
                     .collect::<Vec<_>>();
                 self.fold_kinds(kinds, scope)
@@ -1601,5 +1757,88 @@ mod tests {
     fn explain_does_not_ask_for_column_redaction() {
         let l = lineage("EXPLAIN SELECT email AS contact FROM users");
         assert!(l.redact_names.is_empty(), "{l:?}");
+    }
+
+    #[test]
+    fn ordinary_queries_are_not_rejected() {
+        let cases = [
+            "SELECT u.id, o.total FROM users u JOIN orders o ON o.user_id = u.id",
+            "SELECT count(*) AS n, max(id) AS m FROM users",
+            "SELECT (SELECT id FROM users LIMIT 1) AS i",
+            "SELECT g FROM generate_series(1, 3) g",
+            "SELECT g.n FROM generate_series(1, 3) AS g(n)",
+            "SELECT id FROM users WHERE email = 'a@b.co'",
+        ];
+        for sql in cases {
+            let l = lineage(sql);
+            assert!(l.rejections.is_empty(), "{sql}: {l:?}");
+            assert!(l.redact_names.is_empty(), "{sql}: {l:?}");
+            assert!(l.unresolved_whole_rows.is_empty(), "{sql}: {l:?}");
+        }
+    }
+
+    #[test]
+    fn returning_list_is_lineage_walked() {
+        assert!(
+            redact("INSERT INTO users (id, email) VALUES (1, 'a') RETURNING email")
+                .iter()
+                .any(|n| n == "email")
+        );
+        assert!(
+            redact("UPDATE users SET id = 2 WHERE id = 1 RETURNING email AS contact")
+                .iter()
+                .any(|n| n == "contact")
+        );
+        assert!(
+            redact("DELETE FROM users WHERE id = 1 RETURNING password_hash")
+                .iter()
+                .any(|n| n == "password_hash")
+        );
+        let clean = lineage("INSERT INTO users (id) VALUES (1) RETURNING id");
+        assert!(clean.redact_names.is_empty(), "{clean:?}");
+        assert!(clean.rejections.is_empty(), "{clean:?}");
+    }
+
+    #[test]
+    fn view_expansion_carries_base_table_pii() {
+        let mut views = HashMap::new();
+        views.insert(
+            "public.user_emails".into(),
+            ViewBody {
+                sql: "SELECT id, email FROM users".into(),
+                columns: vec!["id".into(), "email".into()],
+            },
+        );
+        let l = analyze_output_lineage_with_views(
+            "SELECT email AS contact FROM user_emails",
+            &pii_filter(),
+            &known_users(),
+            &HashMap::new(),
+            &views,
+        )
+        .unwrap();
+        assert!(l.redact_names.iter().any(|n| n == "contact"), "{l:?}");
+        assert!(l.rejections.is_empty(), "{l:?}");
+    }
+
+    #[test]
+    fn view_that_calls_a_denied_function_is_rejected() {
+        let mut views = HashMap::new();
+        views.insert(
+            "public.leaky".into(),
+            ViewBody {
+                sql: "SELECT pg_read_file('/etc/passwd') AS body".into(),
+                columns: vec!["body".into()],
+            },
+        );
+        let l = analyze_output_lineage_with_views(
+            "SELECT body FROM leaky",
+            &pii_filter(),
+            &[],
+            &HashMap::new(),
+            &views,
+        )
+        .unwrap();
+        assert!(!l.rejections.is_empty(), "{l:?}");
     }
 }

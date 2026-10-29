@@ -414,6 +414,8 @@ fn denied_function(name: &str, allow_admin_ops: bool) -> Option<String> {
         || name.starts_with("pg_file_")
         || name == "pg_logdir_ls"
         || name.starts_with("lo_")
+        || name == "loread"
+        || name == "lowrite"
         || name.starts_with("dblink")
         || name == "set_config"
         || name.starts_with("pg_sleep")
@@ -438,6 +440,178 @@ fn executes_sql_string(name: &str) -> bool {
     ["query", "table", "schema", "database", "cursor"]
         .iter()
         .any(|kind| name.starts_with(&format!("{kind}_to_xml")))
+}
+
+/// Why `name` is denied outside admin-only server ops, if it is.
+pub fn denied_function_reason(name: &str) -> Option<String> {
+    denied_function(name, false)
+}
+
+/// Parse `sql` and reject denylisted functions and `COPY` to a file or program.
+/// Used for view bodies and other SQL the outer statement does not spell out.
+pub fn reject_dangerous_calls(sql: &str) -> Result<(), PolicyError> {
+    let result = parse_sql(sql)?;
+    enforce_dangerous_calls(&result, false)
+}
+
+/// Schema-qualified or unqualified name found in a statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogName {
+    pub schema: Option<String>,
+    pub name: String,
+}
+
+/// Function calls in `sql`, including nested ones. The schema is set only when
+/// the call is written `schema.name(...)`.
+pub fn routine_refs(sql: &str) -> Result<Vec<CatalogName>, PolicyError> {
+    let result = parse_sql(sql)?;
+    let mut out = Vec::new();
+    for (node_ref, _, _, _) in result.protobuf.nodes() {
+        if let NodeRef::FuncCall(func) = node_ref
+            && let Some(name) = function_name(func)
+        {
+            let schema = if func.funcname.len() >= 2 {
+                func.funcname.iter().rev().nth(1).and_then(node_string)
+            } else {
+                None
+            };
+            out.push(CatalogName { schema, name });
+        }
+    }
+    Ok(out)
+}
+
+/// Range variables (`FROM` / `JOIN` / DML targets) referenced by `sql`.
+pub fn relation_refs(sql: &str) -> Result<Vec<CatalogName>, PolicyError> {
+    let result = parse_sql(sql)?;
+    let mut out = Vec::new();
+    for (node_ref, _, _, _) in result.protobuf.nodes() {
+        if let NodeRef::RangeVar(rv) = node_ref
+            && !rv.relname.is_empty()
+        {
+            let schema = if rv.schemaname.is_empty() {
+                None
+            } else {
+                Some(rv.schemaname.clone())
+            };
+            out.push(CatalogName {
+                schema,
+                name: rv.relname.clone(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn node_string(node: &pg_query::protobuf::Node) -> Option<String> {
+    match node.node.as_ref()? {
+        NodeEnum::String(value) => Some(value.sval.clone()),
+        _ => None,
+    }
+}
+
+/// A call written in a function body (`pg_read_file(` or `pg_catalog.pg_read_file(`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceCall {
+    pub schema: Option<String>,
+    pub name: String,
+}
+
+/// Calls in `src`. Single-quoted strings and `--` comments are skipped so a
+/// mention in prose is not a call. Dollar-quoted bodies are scanned: that is
+/// where `LANGUAGE sql` wrappers hide `pg_read_file`.
+pub fn calls_in_source(src: &str) -> Vec<SourceCall> {
+    let chars: Vec<char> = src.chars().collect();
+    let mut i = 0;
+    let mut out = Vec::new();
+    while i < chars.len() {
+        if chars[i] == '\'' {
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\'' {
+                    if i + 1 < chars.len() && chars[i + 1] == '\'' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
+            i += 2;
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if is_ident_start(chars[i]) {
+            let start = i;
+            i += 1;
+            while i < chars.len() && is_ident_cont(chars[i]) {
+                i += 1;
+            }
+            let first: String = chars[start..i].iter().collect();
+            let mut j = i;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < chars.len() && chars[j] == '.' {
+                j += 1;
+                while j < chars.len() && chars[j].is_whitespace() {
+                    j += 1;
+                }
+                if j < chars.len() && is_ident_start(chars[j]) {
+                    let name_at = j;
+                    j += 1;
+                    while j < chars.len() && is_ident_cont(chars[j]) {
+                        j += 1;
+                    }
+                    let name: String = chars[name_at..j].iter().collect();
+                    let mut k = j;
+                    while k < chars.len() && chars[k].is_whitespace() {
+                        k += 1;
+                    }
+                    if k < chars.len() && chars[k] == '(' {
+                        out.push(SourceCall {
+                            schema: Some(first),
+                            name,
+                        });
+                        i = k;
+                        continue;
+                    }
+                }
+            }
+            if j < chars.len() && chars[j] == '(' {
+                out.push(SourceCall {
+                    schema: None,
+                    name: first,
+                });
+                i = j;
+                continue;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Denied function a SQL/plpgsql body invokes, if any.
+pub fn source_mentions_denied_function(src: &str) -> Option<String> {
+    calls_in_source(src)
+        .into_iter()
+        .find_map(|call| denied_function_reason(&call.name).map(|_| call.name))
+}
+
+fn is_ident_start(ch: char) -> bool {
+    ch.is_ascii_alphabetic() || ch == '_'
+}
+
+fn is_ident_cont(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn is_ddl_node(node_ref: NodeRef<'_>) -> bool {
@@ -640,6 +814,9 @@ mod tests {
             "SELECT lo_import('/etc/passwd')",
             "SELECT lo_export(1, '/tmp/x')",
             "SELECT lo_get(1)",
+            "SELECT loread(0, 10)",
+            "SELECT lowrite(0, 'x')",
+            "SELECT lo_from_bytea(0, 'x')",
             "SELECT dblink_connect('host=localhost')",
             "SELECT pg_terminate_backend(1)",
             "SELECT pg_cancel_backend(1)",
@@ -730,5 +907,19 @@ mod tests {
         let names: Vec<_> = tables.iter().map(|t| t.qualified()).collect();
         assert!(names.contains(&"public.users".to_string()));
         assert!(names.contains(&"public.orders".to_string()));
+    }
+
+    #[test]
+    fn function_bodies_expose_denied_calls_and_skip_string_literals() {
+        let src = "$$ SELECT pg_catalog.pg_read_file($1) $$";
+        assert_eq!(
+            source_mentions_denied_function(src).as_deref(),
+            Some("pg_read_file")
+        );
+        assert!(
+            source_mentions_denied_function("SELECT 'pg_read_file(' AS label").is_none(),
+            "a name mentioned only inside a string is not a call"
+        );
+        assert!(source_mentions_denied_function("-- pg_read_file(\nSELECT 1").is_none());
     }
 }

@@ -120,7 +120,9 @@ pub fn column_matches_pii_policy(
 /// - `password*` and `*_password` (`password`, `password_hash`, `user_password`)
 /// - `*_hash`
 /// - `*token*`
-/// - `*secret*`
+/// - `secret` as a whole identifier or an `_secret` / `secret_` segment
+///   (`client_secret`, `secret_key`). A substring inside another word
+///   (`secretary`) does not match.
 /// - `ssn` as a whole identifier or an `_ssn` / `ssn_` segment
 pub fn is_sensitive_column_name(column: &str) -> bool {
     let name = column.to_ascii_lowercase();
@@ -130,10 +132,18 @@ pub fn is_sensitive_column_name(column: &str) -> bool {
     if name.ends_with("_hash") {
         return true;
     }
-    if name.contains("token") || name.contains("secret") {
+    if name.contains("token") || secret_segment(&name) {
         return true;
     }
     name == "ssn" || name.ends_with("_ssn") || name.starts_with("ssn_")
+}
+
+/// `secret` at an identifier boundary, not inside a longer word.
+fn secret_segment(name: &str) -> bool {
+    name == "secret"
+        || name.starts_with("secret_")
+        || name.ends_with("_secret")
+        || name.contains("_secret_")
 }
 
 /// Configured PII or (when enabled) a sensitive column name.
@@ -220,12 +230,15 @@ mod tests {
             ("access_token", true),
             ("token", true),
             ("client_secret", true),
+            ("secret_key", true),
+            ("api_secret_key", true),
             ("ssn", true),
             ("user_ssn", true),
             ("email", false),
             ("id", false),
             ("hash", false),
-            ("secretary", true), // contains "secret" — documented *secret* match
+            ("secretary", false),
+            ("topsecret", false),
         ];
         for (name, expect) in cases {
             assert_eq!(

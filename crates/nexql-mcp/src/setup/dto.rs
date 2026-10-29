@@ -69,6 +69,10 @@ pub struct SanitizedProfile {
     pub max_rows: Option<u32>,
     pub statement_timeout_ms: Option<u32>,
     pub credential_provider: Option<String>,
+    /// `None` keeps the profile default (heuristics enabled). `Some(false)`
+    /// opts out and must survive a wizard save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensitive_name_heuristics: Option<bool>,
     pub password_stored: bool,
     pub has_inline_password: bool,
 }
@@ -95,6 +99,7 @@ impl From<&ProfileConfig> for SanitizedProfile {
             max_rows: p.max_rows,
             statement_timeout_ms: p.statement_timeout_ms,
             credential_provider: p.credential_provider.clone(),
+            sensitive_name_heuristics: p.sensitive_name_heuristics,
             password_stored: matches!(
                 p.credential_provider.as_deref(),
                 Some("keyring") | Some("os_keyring") | Some("encrypted_file")
@@ -127,7 +132,7 @@ impl From<SanitizedProfile> for ProfileConfig {
             max_rows: s.max_rows,
             statement_timeout_ms: s.statement_timeout_ms,
             credential_provider: s.credential_provider,
-            sensitive_name_heuristics: None,
+            sensitive_name_heuristics: s.sensitive_name_heuristics,
         }
     }
 }
@@ -200,4 +205,40 @@ pub struct ErrorBody {
 #[derive(Debug, Deserialize)]
 pub struct ImportRequest {
     pub toml: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sensitive_name_heuristics_round_trips_through_the_wizard_dto() {
+        let profile = ProfileConfig {
+            sensitive_name_heuristics: Some(false),
+            ..ProfileConfig::default()
+        };
+        let sanitized = SanitizedProfile::from(&profile);
+        assert_eq!(sanitized.sensitive_name_heuristics, Some(false));
+        let restored = ProfileConfig::from(sanitized);
+        assert_eq!(restored.sensitive_name_heuristics, Some(false));
+
+        let enabled = SanitizedProfile::from(&ProfileConfig::default());
+        assert_eq!(enabled.sensitive_name_heuristics, None);
+        let json = serde_json::to_string(&enabled).unwrap();
+        let parsed: SanitizedProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sensitive_name_heuristics, None);
+        assert_eq!(ProfileConfig::from(parsed).sensitive_name_heuristics, None);
+
+        let opted_out = SanitizedProfile {
+            sensitive_name_heuristics: Some(false),
+            ..SanitizedProfile::default()
+        };
+        let json = serde_json::to_string(&opted_out).unwrap();
+        assert!(json.contains("sensitive_name_heuristics"));
+        let parsed: SanitizedProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            ProfileConfig::from(parsed).sensitive_name_heuristics,
+            Some(false)
+        );
+    }
 }

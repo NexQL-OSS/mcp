@@ -16,6 +16,7 @@ use nexql_policy::{
 };
 use serde_json::{Value, json};
 
+use crate::catalog_guard::enforce_routine_guards;
 use crate::cell_json::{
     columnarize_read_payload, columnarize_row_arrays, ensure_redaction_names_present,
     heuristic_output_names, metadata_sensitive_output_names, redact_named_columns_in_payload,
@@ -3730,6 +3731,7 @@ impl ToolRouter {
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
         timeout_ms: u32,
     ) -> Result<Vec<tokio_postgres::Row>, ToolError> {
+        enforce_routine_guards(client, sql).await?;
         let opened = self.session.access_mode() == AccessMode::Read;
         if opened {
             nexql_conn::begin_read_only(client)

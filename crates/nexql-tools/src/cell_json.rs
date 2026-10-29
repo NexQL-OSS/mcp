@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_policy::{
-    CatalogColumn, ObjectRef, PII_REDACTED, PolicyFilter, UnresolvedRelation,
-    analyze_output_lineage_resolved, column_matches_pii_policy, column_should_redact,
+    CatalogColumn, ObjectRef, PII_REDACTED, PolicyFilter, UnresolvedRelation, ViewBody,
+    analyze_output_lineage_with_views, column_matches_pii_policy, column_should_redact,
     is_sensitive_column_name,
 };
 use rust_decimal::Decimal;
@@ -319,7 +319,8 @@ FROM unnest($1::text[], $2::text[]) AS x(schema_name, table_name)
 JOIN pg_namespace n ON n.nspname = x.schema_name
 JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = x.table_name
 JOIN pg_attribute a ON a.attrelid = c.oid
-WHERE a.attnum > 0 AND NOT a.attisdropped";
+WHERE a.attnum > 0 AND NOT a.attisdropped
+ORDER BY x.schema_name, x.table_name, a.attnum";
 
 const OUTPUT_COLUMN_META_SQL: &str = "\
 SELECT x.ord::int4, n.nspname::text, c.relname::text, a.attname::text
@@ -331,6 +332,22 @@ ORDER BY x.ord";
 
 /// Schema the session `search_path` resolves each unqualified name to
 /// (`pg_tables` → `pg_catalog`). Names that do not resolve are left out.
+const VIEW_BODIES_SQL: &str = "\
+SELECT n.nspname::text,
+       c.relname::text,
+       pg_get_viewdef(c.oid, true),
+       COALESCE(
+         array_agg(a.attname::text ORDER BY a.attnum)
+           FILTER (WHERE a.attnum > 0 AND NOT a.attisdropped),
+         '{}'::text[]
+       )
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_attribute a ON a.attrelid = c.oid
+WHERE c.relkind IN ('v', 'm')
+  AND c.relname = ANY($1::text[])
+GROUP BY n.nspname, c.relname, c.oid";
+
 const SEARCH_PATH_SCHEMAS_SQL: &str = "\
 SELECT x.name, n.nspname::text
 FROM unnest($1::text[]) AS x(name)
@@ -346,22 +363,25 @@ pub async fn sensitive_output_names(
     sql: &str,
     filter: &PolicyFilter,
 ) -> Result<Vec<String>, crate::error::ToolError> {
-    let analyze = |known: &[CatalogColumn], schemas: &HashMap<String, String>| {
-        analyze_output_lineage_resolved(sql, filter, known, schemas)
+    let analyze = |known: &[CatalogColumn],
+                   schemas: &HashMap<String, String>,
+                   views: &HashMap<String, ViewBody>| {
+        analyze_output_lineage_with_views(sql, filter, known, schemas, views)
             .map_err(|err| crate::error::ToolError::Execution(err.to_string()))
     };
     let mut known = Vec::new();
     let mut schemas = HashMap::new();
-    let mut lineage = analyze(&known, &schemas)?;
+    let views = load_view_bodies(client, sql).await?;
+    let mut lineage = analyze(&known, &schemas, &views)?;
     if !lineage.unqualified_relations.is_empty() {
         schemas = resolve_search_path_schemas(client, &lineage.unqualified_relations).await;
         if !schemas.is_empty() {
-            lineage = analyze(&known, &schemas)?;
+            lineage = analyze(&known, &schemas, &views)?;
         }
     }
     if !lineage.unresolved_whole_rows.is_empty() {
         known = load_relation_columns(client, &lineage.unresolved_whole_rows).await;
-        lineage = analyze(&known, &schemas)?;
+        lineage = analyze(&known, &schemas, &views)?;
     }
     if !lineage.rejections.is_empty() {
         return Err(crate::error::ToolError::Execution(
@@ -380,6 +400,86 @@ pub async fn sensitive_output_names(
         )));
     }
     Ok(lineage.redact_names)
+}
+
+/// Views and matviews referenced by `sql`, including views nested in those
+/// definitions, keyed `schema.name`. A catalog error fails closed. Expansion
+/// stops after a few rounds; a view still unseen after that is an error.
+async fn load_view_bodies(
+    client: &tokio_postgres::Client,
+    sql: &str,
+) -> Result<HashMap<String, ViewBody>, crate::error::ToolError> {
+    let mut pending = nexql_policy::sql::relation_refs(sql)
+        .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+    let mut loaded: HashMap<String, ViewBody> = HashMap::new();
+    for _ in 0..8 {
+        if pending.is_empty() {
+            return Ok(loaded);
+        }
+        let names: Vec<String> = pending.iter().map(|rel| rel.name.clone()).collect();
+        pending.clear();
+        let rows = client
+            .query(VIEW_BODIES_SQL, &[&names])
+            .await
+            .map_err(|err| {
+                crate::error::ToolError::Execution(format!(
+                    "could not load view definitions ({err}); refusing"
+                ))
+            })?;
+        let mut fresh = false;
+        for row in rows {
+            let schema: String = row.get(0);
+            let name: String = row.get(1);
+            let def: String = row.get(2);
+            let columns: Vec<String> = row.get(3);
+            let key = format!(
+                "{}.{}",
+                schema.to_ascii_lowercase(),
+                name.to_ascii_lowercase()
+            );
+            if loaded.contains_key(&key) {
+                continue;
+            }
+            fresh = true;
+            let nested = nexql_policy::sql::relation_refs(&def)
+                .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+            pending.extend(nested);
+            loaded.insert(key, ViewBody { sql: def, columns });
+        }
+        if !fresh {
+            return Ok(loaded);
+        }
+    }
+    if pending.is_empty() {
+        return Ok(loaded);
+    }
+    let names: Vec<String> = pending.iter().map(|rel| rel.name.clone()).collect();
+    let rows = client
+        .query(VIEW_BODIES_SQL, &[&names])
+        .await
+        .map_err(|err| {
+            crate::error::ToolError::Execution(format!(
+                "could not load view definitions ({err}); refusing"
+            ))
+        })?;
+    let unseen = rows.into_iter().any(|row| {
+        let schema: String = row.get(0);
+        let name: String = row.get(1);
+        let key = format!(
+            "{}.{}",
+            schema.to_ascii_lowercase(),
+            name.to_ascii_lowercase()
+        );
+        !loaded.contains_key(&key)
+    });
+    if unseen {
+        return Err(crate::error::ToolError::Execution(
+            "refusing to run SQL: view expansion exceeded the safety depth, so a view over \
+             sensitive columns could not be classified"
+                .into(),
+        ));
+    }
+    Ok(loaded)
 }
 
 async fn resolve_search_path_schemas(

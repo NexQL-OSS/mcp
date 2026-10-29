@@ -289,6 +289,14 @@ fn which(bin: &str) -> Option<PathBuf> {
 }
 
 fn start_temp_pg() -> Option<TempPg> {
+    let started = start_temp_pg_inner();
+    if started.is_none() && std::env::var("NEXQL_REQUIRE_LIVE_PG").ok().as_deref() == Some("1") {
+        panic!("NEXQL_REQUIRE_LIVE_PG=1 but initdb/postgres could not start a temporary server");
+    }
+    started
+}
+
+fn start_temp_pg_inner() -> Option<TempPg> {
     let initdb = which("initdb")?;
     let postgres = which("postgres")?;
     let data = TempDir::new().ok()?;

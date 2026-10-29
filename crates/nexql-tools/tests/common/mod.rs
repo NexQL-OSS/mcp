@@ -28,6 +28,10 @@ impl Drop for TempPg {
     }
 }
 
+fn live_pg_required() -> bool {
+    std::env::var("NEXQL_REQUIRE_LIVE_PG").ok().as_deref() == Some("1")
+}
+
 fn which(bin: &str) -> Option<PathBuf> {
     Command::new("sh")
         .arg("-c")
@@ -39,8 +43,17 @@ fn which(bin: &str) -> Option<PathBuf> {
 }
 
 /// Start a throwaway Postgres on a random local port. Returns `None` when
-/// `initdb` / `postgres` are unavailable (CI without PG toolchain).
+/// `initdb` / `postgres` are unavailable. `NEXQL_REQUIRE_LIVE_PG=1` (set on
+/// the Linux CI test job) turns that skip into a failure.
 pub fn start_temp_pg() -> Option<TempPg> {
+    let started = start_temp_pg_inner();
+    if started.is_none() && live_pg_required() {
+        panic!("NEXQL_REQUIRE_LIVE_PG=1 but initdb/postgres could not start a temporary server");
+    }
+    started
+}
+
+fn start_temp_pg_inner() -> Option<TempPg> {
     let initdb = which("initdb")?;
     let postgres = which("postgres")?;
     let data = TempDir::new().ok()?;
@@ -149,8 +162,28 @@ pub async fn smoke_env() -> Option<SmokeEnv> {
     let url = pg.url.clone();
     seed_smoke_schema(&url).await;
 
-    let index_dir = TempDir::new().ok()?;
-    let config_dir = TempDir::new().ok()?;
+    let index_dir = match TempDir::new() {
+        Ok(dir) => dir,
+        Err(err) => {
+            if live_pg_required() {
+                panic!(
+                    "NEXQL_REQUIRE_LIVE_PG=1 but the index temp dir could not be created: {err}"
+                );
+            }
+            return None;
+        }
+    };
+    let config_dir = match TempDir::new() {
+        Ok(dir) => dir,
+        Err(err) => {
+            if live_pg_required() {
+                panic!(
+                    "NEXQL_REQUIRE_LIVE_PG=1 but the config temp dir could not be created: {err}"
+                );
+            }
+            return None;
+        }
+    };
     unsafe {
         std::env::set_var("NEXQL_MCP_INDEX_DIR", index_dir.path());
         std::env::set_var("NEXQL_MCP_CONFIG", config_dir.path().join("config.toml"));
@@ -171,13 +204,27 @@ pub async fn smoke_env() -> Option<SmokeEnv> {
         ),
     };
     let store = IndexStore::new(index_dir.path());
-    let session = ToolSession::from_connections(vec![info], None).await.ok()?;
+    let session = match ToolSession::from_connections(vec![info], None).await {
+        Ok(session) => session,
+        Err(err) => {
+            if live_pg_required() {
+                panic!("NEXQL_REQUIRE_LIVE_PG=1 but the tool session failed to connect: {err}");
+            }
+            return None;
+        }
+    };
     let router = Arc::new(ToolRouter::with_index_store(session, Some(store)));
 
     let build = router
         .call("rebuild_index", serde_json::json!({ "depth": "shallow" }))
         .await;
     if build.is_error {
+        if live_pg_required() {
+            panic!(
+                "NEXQL_REQUIRE_LIVE_PG=1 but rebuild_index failed: {}",
+                build.text
+            );
+        }
         eprintln!("skip: rebuild_index failed: {}", build.text);
         return None;
     }

@@ -366,6 +366,19 @@ mod tests {
         assert!(!url_contains_password(
             "postgres://u@localhost:5432/db?sslmode=require"
         ));
+
+        // `@`, `#`, `?` inside a password must be percent-encoded. The decoded
+        // secret is still a password, so the URL is not written into a snippet.
+        for url in [
+            "postgres://u:p%40ss@localhost:5432/db",
+            "postgres://u:p%23ss@localhost:5432/db",
+            "postgres://u:p%3Fss@localhost:5432/db",
+            "postgres://u:p%2Fss@localhost:5432/db",
+            "postgresql://u@localhost/db?password=s3cret%2Fpath",
+        ] {
+            assert!(url_contains_password(url), "{url}");
+            assert!(init_snippet("cursor", Some(url)).is_err(), "{url}");
+        }
     }
 
     #[test]

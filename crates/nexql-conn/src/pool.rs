@@ -53,25 +53,50 @@ pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Resul
 /// `set_config` cannot flip the current transaction.
 pub const BEGIN_READ_ONLY: &str = "BEGIN READ ONLY";
 
-/// Open a read-only transaction and prove it took effect. `BEGIN` inside an
-/// open transaction is only a WARNING (25001), so a connection left in a
-/// read-write transaction would otherwise run the statement read-write and
-/// the caller's `COMMIT` would commit that outer transaction. On refusal the
-/// stray transaction is rolled back so the pooled connection is clean again.
+/// Open a read-only transaction and prove it took effect.
+///
+/// A second `BEGIN` inside an open transaction is a warning, not SQLSTATE
+/// 25001. On PostgreSQL 16 that warning still applies `READ ONLY`, so a later
+/// `COMMIT` would commit whatever the outer transaction had already done.
+/// Probe with `SAVEPOINT` (it errors with 25P01 when no transaction is open).
+/// An open or aborted transaction is rolled back and the call is refused, so
+/// the pooled connection is idle again.
 pub async fn begin_read_only(client: &Client) -> Result<(), ConnError> {
-    let messages = client
-        .simple_query(&format!("{BEGIN_READ_ONLY}; SHOW transaction_read_only"))
-        .await?;
+    match client.batch_execute("SAVEPOINT nexql_ro_probe").await {
+        Ok(()) => {
+            let _ = client.batch_execute("ROLLBACK").await;
+            return Err(ConnError::Pool(
+                "refusing to run a read-mode statement inside an open read-write transaction"
+                    .into(),
+            ));
+        }
+        Err(err) => {
+            let code = err.code().map(|code| code.code().to_owned());
+            match code.as_deref() {
+                Some("25P01") => {}
+                Some("25P02") => {
+                    let _ = client.batch_execute("ROLLBACK").await;
+                    return Err(ConnError::Pool(
+                        "refusing to run a read-mode statement inside an aborted transaction"
+                            .into(),
+                    ));
+                }
+                _ => return Err(ConnError::Postgres(err)),
+            }
+        }
+    }
+    client.batch_execute(BEGIN_READ_ONLY).await?;
+    let messages = client.simple_query("SHOW transaction_read_only").await?;
     let read_only = messages.iter().any(|msg| {
         matches!(msg, tokio_postgres::SimpleQueryMessage::Row(row)
-            if row.get(0).is_some_and(|v| v.eq_ignore_ascii_case("on")))
+            if row.get(0).is_some_and(|value| value.eq_ignore_ascii_case("on")))
     });
     if read_only {
         return Ok(());
     }
     let _ = client.batch_execute("ROLLBACK").await;
     Err(ConnError::Pool(
-        "refusing to run a read-mode statement inside an open read-write transaction".into(),
+        "refusing to run a read-mode statement: BEGIN READ ONLY did not take effect".into(),
     ))
 }
 
@@ -194,6 +219,17 @@ mod tests {
     }
 
     fn start_temp_pg() -> Option<TempPg> {
+        let started = start_temp_pg_inner();
+        if started.is_none() && std::env::var("NEXQL_REQUIRE_LIVE_PG").ok().as_deref() == Some("1")
+        {
+            panic!(
+                "NEXQL_REQUIRE_LIVE_PG=1 but initdb/postgres could not start a temporary server"
+            );
+        }
+        started
+    }
+
+    fn start_temp_pg_inner() -> Option<TempPg> {
         let initdb = which("initdb")?;
         let postgres = which("postgres")?;
         let data = TempDir::new().ok()?;

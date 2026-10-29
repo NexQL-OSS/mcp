@@ -24,8 +24,8 @@ pub use filter::{
     configured_pii_names, is_pii_column, is_sensitive_column_name,
 };
 pub use lineage::{
-    CatalogColumn, OutputLineage, UnresolvedRelation, analyze_output_lineage,
-    analyze_output_lineage_resolved,
+    CatalogColumn, OutputLineage, UnresolvedRelation, ViewBody, analyze_output_lineage,
+    analyze_output_lineage_resolved, analyze_output_lineage_with_views,
 };
 pub use sql::{
     SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,

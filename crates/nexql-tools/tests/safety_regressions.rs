@@ -2,7 +2,8 @@
 // Copyright (C) 2026 NexQL-OSS Team
 
 //! Live Postgres checks for read-mode escapes and PII lineage.
-//! Skipped when `initdb` is not on `PATH` (the unit-test CI job).
+//! Skipped when `initdb` is not on `PATH`, unless `NEXQL_REQUIRE_LIVE_PG=1`
+//! (the Linux CI test job), which fails the test instead of skipping.
 
 mod common;
 
@@ -178,4 +179,253 @@ async fn begin_read_only_refuses_an_open_read_write_transaction() {
         .get(0);
     assert_eq!(ro, "on");
     client.batch_execute("COMMIT").await.unwrap();
+}
+
+#[tokio::test]
+async fn adversarial_bypass_matrix() {
+    let Some(pg) = common::start_temp_pg() else {
+        eprintln!("skip: initdb/postgres not on PATH");
+        return;
+    };
+    let params = params_from_url(&pg.url).unwrap();
+    let setup = nexql_conn::connect_once(&params).await.unwrap();
+    setup
+        .batch_execute(
+            "CREATE SCHEMA customers;
+             CREATE TABLE public.users (
+                id int PRIMARY KEY,
+                email text NOT NULL,
+                password_hash text NOT NULL,
+                secretary text NOT NULL,
+                tag text NOT NULL
+             );
+             INSERT INTO public.users VALUES (1, 'a@b.co', 'hashed-secret', 'pat', 'from-public');
+             CREATE TABLE public.contacts (id int PRIMARY KEY, city text);
+             INSERT INTO public.contacts VALUES (1, 'paris');
+             CREATE TABLE public.orders (id int PRIMARY KEY, user_id int, total int);
+             INSERT INTO public.orders VALUES (1, 1, 42);
+             CREATE TABLE customers.users (
+                id int PRIMARY KEY,
+                email text NOT NULL,
+                password_hash text NOT NULL,
+                tag text NOT NULL
+             );
+             INSERT INTO customers.users VALUES (1, 'cust@b.co', 'cust-hash', 'from-customers');
+             CREATE VIEW public.user_emails AS
+                SELECT id, email, password_hash, secretary FROM public.users;
+             CREATE MATERIALIZED VIEW public.user_emails_m AS
+                SELECT id, email, password_hash FROM public.users;
+             CREATE FUNCTION public.wrap_read(path text) RETURNS text
+                LANGUAGE sql AS $$ SELECT pg_read_file(path) $$;
+             CREATE FUNCTION public.wrap2(path text) RETURNS text
+                LANGUAGE sql AS $$ SELECT public.wrap_read(path) $$;
+             CREATE FUNCTION public.benign_secdef() RETURNS int
+                LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$;
+             ALTER ROLE spike SET search_path TO customers, public;",
+        )
+        .await
+        .unwrap();
+    drop(setup);
+
+    let pii = vec!["customers.users.email".into(), "public.users.email".into()];
+    let read = open_router(params.clone(), pii.clone(), AccessMode::Read).await;
+    let write = open_router(params, pii, AccessMode::Write).await;
+
+    let secrets = [
+        "a@b.co",
+        "cust@b.co",
+        "hashed-secret",
+        "cust-hash",
+        "returning-secret",
+    ];
+
+    // search_path: unqualified `users` is customers.users, not public.users.
+    let path = read
+        .call(
+            "run_select",
+            json!({ "sql": "SELECT tag, email AS contact FROM users" }),
+        )
+        .await;
+    assert!(!path.is_error, "search_path: {}", path.text);
+    assert!(path.text.contains("from-customers"), "{}", path.text);
+    assert!(!path.text.contains("from-public"), "{}", path.text);
+    assert!(!path.text.contains("cust@b.co"), "{}", path.text);
+    assert!(path.text.contains("<redacted>"), "{}", path.text);
+
+    let ordinary = [
+        (
+            "join",
+            "SELECT u.id, o.total FROM public.users u JOIN public.orders o ON o.user_id = u.id",
+            "42",
+        ),
+        (
+            "aggregate",
+            "SELECT count(*) AS n, max(id) AS m FROM public.users",
+            "1",
+        ),
+        (
+            "subquery-non-pii",
+            "SELECT (SELECT id FROM public.users LIMIT 1) AS i",
+            "1",
+        ),
+        (
+            "generate_series",
+            "SELECT g FROM generate_series(1, 3) g",
+            "1",
+        ),
+        (
+            "lateral-generate_series",
+            "SELECT u.id, x.n FROM public.users u CROSS JOIN LATERAL generate_series(1, u.id) AS x(n)",
+            "1",
+        ),
+        ("secretary", "SELECT secretary FROM public.users", "pat"),
+    ];
+    for (label, sql, expect) in ordinary {
+        let out = read.call("run_select", json!({ "sql": sql })).await;
+        assert!(!out.is_error, "{label}: {}", out.text);
+        assert!(out.text.contains(expect), "{label}: {}", out.text);
+        for secret in secrets {
+            assert!(
+                !out.text.contains(secret),
+                "{label} leaked {secret}: {}",
+                out.text
+            );
+        }
+    }
+
+    let redacted = [
+        (
+            "case",
+            "SELECT CASE WHEN id > 0 THEN email ELSE '' END FROM public.users",
+        ),
+        (
+            "subquery",
+            "SELECT (SELECT email FROM public.users LIMIT 1)",
+        ),
+        ("coalesce", "SELECT coalesce(email, 'x') FROM public.users"),
+        ("array", "SELECT ARRAY[email] FROM public.users"),
+        (
+            "xmlelement",
+            "SELECT xmlelement(name x, email) FROM public.users",
+        ),
+        ("format", "SELECT format('%s', email) FROM public.users"),
+        (
+            "string_agg",
+            "SELECT string_agg(email, ',') FROM public.users",
+        ),
+        (
+            "recursive-cte",
+            "WITH RECURSIVE r(n, e) AS (\
+               SELECT 1, email FROM public.users WHERE id = 1 \
+               UNION ALL SELECT n + 1, e FROM r WHERE n < 2\
+             ) SELECT e AS out FROM r",
+        ),
+        (
+            "union",
+            "SELECT email FROM public.users UNION ALL SELECT email FROM public.users",
+        ),
+        (
+            "window",
+            "SELECT first_value(email) OVER (ORDER BY id) FROM public.users",
+        ),
+        (
+            "using",
+            "SELECT email FROM public.users JOIN public.contacts USING (id)",
+        ),
+        (
+            "natural-join",
+            "SELECT email FROM public.users NATURAL JOIN public.contacts",
+        ),
+        ("view", "SELECT email AS contact FROM public.user_emails"),
+        ("matview", "SELECT email FROM public.user_emails_m"),
+    ];
+    for (label, sql) in redacted {
+        let out = read.call("run_select", json!({ "sql": sql })).await;
+        assert!(!out.is_error, "{label}: {}", out.text);
+        assert!(out.text.contains("<redacted>"), "{label}: {}", out.text);
+        for secret in secrets {
+            assert!(
+                !out.text.contains(secret),
+                "{label} leaked {secret}: {}",
+                out.text
+            );
+        }
+    }
+
+    let refused = [
+        "SELECT kv.key, kv.value FROM public.users u CROSS JOIN LATERAL jsonb_each_text(to_jsonb(u)) kv",
+        "SELECT query_to_xml('select pg_read_file(''/etc/passwd'')', true, false, '')",
+        "SELECT table_to_xml('public.users', true, false, '')",
+        "SELECT cursor_to_xml('c', 10, true, false, '')",
+        "BEGIN READ WRITE; SELECT email FROM public.users",
+        "SELECT loread(0, 10)",
+        "SELECT lowrite(0, 'x')",
+        "SELECT lo_export(1, '/tmp/x')",
+        "SELECT public.wrap_read('/etc/passwd')",
+        "SELECT wrap2('/etc/passwd')",
+        "SELECT benign_secdef()",
+    ];
+    for sql in refused {
+        let out = read.call("run_select", json!({ "sql": sql })).await;
+        assert!(out.is_error, "{sql}: {}", out.text);
+        for secret in secrets {
+            assert!(
+                !out.text.contains(secret),
+                "{sql} leaked {secret}: {}",
+                out.text
+            );
+        }
+        assert!(
+            !out.text.contains("root:"),
+            "{sql} leaked a file: {}",
+            out.text
+        );
+    }
+
+    let returning = write
+        .call(
+            "execute_sql",
+            json!({
+                "sql": "INSERT INTO public.users (id, email, password_hash, secretary, tag) \
+                        VALUES (2, 'c@d.co', 'returning-secret', 'pat', 'from-public') \
+                        RETURNING email, password_hash",
+                "dry_run": true
+            }),
+        )
+        .await;
+    assert!(!returning.is_error, "{}", returning.text);
+    assert!(returning.text.contains("<redacted>"), "{}", returning.text);
+    assert!(!returning.text.contains("c@d.co"), "{}", returning.text);
+    assert!(
+        !returning.text.contains("returning-secret"),
+        "{}",
+        returning.text
+    );
+}
+
+async fn open_router(
+    params: nexql_conn::ConnectionParams,
+    pii: Vec<String>,
+    mode: AccessMode,
+) -> ToolRouter {
+    let info = ConnectionInfo {
+        id: "default".into(),
+        name: "default".into(),
+        host: params.host.clone(),
+        port: params.port,
+        database: params.dbname.clone(),
+        params,
+        policy: policy_from_profile(
+            Some(&ProfileConfig {
+                pii_columns: pii,
+                ..Default::default()
+            }),
+            mode,
+            PolicyCaps::default().with_max_rows(20),
+        ),
+    };
+    let session = ToolSession::from_connections(vec![info], None)
+        .await
+        .unwrap();
+    ToolRouter::new(session)
 }

@@ -19,6 +19,7 @@ use tokio_postgres::SimpleQueryMessage;
 use tokio_postgres::types::{Json, ToSql};
 use uuid::Uuid;
 
+use crate::catalog_guard::enforce_routine_guards;
 use crate::cell_json::{
     ensure_redaction_names_present, redact_named_columns_in_payload, rows_to_json_vec,
     sensitive_output_names,
@@ -64,6 +65,7 @@ pub async fn execute_sql(
     {
         ToolSession::set_statement_timeout(&client, ms).await?;
     }
+    enforce_routine_guards(&client, sql).await?;
     let lineage_names = sensitive_output_names(&client, sql, &session.filter()).await?;
     if mode == AccessMode::Read {
         begin_read_only(&client)

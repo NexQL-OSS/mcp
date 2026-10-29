@@ -1383,9 +1383,45 @@ fn persist_profile_from_url(cli: &Cli, url: &str) -> Result<String, String> {
             "refusing to save profile '{name}': the password could not be moved out of the config"
         ));
     }
+    // `upsert_profile` also does this; set it here so the first saved URL
+    // stays the default even if that helper changes.
+    if config.default_profile.is_none() {
+        config.default_profile = Some(name.clone());
+    }
     config.upsert_profile(name.clone(), prepared);
     config.save(&path).map_err(|e| e.to_string())?;
+
+    let written = std::fs::read_to_string(&path).unwrap_or_default();
+    for secret in passwords_in_url(url) {
+        if written.contains(&secret) {
+            return Err(format!(
+                "refusing to save profile '{name}': password was written to {}",
+                path.display()
+            ));
+        }
+    }
     Ok(name)
+}
+
+/// Userinfo and `?password=` values that must not appear in the saved TOML.
+fn passwords_in_url(url: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(params) = nexql_conn::params_from_url(url)
+        && let Some(password) = params.password.filter(|password| !password.is_empty())
+    {
+        out.push(password);
+    }
+    if let Ok(parsed) = url::Url::parse(url) {
+        for (key, value) in parsed.query_pairs() {
+            if key.eq_ignore_ascii_case("password") && !value.is_empty() {
+                let value = value.into_owned();
+                if !out.iter().any(|existing| existing == &value) {
+                    out.push(value);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// True when `profile` already points at the same server, database, and
@@ -2276,6 +2312,32 @@ pii_columns = ["public.users.email"]
         let err = persist_profile_from_url(&cli, "postgres://appuser@localhost/appdb").unwrap_err();
         assert!(err.contains("could not read"), "{err}");
         assert_eq!(std::fs::read_to_string(&cfg_path).unwrap(), broken);
+    }
+
+    /// The first URL saved into an empty config becomes `default_profile`, and
+    /// the password is not left in the TOML (userinfo, encoded, or query).
+    #[test]
+    fn persist_profile_from_url_sets_default_and_omits_password() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let cli = cli_with_config(&cfg_path);
+        let url = "postgres://appuser:p%40ss%23w%3Fd@localhost:5432/appdb";
+        let name = persist_profile_from_url(&cli, url).unwrap();
+        assert_eq!(name, "appuser_appdb");
+        let config = ConfigFile::load_path(&cfg_path).unwrap();
+        assert_eq!(config.default_profile.as_deref(), Some("appuser_appdb"));
+        let written = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(!written.contains("p@ss#w?d"), "{written}");
+        assert!(!written.contains("p%40ss"), "{written}");
+
+        let query = "postgres://appuser@localhost:5432/appdb?password=queried-secret";
+        let err = persist_profile_from_url(&cli, query).unwrap_err();
+        assert!(
+            err.contains("password") || err.contains("could not be moved"),
+            "{err}"
+        );
+        let written = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(!written.contains("queried-secret"), "{written}");
     }
 
     /// `init <client> --apply <url>` creates the keyring profile it then wires,
