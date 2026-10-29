@@ -28,6 +28,11 @@ chacha20poly1305 = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }
 
+[features]
+# Test builds only (enabled through dependents' dev-dependencies): keep
+# secrets out of the OS keyring and the user's config directory.
+isolated-credentials = []
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

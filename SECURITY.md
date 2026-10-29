@@ -19,11 +19,11 @@ Please do not open public GitHub issues for security vulnerabilities.
 
 ## Query guards
 
-Read-mode statements run inside `BEGIN READ ONLY`. A second `BEGIN` is only a warning; on PostgreSQL 16 it can still flip an open read-write transaction to read-only, so the server's later `COMMIT` would commit work it did not start. An open transaction is detected with a `SAVEPOINT` probe (SQLSTATE 25P01 when idle), rolled back, and the call is refused. That rollback is intentional: a connection returned to the pool must not stay in a transaction the next caller did not open.
+Read-mode statements run inside `BEGIN READ ONLY`. A second `BEGIN` is only a warning; it still flips an open read-write transaction to read-only, so the server's later `COMMIT` would commit work it did not start. An open transaction is detected in the same round trip by comparing `transaction_timestamp()` with `statement_timestamp()` (they are equal only during a transaction's first command), rolled back, and the call is refused. The probe raises no server-side error, so it does not add an `ERROR` line to the Postgres log for every query. That rollback is intentional: a connection returned to the pool must not stay in a transaction the next caller did not open.
 
 These functions are rejected in every access mode, including schema-qualified and nested calls: `pg_read_file`, `pg_read_binary_file`, `pg_ls_*`, `pg_stat_file`, `pg_file_*`, `pg_logdir_ls`, `lo_*`, `loread`, `lowrite`, `dblink*`, `set_config`, `pg_sleep*`, and the XML helpers that execute a query string (`query_to_xml`, `table_to_xml`, `schema_to_xml`, `database_to_xml`, `cursor_to_xml`, including `*_and_xmlschema`). `pg_terminate_backend`, `pg_cancel_backend`, `pg_reload_conf`, and `COPY` to a file or `PROGRAM` are admin-only.
 
-Before a statement runs, each call is resolved in `pg_proc`. A function outside `pg_catalog` is rejected when it is `SECURITY DEFINER`, or when its body (followed a few calls deep, skipping string literals and `--` comments) invokes a denied function. `LANGUAGE c` / `internal` bodies are rejected when the symbol itself is a denied name.
+Before a statement runs, each call is resolved in `pg_proc`. A function outside `pg_catalog` is rejected when it is `SECURITY DEFINER`, or when its body (followed a few calls deep) invokes a denied function. The body scan includes string literals and comments, so plpgsql `EXECUTE 'SELECT pg_read_file(…)'` is caught; a denied name that merely appears in a comment is also rejected, which is the intended trade-off. Unquoted names are folded to lowercase the way PostgreSQL resolves them. `LANGUAGE c` / `internal` bodies are rejected when the symbol itself is a denied name.
 
 Residual risks this does not close:
 

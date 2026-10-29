@@ -517,86 +517,92 @@ pub struct SourceCall {
     pub name: String,
 }
 
-/// Calls in `src`. Single-quoted strings and `--` comments are skipped so a
-/// mention in prose is not a call. Dollar-quoted bodies are scanned: that is
-/// where `LANGUAGE sql` wrappers hide `pg_read_file`.
+/// Calls in `src`, as a conservative token scan of a function body.
+///
+/// String literals and comments are scanned too: plpgsql `EXECUTE 'SELECT
+/// pg_read_file(…)'` keeps the real call inside a string, so skipping strings
+/// would hide it. A name that only appears in prose is reported as well; for a
+/// safety check that false positive is the right trade. Unquoted identifiers
+/// are folded to lowercase the way PostgreSQL resolves them, so `Wrap_Read(`
+/// finds `wrap_read` in `pg_proc`; `"Quoted"` identifiers keep their case.
 pub fn calls_in_source(src: &str) -> Vec<SourceCall> {
     let chars: Vec<char> = src.chars().collect();
     let mut i = 0;
     let mut out = Vec::new();
     while i < chars.len() {
-        if chars[i] == '\'' {
+        let Some((first, after_first)) = read_ident(&chars, i) else {
             i += 1;
-            while i < chars.len() {
-                if chars[i] == '\'' {
-                    if i + 1 < chars.len() && chars[i + 1] == '\'' {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
             continue;
-        }
-        if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
-            i += 2;
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if is_ident_start(chars[i]) {
-            let start = i;
-            i += 1;
-            while i < chars.len() && is_ident_cont(chars[i]) {
-                i += 1;
-            }
-            let first: String = chars[start..i].iter().collect();
-            let mut j = i;
-            while j < chars.len() && chars[j].is_whitespace() {
-                j += 1;
-            }
-            if j < chars.len() && chars[j] == '.' {
-                j += 1;
-                while j < chars.len() && chars[j].is_whitespace() {
-                    j += 1;
-                }
-                if j < chars.len() && is_ident_start(chars[j]) {
-                    let name_at = j;
-                    j += 1;
-                    while j < chars.len() && is_ident_cont(chars[j]) {
-                        j += 1;
-                    }
-                    let name: String = chars[name_at..j].iter().collect();
-                    let mut k = j;
-                    while k < chars.len() && chars[k].is_whitespace() {
-                        k += 1;
-                    }
-                    if k < chars.len() && chars[k] == '(' {
-                        out.push(SourceCall {
-                            schema: Some(first),
-                            name,
-                        });
-                        i = k;
-                        continue;
-                    }
-                }
-            }
-            if j < chars.len() && chars[j] == '(' {
+        };
+        let mut j = skip_whitespace(&chars, after_first);
+        if chars.get(j) == Some(&'.')
+            && let Some((name, after_name)) = read_ident(&chars, skip_whitespace(&chars, j + 1))
+        {
+            let k = skip_whitespace(&chars, after_name);
+            if chars.get(k) == Some(&'(') {
                 out.push(SourceCall {
-                    schema: None,
-                    name: first,
+                    schema: Some(first),
+                    name,
                 });
-                i = j;
+                i = k;
                 continue;
             }
+            j = after_name;
+        } else if chars.get(j) == Some(&'(') {
+            out.push(SourceCall {
+                schema: None,
+                name: first,
+            });
+            i = j;
             continue;
         }
-        i += 1;
+        i = j.max(after_first);
     }
     out
+}
+
+/// Identifier starting at `i`: unquoted (folded to lowercase) or
+/// double-quoted (`""` is an escaped quote). Returns it and the index after it.
+fn read_ident(chars: &[char], i: usize) -> Option<(String, usize)> {
+    match chars.get(i)? {
+        '"' => {
+            let mut name = String::new();
+            let mut j = i + 1;
+            while j < chars.len() {
+                if chars[j] == '"' {
+                    if chars.get(j + 1) == Some(&'"') {
+                        name.push('"');
+                        j += 2;
+                        continue;
+                    }
+                    return Some((name, j + 1));
+                }
+                name.push(chars[j]);
+                j += 1;
+            }
+            None
+        }
+        &ch if is_ident_start(ch) => {
+            // An identifier cannot start mid-word (`x1` must not yield `1`).
+            if i > 0 && is_ident_cont(chars[i - 1]) {
+                return None;
+            }
+            let mut j = i + 1;
+            while j < chars.len() && is_ident_cont(chars[j]) {
+                j += 1;
+            }
+            let name: String = chars[i..j].iter().collect();
+            Some((name.to_ascii_lowercase(), j))
+        }
+        _ => None,
+    }
+}
+
+fn skip_whitespace(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    i
 }
 
 /// Denied function a SQL/plpgsql body invokes, if any.
@@ -910,16 +916,42 @@ mod tests {
     }
 
     #[test]
-    fn function_bodies_expose_denied_calls_and_skip_string_literals() {
+    fn function_bodies_expose_denied_calls_including_dynamic_sql() {
         let src = "$$ SELECT pg_catalog.pg_read_file($1) $$";
         assert_eq!(
             source_mentions_denied_function(src).as_deref(),
             Some("pg_read_file")
         );
-        assert!(
-            source_mentions_denied_function("SELECT 'pg_read_file(' AS label").is_none(),
-            "a name mentioned only inside a string is not a call"
+        // plpgsql dynamic SQL keeps the call inside a string literal.
+        assert_eq!(
+            source_mentions_denied_function(
+                "BEGIN EXECUTE 'SELECT pg_read_file(' || quote_literal(p) || ')' INTO r; END"
+            )
+            .as_deref(),
+            Some("pg_read_file")
         );
-        assert!(source_mentions_denied_function("-- pg_read_file(\nSELECT 1").is_none());
+        assert_eq!(
+            source_mentions_denied_function("RETURN PG_READ_FILE(p);").as_deref(),
+            Some("pg_read_file")
+        );
+    }
+
+    #[test]
+    fn source_calls_fold_unquoted_names_and_keep_quoted_ones() {
+        let calls =
+            calls_in_source(r#"SELECT Wrap_Read(x), Public.Inner(y), "MixedCase"(z), a1(b)"#);
+        let names: Vec<(Option<&str>, &str)> = calls
+            .iter()
+            .map(|c| (c.schema.as_deref(), c.name.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                (None, "wrap_read"),
+                (Some("public"), "inner"),
+                (None, "MixedCase"),
+                (None, "a1"),
+            ]
+        );
     }
 }

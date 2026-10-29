@@ -22,6 +22,9 @@ const MASTER_KEY_LEN: usize = 32;
 
 /// NexQL config directory (`~/.config/nexql-mcp` or parent of `NEXQL_MCP_CONFIG`).
 pub fn nexql_config_dir() -> Result<PathBuf, ConnError> {
+    if let Some(dir) = crate::secret::isolated_credentials_dir() {
+        return Ok(dir.to_path_buf());
+    }
     ConfigFile::default_path()
         .and_then(|p| p.parent().map(|parent| parent.to_path_buf()))
         .ok_or_else(|| ConnError::Config("could not resolve nexql config directory".into()))

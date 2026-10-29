@@ -18,31 +18,32 @@ use crate::error::ToolError;
 
 const MAX_DEPTH: u32 = 6;
 
+/// Every overload of every `(schema, name)` pair in one round trip. An empty
+/// schema means "unqualified": any schema on the session `search_path`.
 const LOOKUP_FUNCS: &str = "\
-SELECT n.nspname::text, p.prosecdef, l.lanname::text, p.prosrc
-FROM pg_proc p
+SELECT x.name, n.nspname::text, p.prosecdef, l.lanname::text, p.prosrc
+FROM unnest($1::text[], $2::text[]) AS x(schema_name, name)
+JOIN pg_proc p ON p.proname = x.name
 JOIN pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_language l ON l.oid = p.prolang
-WHERE p.proname = $1
-  AND (
-    ($2::text <> '' AND n.nspname = $2)
-    OR ($2::text = '' AND n.nspname = ANY (current_schemas(true)))
-  )";
+WHERE (x.schema_name <> '' AND n.nspname = x.schema_name)
+   OR (x.schema_name = '' AND n.nspname = ANY (current_schemas(true)))";
 
 /// Reject calls that the AST denylist cannot see: non-`pg_catalog` functions
 /// that are `SECURITY DEFINER`, or whose body (followed a few calls deep)
-/// invokes a denied function.
+/// invokes a denied function. Each call depth is one catalog query.
 pub async fn enforce_routine_guards(
     client: &tokio_postgres::Client,
     sql: &str,
 ) -> Result<(), ToolError> {
     let refs = routine_refs(sql).map_err(|err| ToolError::Execution(err.to_string()))?;
-    let mut queue: Vec<(Option<String>, String, u32)> = refs
+    let mut level: Vec<(String, String)> = refs
         .into_iter()
-        .map(|call| (call.schema, call.name, 0))
+        .map(|call| (call.schema.unwrap_or_default(), call.name))
         .collect();
     let mut seen = HashSet::new();
-    while let Some((schema, name, depth)) = queue.pop() {
+    let mut depth = 0;
+    while !level.is_empty() {
         if depth > MAX_DEPTH {
             return Err(ToolError::Execution(
                 "refusing to run SQL: function-call expansion exceeded the safety depth, so a \
@@ -50,31 +51,35 @@ pub async fn enforce_routine_guards(
                     .into(),
             ));
         }
-        let schema_param = schema.unwrap_or_default();
-        let key = format!(
-            "{}.{}",
-            schema_param.to_ascii_lowercase(),
-            name.to_ascii_lowercase()
-        );
-        if !seen.insert(key) {
-            continue;
+        let mut schemas = Vec::new();
+        let mut names = Vec::new();
+        for (schema, name) in level.drain(..) {
+            if !seen.insert((schema.clone(), name.clone())) {
+                continue;
+            }
+            if let Some(reason) = denied_function_reason(&name) {
+                return Err(ToolError::Execution(reason));
+            }
+            schemas.push(schema);
+            names.push(name);
         }
-        if let Some(reason) = denied_function_reason(&name) {
-            return Err(ToolError::Execution(reason));
+        if names.is_empty() {
+            break;
         }
         let rows = client
-            .query(LOOKUP_FUNCS, &[&name, &schema_param])
+            .query(LOOKUP_FUNCS, &[&schemas, &names])
             .await
             .map_err(|err| {
                 ToolError::Execution(format!(
-                    "could not resolve function {name} against pg_proc ({err}); refusing"
+                    "could not resolve function calls against pg_proc ({err}); refusing"
                 ))
             })?;
         for row in rows {
-            let nsp: String = row.get(0);
-            let secdef: bool = row.get(1);
-            let lang: String = row.get(2);
-            let src: String = row.get(3);
+            let name: String = row.get(0);
+            let nsp: String = row.get(1);
+            let secdef: bool = row.get(2);
+            let lang: String = row.get(3);
+            let src: String = row.get(4);
             if nsp.eq_ignore_ascii_case("pg_catalog") {
                 continue;
             }
@@ -101,9 +106,10 @@ pub async fn enforce_routine_guards(
                 continue;
             }
             for nested in calls_in_source(&src) {
-                queue.push((nested.schema, nested.name, depth + 1));
+                level.push((nested.schema.unwrap_or_default(), nested.name));
             }
         }
+        depth += 1;
     }
     Ok(())
 }

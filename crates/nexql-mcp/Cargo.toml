@@ -42,6 +42,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+nexql-conn = { workspace = true, features = ["isolated-credentials"] }
 tempfile = "3"
 
 [[bin]]

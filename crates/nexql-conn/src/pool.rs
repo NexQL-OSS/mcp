@@ -53,51 +53,58 @@ pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Resul
 /// `set_config` cannot flip the current transaction.
 pub const BEGIN_READ_ONLY: &str = "BEGIN READ ONLY";
 
+/// Detects an already-open transaction, then starts the read-only one, in a
+/// single round trip. During the first command of a transaction
+/// `transaction_timestamp()` equals `statement_timestamp()` (documented
+/// PostgreSQL behaviour), so `idle` is false only when an earlier command
+/// already opened the transaction.
+const BEGIN_READ_ONLY_PROBED: &str = "\
+SELECT transaction_timestamp() = statement_timestamp() AS nexql_idle; \
+BEGIN READ ONLY; \
+SHOW transaction_read_only";
+
 /// Open a read-only transaction and prove it took effect.
 ///
-/// A second `BEGIN` inside an open transaction is a warning, not SQLSTATE
-/// 25001. On PostgreSQL 16 that warning still applies `READ ONLY`, so a later
-/// `COMMIT` would commit whatever the outer transaction had already done.
-/// Probe with `SAVEPOINT` (it errors with 25P01 when no transaction is open).
-/// An open or aborted transaction is rolled back and the call is refused, so
-/// the pooled connection is idle again.
+/// A second `BEGIN` inside an open transaction is only a warning, and it
+/// still switches that transaction to `READ ONLY`, so checking
+/// `transaction_read_only` alone would pass and the caller's `COMMIT` would
+/// commit work this server did not start. An open or aborted transaction is
+/// rolled back and the call is refused, so the pooled connection is idle
+/// again. Unlike a `SAVEPOINT` probe, the normal path raises no server-side
+/// error, so it does not add an `ERROR` line to the Postgres log per query.
 pub async fn begin_read_only(client: &Client) -> Result<(), ConnError> {
-    match client.batch_execute("SAVEPOINT nexql_ro_probe").await {
-        Ok(()) => {
+    let messages = match client.simple_query(BEGIN_READ_ONLY_PROBED).await {
+        Ok(messages) => messages,
+        Err(err) if err.code().is_some_and(|code| code.code() == "25P02") => {
             let _ = client.batch_execute("ROLLBACK").await;
             return Err(ConnError::Pool(
-                "refusing to run a read-mode statement inside an open read-write transaction"
-                    .into(),
+                "refusing to run a read-mode statement inside an aborted transaction".into(),
             ));
         }
-        Err(err) => {
-            let code = err.code().map(|code| code.code().to_owned());
-            match code.as_deref() {
-                Some("25P01") => {}
-                Some("25P02") => {
-                    let _ = client.batch_execute("ROLLBACK").await;
-                    return Err(ConnError::Pool(
-                        "refusing to run a read-mode statement inside an aborted transaction"
-                            .into(),
-                    ));
-                }
-                _ => return Err(ConnError::Postgres(err)),
+        Err(err) => return Err(ConnError::Postgres(err)),
+    };
+    let value_of = |column: &str| {
+        messages.iter().find_map(|msg| match msg {
+            tokio_postgres::SimpleQueryMessage::Row(row)
+                if row.columns().first().is_some_and(|c| c.name() == column) =>
+            {
+                row.get(0).map(str::to_owned)
             }
-        }
-    }
-    client.batch_execute(BEGIN_READ_ONLY).await?;
-    let messages = client.simple_query("SHOW transaction_read_only").await?;
-    let read_only = messages.iter().any(|msg| {
-        matches!(msg, tokio_postgres::SimpleQueryMessage::Row(row)
-            if row.get(0).is_some_and(|value| value.eq_ignore_ascii_case("on")))
-    });
-    if read_only {
+            _ => None,
+        })
+    };
+    let idle = value_of("nexql_idle").is_some_and(|value| value == "t");
+    let read_only =
+        value_of("transaction_read_only").is_some_and(|value| value.eq_ignore_ascii_case("on"));
+    if idle && read_only {
         return Ok(());
     }
     let _ = client.batch_execute("ROLLBACK").await;
-    Err(ConnError::Pool(
-        "refusing to run a read-mode statement: BEGIN READ ONLY did not take effect".into(),
-    ))
+    Err(ConnError::Pool(if idle {
+        "refusing to run a read-mode statement: BEGIN READ ONLY did not take effect".into()
+    } else {
+        "refusing to run a read-mode statement inside an open read-write transaction".into()
+    }))
 }
 
 /// Apply session guards on a checked-out client. Fail closed.

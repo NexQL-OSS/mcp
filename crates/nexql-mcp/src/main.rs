@@ -1391,37 +1391,23 @@ fn persist_profile_from_url(cli: &Cli, url: &str) -> Result<String, String> {
     config.upsert_profile(name.clone(), prepared);
     config.save(&path).map_err(|e| e.to_string())?;
 
-    let written = std::fs::read_to_string(&path).unwrap_or_default();
-    for secret in passwords_in_url(url) {
-        if written.contains(&secret) {
-            return Err(format!(
-                "refusing to save profile '{name}': password was written to {}",
-                path.display()
-            ));
-        }
+    // Re-read what landed on disk and check the saved fields. A substring
+    // search of the raw TOML for the password misfires whenever the password
+    // also appears in the URL, user, or database name (`postgres:postgres`).
+    let saved = ConfigFile::load_path(&path).map_err(|e| e.to_string())?;
+    if saved.profiles.get(&name).is_some_and(|profile| {
+        profile.password.is_some()
+            || profile
+                .url
+                .as_deref()
+                .is_some_and(init_clients::url_contains_password)
+    }) {
+        return Err(format!(
+            "refusing to save profile '{name}': password was written to {}",
+            path.display()
+        ));
     }
     Ok(name)
-}
-
-/// Userinfo and `?password=` values that must not appear in the saved TOML.
-fn passwords_in_url(url: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Ok(params) = nexql_conn::params_from_url(url)
-        && let Some(password) = params.password.filter(|password| !password.is_empty())
-    {
-        out.push(password);
-    }
-    if let Ok(parsed) = url::Url::parse(url) {
-        for (key, value) in parsed.query_pairs() {
-            if key.eq_ignore_ascii_case("password") && !value.is_empty() {
-                let value = value.into_owned();
-                if !out.iter().any(|existing| existing == &value) {
-                    out.push(value);
-                }
-            }
-        }
-    }
-    out
 }
 
 /// True when `profile` already points at the same server, database, and
@@ -2338,6 +2324,30 @@ pii_columns = ["public.users.email"]
         );
         let written = std::fs::read_to_string(&cfg_path).unwrap();
         assert!(!written.contains("queried-secret"), "{written}");
+    }
+
+    /// A password that also appears in the user, database, or URL scheme
+    /// (`postgres:postgres`) must not be mistaken for a leaked password.
+    #[test]
+    fn persist_profile_from_url_accepts_password_equal_to_user() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let cli = cli_with_config(&cfg_path);
+        for url in [
+            "postgres://postgres:postgres@localhost:5432/appdb",
+            "postgres://admin:appdb@localhost:5432/appdb",
+            "postgres://u:5432@localhost:5432/db",
+        ] {
+            persist_profile_from_url(&cli, url).unwrap_or_else(|e| panic!("{url}: {e}"));
+        }
+        let config = ConfigFile::load_path(&cfg_path).unwrap();
+        for profile in config.profiles.values() {
+            assert!(profile.password.is_none());
+            assert!(
+                !init_clients::url_contains_password(profile.url.as_deref().unwrap()),
+                "{profile:?}"
+            );
+        }
     }
 
     /// `init <client> --apply <url>` creates the keyring profile it then wires,
