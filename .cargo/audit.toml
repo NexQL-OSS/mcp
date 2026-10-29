@@ -5,4 +5,11 @@ ignore = [
   # the rkyv feature is never enabled and rkyv is not in the compile graph (cargo tree).
   # Waiting on rust_decimal to adopt rkyv >=0.8 or stop listing unused optional deps in lock.
   "RUSTSEC-2026-0235",
+  # zip 8.6 <- candle-core 0.11.0 (latest release, pins zip ^8.6) <- nexql-index
+  # (optional `embeddings` feature only). All three concern archive extraction
+  # (ZipArchive::extract / ZipStreamReader::extract); candle-core only reads
+  # .npz/.pth entries by name and never calls extract. Drop once candle moves to zip >=9.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
 ]
