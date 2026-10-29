@@ -3,11 +3,13 @@
 
 //! Typed Postgres cell → JSON conversion shared by read and write tools.
 
+use std::collections::HashMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_policy::{
     CatalogColumn, ObjectRef, PII_REDACTED, PolicyFilter, UnresolvedRelation,
-    analyze_output_lineage, column_matches_pii_policy, column_should_redact,
+    analyze_output_lineage_resolved, column_matches_pii_policy, column_should_redact,
     is_sensitive_column_name,
 };
 use rust_decimal::Decimal;
@@ -327,7 +329,16 @@ JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 ORDER BY x.ord";
 
-/// Column-lineage redaction names for `sql`. Loads `pg_attribute` when a
+/// Schema the session `search_path` resolves each unqualified name to
+/// (`pg_tables` → `pg_catalog`). Names that do not resolve are left out.
+const SEARCH_PATH_SCHEMAS_SQL: &str = "\
+SELECT x.name, n.nspname::text
+FROM unnest($1::text[]) AS x(name)
+JOIN pg_class c ON c.oid = to_regclass(quote_ident(x.name))
+JOIN pg_namespace n ON n.oid = c.relnamespace";
+
+/// Column-lineage redaction names for `sql`. Resolves unqualified relations
+/// through the session `search_path`, and loads `pg_attribute` when a
 /// whole-row or star reference cannot be classified from config alone.
 /// Whole-row constructs over sensitive relations return an error.
 pub async fn sensitive_output_names(
@@ -335,13 +346,22 @@ pub async fn sensitive_output_names(
     sql: &str,
     filter: &PolicyFilter,
 ) -> Result<Vec<String>, crate::error::ToolError> {
+    let analyze = |known: &[CatalogColumn], schemas: &HashMap<String, String>| {
+        analyze_output_lineage_resolved(sql, filter, known, schemas)
+            .map_err(|err| crate::error::ToolError::Execution(err.to_string()))
+    };
     let mut known = Vec::new();
-    let mut lineage = analyze_output_lineage(sql, filter, &known)
-        .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+    let mut schemas = HashMap::new();
+    let mut lineage = analyze(&known, &schemas)?;
+    if !lineage.unqualified_relations.is_empty() {
+        schemas = resolve_search_path_schemas(client, &lineage.unqualified_relations).await;
+        if !schemas.is_empty() {
+            lineage = analyze(&known, &schemas)?;
+        }
+    }
     if !lineage.unresolved_whole_rows.is_empty() {
         known = load_relation_columns(client, &lineage.unresolved_whole_rows).await;
-        lineage = analyze_output_lineage(sql, filter, &known)
-            .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+        lineage = analyze(&known, &schemas)?;
     }
     if !lineage.rejections.is_empty() {
         return Err(crate::error::ToolError::Execution(
@@ -360,6 +380,54 @@ pub async fn sensitive_output_names(
         )));
     }
     Ok(lineage.redact_names)
+}
+
+async fn resolve_search_path_schemas(
+    client: &tokio_postgres::Client,
+    names: &[String],
+) -> HashMap<String, String> {
+    match client.query(SEARCH_PATH_SCHEMAS_SQL, &[&names]).await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+            .collect(),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "search_path lookup for PII lineage failed; unqualified relations assumed public"
+            );
+            HashMap::new()
+        }
+    }
+}
+
+/// Fail closed when a sensitive output name from lineage is not one of the
+/// result's columns: redaction is by name, so a mismatch would mean the
+/// sensitive column went out unredacted under some other name.
+pub fn ensure_redaction_names_present(
+    lineage_names: &[String],
+    result_columns: &[&str],
+) -> Result<(), crate::error::ToolError> {
+    if result_columns.is_empty() {
+        return Ok(());
+    }
+    let missing: Vec<&str> = lineage_names
+        .iter()
+        .filter(|name| {
+            !result_columns
+                .iter()
+                .any(|col| col.eq_ignore_ascii_case(name))
+        })
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(crate::error::ToolError::Execution(format!(
+        "could not match sensitive output column(s) {} to the result columns; give each \
+         expression an explicit alias (AS name) and retry",
+        missing.join(", ")
+    )))
 }
 
 async fn load_relation_columns(

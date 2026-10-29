@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use deadpool_postgres::Object;
-use nexql_conn::BEGIN_READ_ONLY;
+use nexql_conn::begin_read_only;
 use nexql_policy::{
     AccessMode, ObjectRef, SqlDecision, column_should_redact, enforce_read_table_policy,
     select_table_refs, validate_readonly_sql, validate_write_sql,
@@ -19,7 +19,10 @@ use tokio_postgres::SimpleQueryMessage;
 use tokio_postgres::types::{Json, ToSql};
 use uuid::Uuid;
 
-use crate::cell_json::{redact_named_columns_in_payload, rows_to_json_vec, sensitive_output_names};
+use crate::cell_json::{
+    ensure_redaction_names_present, redact_named_columns_in_payload, rows_to_json_vec,
+    sensitive_output_names,
+};
 use crate::error::ToolError;
 use crate::exec::ToolOutcome;
 use crate::session::ToolSession;
@@ -62,12 +65,13 @@ pub async fn execute_sql(
         ToolSession::set_statement_timeout(&client, ms).await?;
     }
     let lineage_names = sensitive_output_names(&client, sql, &session.filter()).await?;
-    let begin = if mode == AccessMode::Read {
-        BEGIN_READ_ONLY
+    if mode == AccessMode::Read {
+        begin_read_only(&client)
+            .await
+            .map_err(|err| ToolError::Execution(err.to_string()))?;
     } else {
-        "BEGIN"
-    };
-    client.batch_execute(begin).await?;
+        client.batch_execute("BEGIN").await?;
+    }
     let outcome = async {
         let (rows, command_tag) = run_simple_query(&client, sql).await?;
         Ok::<_, ToolError>((rows, command_tag))
@@ -83,6 +87,10 @@ pub async fn execute_sql(
 
     match outcome {
         Ok((rows, rows_affected)) => {
+            if let Some(Value::Object(first)) = rows.first() {
+                let result_columns: Vec<&str> = first.keys().map(String::as_str).collect();
+                ensure_redaction_names_present(&lineage_names, &result_columns)?;
+            }
             let rows = redact_row_results(session, Some(sql), None, None, rows, &lineage_names);
             let mut payload = json!({
                 "dry_run": dry_run,

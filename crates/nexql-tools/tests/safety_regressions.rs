@@ -61,6 +61,8 @@ async fn read_select_blocks_escapes_redacts_lineage_and_uses_readonly_txn() {
         "SELECT (SELECT pg_read_file('/etc/passwd'))",
         "WITH f AS (SELECT pg_read_file('/etc/passwd') AS body) SELECT body FROM f",
         "SELECT set_config('default_transaction_read_only', 'off', false)",
+        "SELECT query_to_xml('select pg_read_file(''/etc/passwd'')', true, false, '')",
+        "SELECT table_to_xml('public.users', true, false, '')",
     ] {
         let out = router.call("run_select", json!({ "sql": sql })).await;
         assert!(out.is_error, "{sql}: {}", out.text);
@@ -117,4 +119,63 @@ async fn read_select_blocks_escapes_redacts_lineage_and_uses_readonly_txn() {
         whole.text
     );
     assert!(!whole.text.contains("hashed-secret"), "{}", whole.text);
+
+    // A set-returning function in FROM must not launder a whole row.
+    let lateral = router
+        .call(
+            "run_select",
+            json!({ "sql": "SELECT kv.key, kv.value FROM users u \
+                            CROSS JOIN LATERAL jsonb_each_text(to_jsonb(u)) kv" }),
+        )
+        .await;
+    assert!(lateral.is_error, "{}", lateral.text);
+    assert!(!lateral.text.contains("a@b.co"), "{}", lateral.text);
+    assert!(!lateral.text.contains("hashed-secret"), "{}", lateral.text);
+
+    // A scalar subquery is named after its inner column, not "?column?".
+    for sql in [
+        "SELECT (SELECT email AS contact FROM users LIMIT 1)",
+        "SELECT (SELECT email FROM users LIMIT 1)",
+        "SELECT CASE WHEN id > 0 THEN '' ELSE email END FROM users",
+        "SELECT (email || '')::text FROM users",
+        "SELECT xmlelement(name x, email) FROM users",
+    ] {
+        let out = router.call("run_select", json!({ "sql": sql })).await;
+        assert!(!out.is_error, "{sql}: {}", out.text);
+        assert!(!out.text.contains("a@b.co"), "{sql}: {}", out.text);
+    }
+
+    // Unqualified catalog views resolve through search_path, not `public`.
+    let catalog = router
+        .call(
+            "run_select",
+            json!({ "sql": "SELECT * FROM pg_tables WHERE schemaname = 'public'" }),
+        )
+        .await;
+    assert!(!catalog.is_error, "{}", catalog.text);
+}
+
+#[tokio::test]
+async fn begin_read_only_refuses_an_open_read_write_transaction() {
+    let Some(pg) = common::start_temp_pg() else {
+        eprintln!("skip: initdb/postgres not on PATH");
+        return;
+    };
+    let params = params_from_url(&pg.url).unwrap();
+    let client = nexql_conn::connect_once(&params).await.unwrap();
+
+    // BEGIN inside an open transaction only warns, so this used to slip by.
+    client.batch_execute("BEGIN READ WRITE").await.unwrap();
+    let err = nexql_conn::begin_read_only(&client).await.unwrap_err();
+    assert!(err.to_string().contains("read-write transaction"), "{err}");
+
+    // The stray transaction was rolled back, so a fresh one works.
+    nexql_conn::begin_read_only(&client).await.unwrap();
+    let ro: String = client
+        .query_one("SHOW transaction_read_only", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(ro, "on");
+    client.batch_execute("COMMIT").await.unwrap();
 }

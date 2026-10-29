@@ -23,7 +23,10 @@ pub use filter::{
     ObjectRef, PII_REDACTED, PolicyFilter, column_matches_pii_policy, column_should_redact,
     configured_pii_names, is_pii_column, is_sensitive_column_name,
 };
-pub use lineage::{CatalogColumn, OutputLineage, UnresolvedRelation, analyze_output_lineage};
+pub use lineage::{
+    CatalogColumn, OutputLineage, UnresolvedRelation, analyze_output_lineage,
+    analyze_output_lineage_resolved,
+};
 pub use sql::{
     SqlDecision, enforce_read_table_policy, select_table_refs, validate_readonly_sql,
     validate_write_sql,

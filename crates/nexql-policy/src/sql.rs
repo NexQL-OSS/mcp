@@ -368,8 +368,9 @@ fn is_ddl_or_admin_utility(node_ref: NodeRef<'_>) -> bool {
     )
 }
 
-/// File reads, large-object I/O, dblink, and session escapes are rejected in
-/// every mode. Backend cancel/terminate, `pg_reload_conf`, and `COPY` to a
+/// File reads, large-object I/O, dblink, session escapes, and the XML helpers
+/// that execute SQL passed as a string (`query_to_xml`, `table_to_xml`, …)
+/// are rejected in every mode. Backend cancel/terminate, `pg_reload_conf`, and `COPY` to a
 /// file or program are rejected unless `allow_admin_ops`.
 fn enforce_dangerous_calls(result: &ParseResult, allow_admin_ops: bool) -> Result<(), PolicyError> {
     for (node_ref, _depth, _ctx, _) in result.protobuf.nodes() {
@@ -410,10 +411,13 @@ fn denied_function(name: &str, allow_admin_ops: bool) -> Option<String> {
         || name.starts_with("pg_read_binary_file")
         || name.starts_with("pg_ls_")
         || name.starts_with("pg_stat_file")
+        || name.starts_with("pg_file_")
+        || name == "pg_logdir_ls"
         || name.starts_with("lo_")
         || name.starts_with("dblink")
         || name == "set_config"
-        || name.starts_with("pg_sleep");
+        || name.starts_with("pg_sleep")
+        || executes_sql_string(&name);
     if always_blocked {
         return Some(format!("function {name} is blocked in every access mode"));
     }
@@ -425,6 +429,15 @@ fn denied_function(name: &str, allow_admin_ops: bool) -> Option<String> {
         return Some(format!("function {name} is allowed only in admin mode"));
     }
     None
+}
+
+/// `query_to_xml('select …')` and its `table_`/`schema_`/`database_`/`cursor_`
+/// siblings run SQL (or dump whole relations) that this AST walk never sees,
+/// so they would bypass the denylist, `deny_tables`, and PII lineage.
+fn executes_sql_string(name: &str) -> bool {
+    ["query", "table", "schema", "database", "cursor"]
+        .iter()
+        .any(|kind| name.starts_with(&format!("{kind}_to_xml")))
 }
 
 fn is_ddl_node(node_ref: NodeRef<'_>) -> bool {
@@ -633,6 +646,13 @@ mod tests {
             "SELECT pg_reload_conf()",
             "COPY t TO '/tmp/x'",
             "COPY t FROM PROGRAM 'cat /etc/passwd'",
+            "SELECT query_to_xml('select pg_read_file(''/etc/passwd'')', true, false, '')",
+            "SELECT pg_catalog.query_to_xml_and_xmlschema('select 1', true, false, '')",
+            "SELECT table_to_xml('customers.users', true, false, '')",
+            "SELECT schema_to_xml('public', true, false, '')",
+            "SELECT database_to_xml(true, false, '')",
+            "SELECT cursor_to_xml('c', 10, true, false, '')",
+            "SELECT pg_file_write('/tmp/x', 'y', false)",
         ];
         for sql in cases {
             let err = validate_readonly_sql(sql).expect_err(sql);

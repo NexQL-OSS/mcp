@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use pg_query::parse;
 use pg_query::protobuf::node::Node as NodeEnum;
 use pg_query::protobuf::{
-    CaseExpr, CaseWhen, ColumnRef, CommonTableExpr, FuncCall, Node, RangeSubselect, RangeVar,
-    ResTarget, RowExpr, SelectStmt, SubLink,
+    AExprKind, CaseExpr, CaseWhen, ColumnRef, CommonTableExpr, FuncCall, JsonExprOp, MinMaxOp,
+    Node, RangeFunction, RangeSubselect, RangeVar, ResTarget, RowExpr, SelectStmt, SubLink,
+    SubLinkType, XmlExprOp,
 };
 
 use crate::error::PolicyError;
@@ -48,6 +49,10 @@ pub struct OutputLineage {
     pub rejections: Vec<String>,
     /// Relations that need a catalog column list before a decision is safe.
     pub unresolved_whole_rows: Vec<UnresolvedRelation>,
+    /// Unqualified relation names (lowercased as parsed) that were not in
+    /// `schema_of`. Callers resolve them through the session `search_path`
+    /// and re-analyze; until then they are assumed to live in `public`.
+    pub unqualified_relations: Vec<String>,
 }
 
 impl OutputLineage {
@@ -61,20 +66,34 @@ impl OutputLineage {
 /// Analyze `sql`. `known_columns` may be empty; configured PII still taints
 /// matching references, and star / whole-row reads of an unknown table are
 /// reported in [`OutputLineage::unresolved_whole_rows`] when sensitive-name
-/// heuristics are on.
+/// heuristics are on. Unqualified relations are assumed to be in `public`;
+/// use [`analyze_output_lineage_resolved`] once their schemas are known.
 pub fn analyze_output_lineage(
     sql: &str,
     filter: &PolicyFilter,
     known_columns: &[CatalogColumn],
 ) -> Result<OutputLineage, PolicyError> {
+    analyze_output_lineage_resolved(sql, filter, known_columns, &HashMap::new())
+}
+
+/// Like [`analyze_output_lineage`], with `schema_of` mapping an unqualified
+/// relation name to the schema the session `search_path` resolves it to.
+pub fn analyze_output_lineage_resolved(
+    sql: &str,
+    filter: &PolicyFilter,
+    known_columns: &[CatalogColumn],
+    schema_of: &HashMap<String, String>,
+) -> Result<OutputLineage, PolicyError> {
     let parsed = parse(sql.trim()).map_err(|e| PolicyError::SqlParse(e.to_string()))?;
     let mut analysis = Analysis {
         filter,
         known: known_columns,
+        schema_of,
         ctes: HashMap::new(),
         redact: Vec::new(),
         rejections: Vec::new(),
         unresolved: Vec::new(),
+        unqualified: Vec::new(),
     };
     for stmt in &parsed.protobuf.stmts {
         let Some(root) = stmt.stmt.as_ref().and_then(|n| n.node.as_ref()) else {
@@ -85,10 +104,12 @@ pub fn analyze_output_lineage(
                 analysis.analyze_select(sel, &[], true);
             }
             NodeEnum::ExplainStmt(explain) => {
+                // EXPLAIN returns a plan, not the query's columns, so there is
+                // nothing to redact by name; whole-row rejections still apply.
                 if let Some(NodeEnum::SelectStmt(sel)) =
                     explain.query.as_ref().and_then(|n| n.node.as_ref())
                 {
-                    analysis.analyze_select(sel, &[], true);
+                    analysis.analyze_select(sel, &[], false);
                 }
             }
             _ => {}
@@ -100,6 +121,7 @@ pub fn analyze_output_lineage(
         redact_names: analysis.redact,
         rejections: analysis.rejections,
         unresolved_whole_rows: analysis.unresolved,
+        unqualified_relations: analysis.unqualified,
     })
 }
 
@@ -113,6 +135,13 @@ struct DerivedCol {
 enum RelKind {
     Table,
     Derived(Vec<DerivedCol>),
+    /// A FROM item whose column list we do not model: set-returning
+    /// functions (`jsonb_each_text(to_jsonb(u))`), `XMLTABLE`, `JSON_TABLE`.
+    /// `tainted` means its inputs read sensitive data, so every column it
+    /// produces is treated as sensitive.
+    Opaque {
+        tainted: bool,
+    },
 }
 
 #[derive(Clone)]
@@ -143,11 +172,16 @@ enum Sensitivity {
 struct Analysis<'a> {
     filter: &'a PolicyFilter,
     known: &'a [CatalogColumn],
+    schema_of: &'a HashMap<String, String>,
     ctes: HashMap<String, Vec<DerivedCol>>,
     redact: Vec<String>,
     rejections: Vec<String>,
     unresolved: Vec<UnresolvedRelation>,
+    unqualified: Vec<String>,
 }
+
+/// Label used in rejections for an opaque FROM item fed by sensitive data.
+const OPAQUE_SENSITIVE_COLUMNS: &str = "all columns (computed from sensitive input)";
 
 const WHOLE_ROW_FUNCS: &[&str] = &[
     "row_to_json",
@@ -163,7 +197,7 @@ impl Analysis<'_> {
         let saved = self.ctes.clone();
         if let Some(with) = &sel.with_clause {
             for cte in &with.ctes {
-                self.define_cte(cte);
+                self.define_cte(cte, with.recursive);
             }
         }
         let cols = if is_set_operation(sel.op) {
@@ -201,7 +235,7 @@ impl Analysis<'_> {
         cols
     }
 
-    fn define_cte(&mut self, node: &Node) {
+    fn define_cte(&mut self, node: &Node, recursive: bool) {
         let Some(NodeEnum::CommonTableExpr(cte)) = node.node.as_ref() else {
             return;
         };
@@ -214,9 +248,15 @@ impl Analysis<'_> {
         let key = cte.ctename.to_ascii_lowercase();
         // Provisional entry so a recursive arm resolves as a CTE, not a table.
         self.ctes.insert(key.clone(), Vec::new());
-        let _ = self.analyze_select(sel, &[], false);
-        let cols = self.analyze_select(sel, &[], false);
-        self.ctes.insert(key, apply_cte_aliases(cte, cols));
+        let mut cols = apply_cte_aliases(cte, self.analyze_select(sel, &[], false));
+        if recursive {
+            // Second pass so taint from the first pass flows through the
+            // self-reference. Only WITH RECURSIVE pays for it; analyzing every
+            // CTE twice doubled the cost at each nesting level.
+            self.ctes.insert(key.clone(), cols);
+            cols = apply_cte_aliases(cte, self.analyze_select(sel, &[], false));
+        }
+        self.ctes.insert(key, cols);
     }
 
     fn bind_from(&mut self, nodes: &[Node], scope: &mut Vec<Rel>) {
@@ -240,8 +280,62 @@ impl Analysis<'_> {
                 }
             }
             NodeEnum::RangeSubselect(sub) => self.bind_subselect(sub, scope),
-            _ => {}
+            NodeEnum::RangeTableSample(sample) => {
+                if let Some(relation) = &sample.relation {
+                    self.bind_from_node(relation, scope);
+                }
+            }
+            NodeEnum::RangeFunction(func) => self.bind_function(func, scope),
+            // XMLTABLE, JSON_TABLE, …: columns are not modelled, so fail
+            // closed and treat everything they produce as sensitive.
+            _ => scope.push(Rel {
+                schema: String::new(),
+                name: String::new(),
+                alias: String::new(),
+                kind: RelKind::Opaque { tainted: true },
+            }),
         }
+    }
+
+    /// Functions in FROM may read earlier FROM items without `LATERAL`, so
+    /// they are evaluated against the scope bound so far. A whole-row
+    /// argument such as `to_jsonb(u)` is rejected by the usual whole-row
+    /// rules; any other sensitive input taints every output column.
+    fn bind_function(&mut self, func: &RangeFunction, scope: &mut Vec<Rel>) {
+        let mut tainted = false;
+        let mut first_name = None;
+        for item in &func.functions {
+            let call = match item.node.as_ref() {
+                Some(NodeEnum::List(list)) => list.items.first(),
+                Some(_) => Some(item),
+                None => None,
+            };
+            let Some(call) = call else {
+                continue;
+            };
+            if first_name.is_none()
+                && let Some(NodeEnum::FuncCall(f)) = call.node.as_ref()
+            {
+                first_name = func_name(f);
+            }
+            let kind = self.eval_expr(call, scope);
+            if self.kind_taints(kind, scope) {
+                tainted = true;
+            }
+        }
+        let alias = func
+            .alias
+            .as_ref()
+            .map(|a| a.aliasname.clone())
+            .filter(|s| !s.is_empty())
+            .or(first_name)
+            .unwrap_or_default();
+        scope.push(Rel {
+            schema: String::new(),
+            name: alias.clone(),
+            alias,
+            kind: RelKind::Opaque { tainted },
+        });
     }
 
     fn bind_subselect(&mut self, sub: &RangeSubselect, scope: &mut Vec<Rel>) {
@@ -274,7 +368,7 @@ impl Analysis<'_> {
         });
     }
 
-    fn rel_from_range(&self, rv: &RangeVar) -> Rel {
+    fn rel_from_range(&mut self, rv: &RangeVar) -> Rel {
         let alias = rv
             .alias
             .as_ref()
@@ -291,10 +385,16 @@ impl Analysis<'_> {
                 kind: RelKind::Derived(cols.clone()),
             };
         }
-        let schema = if rv.schemaname.is_empty() {
-            "public".to_owned()
-        } else {
+        let schema = if !rv.schemaname.is_empty() {
             rv.schemaname.clone()
+        } else if let Some(schema) = self.schema_of.get(&rv.relname) {
+            schema.clone()
+        } else {
+            // Caller resolves this through search_path and re-analyzes.
+            if !self.unqualified.contains(&rv.relname) {
+                self.unqualified.push(rv.relname.clone());
+            }
+            "public".to_owned()
         };
         Rel {
             schema,
@@ -474,8 +574,43 @@ impl Analysis<'_> {
                     .collect::<Vec<_>>();
                 self.fold_kinds(kinds, scope)
             }
-            _ => ExprKind::Value,
+            NodeEnum::AArrayExpr(expr) => {
+                let kinds = expr
+                    .elements
+                    .iter()
+                    .map(|n| self.eval_expr(n, scope))
+                    .collect::<Vec<_>>();
+                self.fold_kinds(kinds, scope)
+            }
+            NodeEnum::AConst(_) | NodeEnum::ParamRef(_) | NodeEnum::SqlvalueFunction(_) => {
+                ExprKind::Value
+            }
+            // Anything not modelled above (`xmlelement`, `JSON_OBJECT`,
+            // `IS JSON`, …): fold every column reference and subquery beneath
+            // it, so an unmodelled wrapper cannot launder a sensitive value.
+            other => self.eval_descendants(other, scope),
         }
+    }
+
+    /// `NodeEnum::nodes()` does not descend into every expression type (for
+    /// example `XmlExpr`), so walk the node's serde form instead, which covers
+    /// every field. A subquery inside an unmodelled node is not analyzed and
+    /// is treated as sensitive.
+    fn eval_descendants(&mut self, node: &NodeEnum, scope: &[Rel]) -> ExprKind {
+        let Ok(json) = serde_json::to_value(node) else {
+            return ExprKind::Tainted;
+        };
+        let mut refs = Vec::new();
+        let mut opaque = false;
+        collect_column_refs(&json, &mut refs, &mut opaque);
+        if opaque {
+            return ExprKind::Tainted;
+        }
+        let kinds = refs
+            .iter()
+            .map(|col| self.eval_column(col, scope))
+            .collect::<Vec<_>>();
+        self.fold_kinds(kinds, scope)
     }
 
     fn eval_case(&mut self, expr: &CaseExpr, scope: &[Rel]) -> ExprKind {
@@ -727,6 +862,8 @@ impl Analysis<'_> {
 
     fn lookup_column(&self, rel: &Rel, column: &str) -> ColumnLookup {
         match &rel.kind {
+            RelKind::Opaque { tainted: true } => ColumnLookup::Sensitive,
+            RelKind::Opaque { tainted: false } => ColumnLookup::Unknown,
             RelKind::Derived(cols) => {
                 match cols.iter().find(|c| c.name.eq_ignore_ascii_case(column)) {
                     Some(col) if self.derived_is_sensitive(col) => ColumnLookup::Sensitive,
@@ -772,6 +909,7 @@ impl Analysis<'_> {
     fn rel_has_known_column(&self, rel: &Rel, column: &str) -> bool {
         match &rel.kind {
             RelKind::Derived(cols) => cols.iter().any(|c| c.name.eq_ignore_ascii_case(column)),
+            RelKind::Opaque { .. } => false,
             RelKind::Table => self
                 .known_columns(rel)
                 .is_some_and(|cols| cols.iter().any(|c| c.eq_ignore_ascii_case(column))),
@@ -806,6 +944,10 @@ impl Analysis<'_> {
                 } else {
                     Sensitivity::Names(names)
                 }
+            }
+            RelKind::Opaque { tainted: false } => Sensitivity::Clean,
+            RelKind::Opaque { tainted: true } => {
+                Sensitivity::Names(vec![OPAQUE_SENSITIVE_COLUMNS.to_owned()])
             }
             RelKind::Table => {
                 let pii = configured_pii_names(&self.filter.pii_columns, &rel.schema, &rel.name)
@@ -861,6 +1003,14 @@ impl Analysis<'_> {
     }
 
     fn star_cols(&mut self, rel: &Rel) -> Vec<DerivedCol> {
+        if let RelKind::Opaque { tainted } = rel.kind {
+            // Output names are unknown, so a sensitive opaque relation cannot
+            // be redacted column by column; refuse it instead.
+            if tainted {
+                self.note_whole_row(rel);
+            }
+            return Vec::new();
+        }
         match self.relation_sensitivity(rel) {
             Sensitivity::Clean => self
                 .all_columns(rel)
@@ -905,6 +1055,7 @@ impl Analysis<'_> {
     fn all_columns(&self, rel: &Rel) -> Vec<String> {
         match &rel.kind {
             RelKind::Derived(cols) => cols.iter().map(|c| c.name.clone()).collect(),
+            RelKind::Opaque { .. } => Vec::new(),
             RelKind::Table => self.known_columns(rel).unwrap_or_default(),
         }
     }
@@ -916,7 +1067,7 @@ impl Analysis<'_> {
     }
 
     fn push_unresolved(&mut self, rel: &Rel) {
-        if matches!(rel.kind, RelKind::Derived(_)) {
+        if !matches!(rel.kind, RelKind::Table) {
             return;
         }
         if self
@@ -1007,6 +1158,52 @@ fn find_qualified(scope: &[Rel], schema: &str, name: &str) -> Option<usize> {
     })
 }
 
+/// Collect every `ColumnRef` in a serialized node tree. Sets `opaque` when a
+/// subquery is found or a `ColumnRef` cannot be rebuilt.
+fn collect_column_refs(value: &serde_json::Value, out: &mut Vec<ColumnRef>, opaque: &mut bool) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                match key.as_str() {
+                    "ColumnRef" => match column_ref_from_json(child) {
+                        Some(col) => out.push(col),
+                        None => *opaque = true,
+                    },
+                    "SubLink" | "SelectStmt" => *opaque = true,
+                    _ => collect_column_refs(child, out, opaque),
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_column_refs(item, out, opaque);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn column_ref_from_json(value: &serde_json::Value) -> Option<ColumnRef> {
+    let mut fields = Vec::new();
+    for field in value.get("fields")?.as_array()? {
+        let inner = field.get("node")?;
+        let node = if let Some(s) = inner.get("String") {
+            NodeEnum::String(pg_query::protobuf::String {
+                sval: s.get("sval")?.as_str()?.to_owned(),
+            })
+        } else if inner.get("AStar").is_some() {
+            NodeEnum::AStar(pg_query::protobuf::AStar {})
+        } else {
+            return None;
+        };
+        fields.push(Node { node: Some(node) });
+    }
+    Some(ColumnRef {
+        fields,
+        location: 0,
+    })
+}
+
 fn eq_ident(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
@@ -1022,31 +1219,126 @@ fn func_name(func: &FuncCall) -> Option<String> {
     func.funcname.last().and_then(node_str).map(str::to_owned)
 }
 
+/// Result column name PostgreSQL gives an unaliased target. Redaction is by
+/// output name, so this must agree with the server or a tainted column slips
+/// through; callers still fail closed when a name is not found in the result.
 fn expr_name(node: &Node) -> String {
-    match node.node.as_ref() {
-        Some(NodeEnum::ColumnRef(col)) => col
-            .fields
-            .iter()
-            .rev()
-            .find_map(node_str)
-            .unwrap_or("?column?")
-            .to_owned(),
-        Some(NodeEnum::FuncCall(func)) => func_name(func).unwrap_or_else(|| "?column?".to_owned()),
-        Some(NodeEnum::CaseExpr(_)) | Some(NodeEnum::CaseWhen(_)) => "case".to_owned(),
-        Some(NodeEnum::RowExpr(_)) => "row".to_owned(),
-        Some(NodeEnum::CoalesceExpr(_)) => "coalesce".to_owned(),
-        Some(NodeEnum::TypeCast(cast)) => cast
-            .arg
-            .as_ref()
-            .map(|n| expr_name(n))
-            .unwrap_or_else(|| "?column?".to_owned()),
-        Some(NodeEnum::CollateClause(col)) => col
-            .arg
-            .as_ref()
-            .map(|n| expr_name(n))
-            .unwrap_or_else(|| "?column?".to_owned()),
-        _ => "?column?".to_owned(),
+    figure_colname(node)
+        .map(|(name, _)| name)
+        .unwrap_or_else(|| "?column?".to_owned())
+}
+
+/// Port of `FigureColnameInternal` (parse_target.c). The strength is 2 for a
+/// real name and 1 for a fallback (`case`, a cast's type name) that an outer
+/// cast or CASE may override.
+fn figure_colname(node: &Node) -> Option<(String, u8)> {
+    let strong = |name: &str| Some((name.to_owned(), 2));
+    match node.node.as_ref()? {
+        NodeEnum::ColumnRef(col) => col.fields.iter().rev().find_map(node_str).and_then(strong),
+        NodeEnum::AIndirection(ind) => match ind.indirection.iter().rev().find_map(node_str) {
+            Some(field) => strong(field),
+            None => ind.arg.as_deref().and_then(figure_colname),
+        },
+        NodeEnum::FuncCall(func) => func_name(func).and_then(|name| strong(&name)),
+        NodeEnum::AExpr(expr) if expr.kind == AExprKind::AexprNullif as i32 => strong("nullif"),
+        NodeEnum::TypeCast(cast) => {
+            let inner = cast.arg.as_deref().and_then(figure_colname);
+            if inner.as_ref().is_some_and(|(_, strength)| *strength > 1) {
+                return inner;
+            }
+            cast.type_name
+                .as_ref()
+                .and_then(|t| t.names.iter().rev().find_map(node_str))
+                .map(|name| (name.to_owned(), 1))
+                .or(inner)
+        }
+        NodeEnum::CollateClause(col) => col.arg.as_deref().and_then(figure_colname),
+        NodeEnum::GroupingFunc(_) => strong("grouping"),
+        NodeEnum::MergeSupportFunc(_) => strong("merge_action"),
+        NodeEnum::SubLink(sub) => match SubLinkType::try_from(sub.sub_link_type) {
+            Ok(SubLinkType::ExistsSublink) => strong("exists"),
+            Ok(SubLinkType::ArraySublink) => strong("array"),
+            Ok(SubLinkType::ExprSublink) => {
+                let name = sub
+                    .subselect
+                    .as_deref()
+                    .and_then(first_target_name)
+                    .unwrap_or_else(|| "?column?".to_owned());
+                Some((name, 2))
+            }
+            _ => None,
+        },
+        NodeEnum::CaseExpr(case) => {
+            let def = case.defresult.as_deref().and_then(figure_colname);
+            if def.as_ref().is_some_and(|(_, strength)| *strength > 1) {
+                def
+            } else {
+                Some(("case".to_owned(), 1))
+            }
+        }
+        NodeEnum::AArrayExpr(_) => strong("array"),
+        NodeEnum::RowExpr(_) => strong("row"),
+        NodeEnum::CoalesceExpr(_) => strong("coalesce"),
+        NodeEnum::MinMaxExpr(expr) => match MinMaxOp::try_from(expr.op) {
+            Ok(MinMaxOp::IsGreatest) => strong("greatest"),
+            Ok(MinMaxOp::IsLeast) => strong("least"),
+            _ => None,
+        },
+        NodeEnum::XmlExpr(expr) => match XmlExprOp::try_from(expr.op) {
+            Ok(XmlExprOp::IsXmlconcat) => strong("xmlconcat"),
+            Ok(XmlExprOp::IsXmlelement) => strong("xmlelement"),
+            Ok(XmlExprOp::IsXmlforest) => strong("xmlforest"),
+            Ok(XmlExprOp::IsXmlparse) => strong("xmlparse"),
+            Ok(XmlExprOp::IsXmlpi) => strong("xmlpi"),
+            Ok(XmlExprOp::IsXmlroot) => strong("xmlroot"),
+            Ok(XmlExprOp::IsXmlserialize) => strong("xmlserialize"),
+            _ => None,
+        },
+        NodeEnum::XmlSerialize(_) => strong("xmlserialize"),
+        NodeEnum::JsonObjectConstructor(_) => strong("json_object"),
+        NodeEnum::JsonArrayConstructor(_) | NodeEnum::JsonArrayQueryConstructor(_) => {
+            strong("json_array")
+        }
+        NodeEnum::JsonObjectAgg(_) => strong("json_objectagg"),
+        NodeEnum::JsonArrayAgg(_) => strong("json_arrayagg"),
+        NodeEnum::JsonParseExpr(_) => strong("json"),
+        NodeEnum::JsonScalarExpr(_) => strong("json_scalar"),
+        NodeEnum::JsonSerializeExpr(_) => strong("json_serialize"),
+        NodeEnum::JsonFuncExpr(expr) => match JsonExprOp::try_from(expr.op) {
+            Ok(JsonExprOp::JsonExistsOp) => strong("json_exists"),
+            Ok(JsonExprOp::JsonQueryOp) => strong("json_query"),
+            Ok(JsonExprOp::JsonValueOp) => strong("json_value"),
+            _ => None,
+        },
+        _ => None,
     }
+}
+
+/// Name of a scalar subquery's single output column (its leftmost arm for a
+/// set operation), which PostgreSQL reuses as the outer column name.
+fn first_target_name(node: &Node) -> Option<String> {
+    let NodeEnum::SelectStmt(sel) = node.node.as_ref()? else {
+        return None;
+    };
+    if is_set_operation(sel.op) {
+        return sel.larg.as_ref().and_then(|larg| {
+            first_target_name(&Node {
+                node: Some(NodeEnum::SelectStmt(larg.clone())),
+            })
+        });
+    }
+    let NodeEnum::ResTarget(rt) = sel.target_list.first()?.node.as_ref()? else {
+        return None;
+    };
+    if !rt.name.is_empty() {
+        return Some(rt.name.clone());
+    }
+    Some(
+        rt.val
+            .as_deref()
+            .map(expr_name)
+            .unwrap_or_else(|| "?column?".to_owned()),
+    )
 }
 
 #[cfg(test)]
@@ -1099,7 +1391,8 @@ mod tests {
         assert!(
             redact("SELECT CASE WHEN id = 1 THEN email ELSE phone END FROM users")
                 .iter()
-                .any(|n| n == "case")
+                .any(|n| n == "phone"),
+            "PostgreSQL names a CASE after its ELSE column"
         );
     }
 
@@ -1190,5 +1483,123 @@ mod tests {
             "{:?}",
             lineage.unresolved_whole_rows
         );
+    }
+
+    fn lineage(sql: &str) -> OutputLineage {
+        analyze_output_lineage(sql, &pii_filter(), &known_users()).unwrap()
+    }
+
+    #[test]
+    fn function_in_from_cannot_launder_a_whole_row() {
+        let l = lineage(
+            "SELECT kv.key, kv.value FROM users u \
+             CROSS JOIN LATERAL jsonb_each_text(to_jsonb(u)) kv",
+        );
+        assert!(!l.rejections.is_empty(), "{l:?}");
+    }
+
+    #[test]
+    fn function_in_from_fed_by_pii_taints_its_columns() {
+        let l = lineage(
+            "SELECT kv.value FROM users u, jsonb_each_text(jsonb_build_object('e', u.email)) kv",
+        );
+        assert!(l.redact_names.iter().any(|n| n == "value"), "{l:?}");
+        let star = lineage(
+            "SELECT kv.* FROM users u, jsonb_each_text(jsonb_build_object('e', u.email)) kv",
+        );
+        assert!(!star.rejections.is_empty(), "{star:?}");
+    }
+
+    #[test]
+    fn clean_function_in_from_stays_clean() {
+        let l = lineage("SELECT g FROM generate_series(1, 3) g");
+        assert!(l.is_clean(), "{l:?}");
+    }
+
+    #[test]
+    fn tablesample_relation_is_still_tracked() {
+        assert_eq!(
+            redact("SELECT email AS e FROM users TABLESAMPLE SYSTEM (50)"),
+            vec!["e"]
+        );
+    }
+
+    #[test]
+    fn unaliased_outputs_use_postgres_column_names() {
+        let cases = [
+            (
+                "SELECT (SELECT email AS contact FROM users LIMIT 1)",
+                "contact",
+            ),
+            ("SELECT (SELECT email FROM users LIMIT 1)", "email"),
+            (
+                "SELECT CASE WHEN id > 0 THEN '' ELSE email END FROM users",
+                "email",
+            ),
+            ("SELECT CASE WHEN id > 0 THEN email END FROM users", "case"),
+            ("SELECT (email || '')::text FROM users", "text"),
+            ("SELECT email::varchar FROM users", "email"),
+            ("SELECT ARRAY[email] FROM users", "array"),
+            ("SELECT xmlelement(name x, email) FROM users", "xmlelement"),
+            ("SELECT greatest(email, 'z') FROM users", "greatest"),
+            ("SELECT nullif(email, '') FROM users", "nullif"),
+            ("SELECT email || '' FROM users", "?column?"),
+        ];
+        for (sql, expected) in cases {
+            let names = redact(sql);
+            assert!(names.iter().any(|n| n == expected), "{sql}: {names:?}");
+        }
+    }
+
+    #[test]
+    fn unqualified_relations_resolve_through_search_path() {
+        let filter = PolicyFilter {
+            pii_columns: vec!["customers.users.email".into()],
+            ..Default::default()
+        };
+        let sql = "SELECT email AS c FROM users";
+        let first = analyze_output_lineage(sql, &filter, &[]).unwrap();
+        assert_eq!(first.unqualified_relations, vec!["users"]);
+        assert!(first.redact_names.is_empty(), "{first:?}");
+
+        let schemas = HashMap::from([("users".to_owned(), "customers".to_owned())]);
+        let resolved = analyze_output_lineage_resolved(sql, &filter, &[], &schemas).unwrap();
+        assert_eq!(resolved.redact_names, vec!["c"]);
+        assert!(resolved.unqualified_relations.is_empty());
+    }
+
+    #[test]
+    fn catalog_view_star_is_not_assumed_public() {
+        let schemas = HashMap::from([("pg_tables".to_owned(), "pg_catalog".to_owned())]);
+        let l = analyze_output_lineage_resolved(
+            "SELECT * FROM pg_tables",
+            &PolicyFilter::default(),
+            &[],
+            &schemas,
+        )
+        .unwrap();
+        assert!(
+            l.unresolved_whole_rows
+                .iter()
+                .all(|r| r.schema == "pg_catalog"),
+            "{l:?}"
+        );
+    }
+
+    #[test]
+    fn recursive_cte_carries_taint_through_the_self_reference() {
+        let names = redact(
+            "WITH RECURSIVE r(n, e) AS (\
+               SELECT 1, ''::text \
+               UNION ALL SELECT n + 1, (SELECT email FROM users LIMIT 1) FROM r WHERE n < 2\
+             ) SELECT e AS out FROM r",
+        );
+        assert!(names.iter().any(|n| n == "out"), "{names:?}");
+    }
+
+    #[test]
+    fn explain_does_not_ask_for_column_redaction() {
+        let l = lineage("EXPLAIN SELECT email AS contact FROM users");
+        assert!(l.redact_names.is_empty(), "{l:?}");
     }
 }

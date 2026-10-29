@@ -23,30 +23,45 @@ pub const SUPPORTED_CLIENTS: &[&str] = &[
     "qwen",
 ];
 
-/// True when `url` carries a userinfo password. Those must never be written
-/// into a client config; save a profile and pass `--profile` instead.
+/// True when `url` carries a password (userinfo or a `password=` query
+/// parameter), or cannot be parsed, so its absence cannot be proven. Those
+/// must never be written into a client config; save a profile and pass
+/// `--profile` instead.
 pub fn url_contains_password(url: &str) -> bool {
-    nexql_conn::params_from_url(url)
-        .ok()
-        .and_then(|params| params.password)
-        .is_some_and(|password| !password.is_empty())
+    let Ok(params) = nexql_conn::params_from_url(url) else {
+        return true;
+    };
+    if params.password.is_some_and(|password| !password.is_empty()) {
+        return true;
+    }
+    url::Url::parse(url).is_ok_and(|parsed| {
+        parsed
+            .query_pairs()
+            .any(|(key, value)| key.eq_ignore_ascii_case("password") && !value.is_empty())
+    })
 }
 
 /// Build a paste-ready config snippet for `client`.
 ///
 /// When `url` is `Some`, it is included in the server's `args` (or equivalent).
-/// A URL that contains a password is refused.
+/// A URL that contains a password, or cannot be parsed, is refused.
 /// Returns `Err` with a helpful message for unknown clients.
 pub fn init_snippet(client: &str, url: Option<&str>) -> Result<String, String> {
-    if let Some(url) = url
-        && url_contains_password(url)
-    {
-        return Err(
-            "refusing to write a database password into client config. Save a profile \
-             (`nexql-mcp init <client> <url>` stores it in the keyring) and reference it \
-             with --profile."
-                .into(),
-        );
+    if let Some(url) = url {
+        if let Err(e) = nexql_conn::params_from_url(url) {
+            return Err(format!(
+                "could not parse the connection URL ({e}). Percent-encode reserved characters \
+                 in the password (for example # as %23, / as %2F, ? as %3F) and retry."
+            ));
+        }
+        if url_contains_password(url) {
+            return Err(
+                "refusing to write a database password into client config. Save a profile \
+                 (`nexql-mcp init <client> <url>` stores it in the keyring) and reference it \
+                 with --profile."
+                    .into(),
+            );
+        }
     }
     let args = url.map(|value| vec![value.to_owned()]).unwrap_or_default();
     render_snippet(client, &args)
@@ -333,6 +348,24 @@ mod tests {
         assert!(snippet.contains("--profile"), "{snippet}");
         assert!(snippet.contains("u_db"), "{snippet}");
         assert!(!snippet.contains("s3cret-batch1"), "{snippet}");
+    }
+
+    #[test]
+    fn unparseable_or_query_password_urls_are_refused() {
+        // `#` starts a fragment, so this URL does not parse; it must not be
+        // treated as passwordless and embedded verbatim.
+        let unparseable = "postgres://u:p#ss@localhost:5432/db";
+        assert!(url_contains_password(unparseable));
+        let err = init_snippet("cursor", Some(unparseable)).unwrap_err();
+        assert!(err.contains("Percent-encode"), "{err}");
+
+        let query = "postgres://u@localhost:5432/db?password=s3cret";
+        assert!(url_contains_password(query));
+        assert!(init_snippet("cursor", Some(query)).is_err());
+
+        assert!(!url_contains_password(
+            "postgres://u@localhost:5432/db?sslmode=require"
+        ));
     }
 
     #[test]

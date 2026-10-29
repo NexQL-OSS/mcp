@@ -17,9 +17,9 @@ use nexql_policy::{
 use serde_json::{Value, json};
 
 use crate::cell_json::{
-    columnarize_read_payload, columnarize_row_arrays, heuristic_output_names,
-    metadata_sensitive_output_names, redact_named_columns_in_payload, rows_to_json_array,
-    rows_to_json_array_with_total, sensitive_output_names,
+    columnarize_read_payload, columnarize_row_arrays, ensure_redaction_names_present,
+    heuristic_output_names, metadata_sensitive_output_names, redact_named_columns_in_payload,
+    rows_to_json_array, rows_to_json_array_with_total, sensitive_output_names,
 };
 use crate::critique;
 use crate::error::ToolError;
@@ -3730,26 +3730,11 @@ impl ToolRouter {
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
         timeout_ms: u32,
     ) -> Result<Vec<tokio_postgres::Row>, ToolError> {
-        let read_only = self.session.access_mode() == AccessMode::Read;
-        let mut opened = false;
-        if read_only {
-            match client.batch_execute(nexql_conn::BEGIN_READ_ONLY).await {
-                Ok(()) => opened = true,
-                Err(err) if is_already_in_transaction(&err) => {
-                    let ro: String = client
-                        .query_one("SHOW transaction_read_only", &[])
-                        .await
-                        .map_err(|err| ToolError::Execution(err.to_string()))?
-                        .get(0);
-                    if !ro.eq_ignore_ascii_case("on") {
-                        return Err(ToolError::Execution(
-                            "refusing to run a read-mode query inside a read-write transaction"
-                                .into(),
-                        ));
-                    }
-                }
-                Err(err) => return Err(ToolError::Execution(err.to_string())),
-            }
+        let opened = self.session.access_mode() == AccessMode::Read;
+        if opened {
+            nexql_conn::begin_read_only(client)
+                .await
+                .map_err(|err| ToolError::Execution(err.to_string()))?;
         }
         let result = match client.query(sql, params).await {
             Ok(rows) => Ok(rows),
@@ -3787,6 +3772,10 @@ impl ToolRouter {
         filter: &PolicyFilter,
     ) -> Result<Value, ToolError> {
         let mut names = sensitive_output_names(client, sql, filter).await?;
+        if let Some(row) = rows.first() {
+            let result_columns: Vec<&str> = row.columns().iter().map(|c| c.name()).collect();
+            ensure_redaction_names_present(&names, &result_columns)?;
+        }
         names.extend(metadata_sensitive_output_names(client, rows, filter).await);
         for extra in heuristic_output_names(&payload, filter) {
             if !names.iter().any(|name| name.eq_ignore_ascii_case(&extra)) {
@@ -3826,12 +3815,6 @@ fn orient_index_status(database: &str, status: &str, message: impl Into<String>)
 fn is_statement_timeout(err: &tokio_postgres::Error) -> bool {
     err.code()
         .map(|code| code.code() == "57014")
-        .unwrap_or(false)
-}
-
-fn is_already_in_transaction(err: &tokio_postgres::Error) -> bool {
-    err.code()
-        .map(|code| code.code() == "25001")
         .unwrap_or(false)
 }
 

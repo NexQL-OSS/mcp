@@ -53,6 +53,28 @@ pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Resul
 /// `set_config` cannot flip the current transaction.
 pub const BEGIN_READ_ONLY: &str = "BEGIN READ ONLY";
 
+/// Open a read-only transaction and prove it took effect. `BEGIN` inside an
+/// open transaction is only a WARNING (25001), so a connection left in a
+/// read-write transaction would otherwise run the statement read-write and
+/// the caller's `COMMIT` would commit that outer transaction. On refusal the
+/// stray transaction is rolled back so the pooled connection is clean again.
+pub async fn begin_read_only(client: &Client) -> Result<(), ConnError> {
+    let messages = client
+        .simple_query(&format!("{BEGIN_READ_ONLY}; SHOW transaction_read_only"))
+        .await?;
+    let read_only = messages.iter().any(|msg| {
+        matches!(msg, tokio_postgres::SimpleQueryMessage::Row(row)
+            if row.get(0).is_some_and(|v| v.eq_ignore_ascii_case("on")))
+    });
+    if read_only {
+        return Ok(());
+    }
+    let _ = client.batch_execute("ROLLBACK").await;
+    Err(ConnError::Pool(
+        "refusing to run a read-mode statement inside an open read-write transaction".into(),
+    ))
+}
+
 /// Apply session guards on a checked-out client. Fail closed.
 pub async fn apply_session_guards(client: &Client, opts: &PoolOptions) -> Result<(), ConnError> {
     if opts.read_only {

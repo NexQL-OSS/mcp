@@ -1302,16 +1302,26 @@ fn profile_config_path(cli: &Cli) -> Result<PathBuf, Box<dyn std::error::Error>>
 /// Save `url` as a profile. A password in the URL is stored via
 /// [`nexql_conn::prepare_profile_for_persist`] (keyring, or encrypted file)
 /// and is not left in the TOML.
+///
+/// Re-running with the same target updates the saved connection but keeps
+/// that profile's policy (`pii_columns`, `deny_tables`, `access_mode`, …). A
+/// different target that would collide on the derived name gets a suffix
+/// instead of overwriting it. An unreadable config is an error, never reset.
 fn persist_profile_from_url(cli: &Cli, url: &str) -> Result<String, String> {
-    let params = nexql_conn::params_from_url(url).map_err(|e| e.to_string())?;
+    let params = nexql_conn::params_from_url(url).map_err(|e| {
+        format!(
+            "{e}. Percent-encode reserved characters in the password \
+             (for example # as %23, / as %2F, ? as %3F) and retry."
+        )
+    })?;
     let user = params.user.clone().unwrap_or_else(|| "nexql".into());
     let db = params.dbname.clone().unwrap_or_else(|| "postgres".into());
-    let mut name: String = format!("{user}_{db}")
+    let mut base: String = format!("{user}_{db}")
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect();
-    if name.is_empty() || name.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
-        name.insert_str(0, "p_");
+    if base.is_empty() || base.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        base.insert_str(0, "p_");
     }
 
     let path = profile_config_path(cli).map_err(|e| e.to_string())?;
@@ -1320,36 +1330,87 @@ fn persist_profile_from_url(cli: &Cli, url: &str) -> Result<String, String> {
     }
     let mut config = ConfigFile::load_path_migrated(&path)
         .map(|(c, _)| c)
-        .unwrap_or_default();
-    let profile = nexql_conn::ProfileConfig {
-        url: Some(url.to_owned()),
-        ..Default::default()
+        .map_err(|e| {
+            format!(
+                "could not read {} ({e}); fix or move it before saving a profile",
+                path.display()
+            )
+        })?;
+
+    let mut name = base.clone();
+    let mut suffix = 2;
+    let existing = loop {
+        match config.profiles.get(&name) {
+            None => break None,
+            Some(profile) if profile_targets(profile, &params) => break Some(profile.clone()),
+            Some(_) => {
+                name = format!("{base}_{suffix}");
+                suffix += 1;
+            }
+        }
+    };
+
+    let url_has_password = params.password.as_deref().is_some_and(|p| !p.is_empty());
+    let profile = match existing {
+        Some(mut kept) => {
+            kept.url = Some(url.to_owned());
+            kept.host = None;
+            kept.port = None;
+            kept.dbname = None;
+            kept.user = None;
+            if url_has_password {
+                kept.password = None;
+                kept.password_command = None;
+                kept.password_file = None;
+                kept.credential_provider = None;
+            }
+            kept
+        }
+        None => nexql_conn::ProfileConfig {
+            url: Some(url.to_owned()),
+            ..Default::default()
+        },
     };
     let prepared =
         nexql_conn::prepare_profile_for_persist(&name, profile).map_err(|e| e.to_string())?;
-    if let Some(stored) = prepared.url.as_deref()
-        && init_clients::url_contains_password(stored)
+    if prepared.password.is_some()
+        || prepared
+            .url
+            .as_deref()
+            .is_some_and(init_clients::url_contains_password)
     {
         return Err(format!(
-            "refusing to save profile '{name}': password was still present in the URL"
+            "refusing to save profile '{name}': the password could not be moved out of the config"
         ));
-    }
-    if config.default_profile.is_none() {
-        config.default_profile = Some(name.clone());
     }
     config.upsert_profile(name.clone(), prepared);
     config.save(&path).map_err(|e| e.to_string())?;
-
-    let written = std::fs::read_to_string(&path).unwrap_or_default();
-    if let Some(password) = params.password.as_deref().filter(|p| !p.is_empty())
-        && written.contains(password)
-    {
-        return Err(format!(
-            "refusing to save profile '{name}': password was written to {}",
-            path.display()
-        ));
-    }
     Ok(name)
+}
+
+/// True when `profile` already points at the same server, database, and
+/// user as `params`, so saving `params` again should update it in place.
+fn profile_targets(
+    profile: &nexql_conn::ProfileConfig,
+    params: &nexql_conn::ConnectionParams,
+) -> bool {
+    let (host, port, dbname, user) = match profile
+        .url
+        .as_deref()
+        .and_then(|url| nexql_conn::params_from_url(url).ok())
+    {
+        Some(saved) => (saved.host, saved.port, saved.dbname, saved.user),
+        None => (
+            profile.host.clone(),
+            profile.port,
+            profile.dbname.clone(),
+            profile.user.clone(),
+        ),
+    };
+    host == params.host
+        && port.unwrap_or(5432) == params.port.unwrap_or(5432)
+        && dbname == params.dbname
+        && user == params.user
 }
 
 /// `nexql-mcp init <client> --apply` — reuses the same merge machinery
@@ -2129,6 +2190,92 @@ mod main_cli_tests {
         assert!(content.contains("nexql-mcp"), "{content}");
         assert!(content.contains("--profile"), "{content}");
         assert!(content.contains("local"), "{content}");
+    }
+
+    fn cli_with_config(cfg_path: &std::path::Path) -> Cli {
+        Cli::try_parse_from([
+            "nexql-mcp",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "doctor",
+        ])
+        .unwrap()
+    }
+
+    /// Re-running `init <url>` for the same target must keep the profile's
+    /// policy instead of replacing it with a bare URL.
+    #[test]
+    fn persist_profile_from_url_keeps_policy_for_same_target() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+[profiles.appuser_appdb]
+url = "postgres://appuser@localhost:5432/appdb"
+access_mode = "read"
+pii_columns = ["public.users.email"]
+deny_tables = ["auth.*"]
+"#,
+        )
+        .unwrap();
+        let cli = cli_with_config(&cfg_path);
+
+        let name =
+            persist_profile_from_url(&cli, "postgres://appuser@localhost/appdb?sslmode=require")
+                .unwrap();
+        assert_eq!(name, "appuser_appdb");
+        let config = ConfigFile::load_path(&cfg_path).unwrap();
+        let profile = &config.profiles["appuser_appdb"];
+        assert_eq!(profile.pii_columns, vec!["public.users.email"]);
+        assert_eq!(profile.deny_tables, vec!["auth.*"]);
+        assert_eq!(profile.access_mode.as_deref(), Some("read"));
+        assert!(profile.url.as_deref().unwrap().contains("sslmode=require"));
+    }
+
+    /// A different server that derives the same profile name gets a suffix
+    /// rather than overwriting the existing profile.
+    #[test]
+    fn persist_profile_from_url_does_not_clobber_a_different_target() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+[profiles.appuser_appdb]
+url = "postgres://appuser@prod.example.com:5432/appdb"
+pii_columns = ["public.users.email"]
+"#,
+        )
+        .unwrap();
+        let cli = cli_with_config(&cfg_path);
+
+        let name = persist_profile_from_url(&cli, "postgres://appuser@localhost/appdb").unwrap();
+        assert_eq!(name, "appuser_appdb_2");
+        let config = ConfigFile::load_path(&cfg_path).unwrap();
+        let original = &config.profiles["appuser_appdb"];
+        assert!(
+            original
+                .url
+                .as_deref()
+                .unwrap()
+                .contains("prod.example.com")
+        );
+        assert_eq!(original.pii_columns, vec!["public.users.email"]);
+    }
+
+    /// An unreadable config must be reported, not silently replaced.
+    #[test]
+    fn persist_profile_from_url_refuses_to_overwrite_unreadable_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cfg_path = temp_dir.path().join("config.toml");
+        let broken = "[profiles.keep]\nurl = \"postgres://a@h/db\"\nthis is not toml = =\n";
+        std::fs::write(&cfg_path, broken).unwrap();
+        let cli = cli_with_config(&cfg_path);
+
+        let err = persist_profile_from_url(&cli, "postgres://appuser@localhost/appdb").unwrap_err();
+        assert!(err.contains("could not read"), "{err}");
+        assert_eq!(std::fs::read_to_string(&cfg_path).unwrap(), broken);
     }
 
     /// `init <client> --apply <url>` creates the keyring profile it then wires,
