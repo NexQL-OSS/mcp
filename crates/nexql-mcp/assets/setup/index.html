@@ -1045,6 +1045,7 @@
                     <div><label class="field-label" for="f-deny-tables">Denied tables</label><input id="f-deny-tables" placeholder="auth.*" /></div>
                     <div><label class="field-label" for="f-pii-columns">PII columns</label><input id="f-pii-columns" placeholder="public.users.email" /></div>
                   </div>
+                  <label class="check-row"><input type="checkbox" id="f-mask-personal" checked /> Mask personal data (emails, phones, addresses, people's names, dates of birth). Query results go to your AI provider.</label>
                 </div>
                 <div class="form-section">
                   <h3 class="form-section-heading">Query limits</h3>
@@ -1246,6 +1247,7 @@
             <div class="review-row"><dt>Schemas</dt><dd>${editorDisplay(editorField('f-schemas'), 'all')}</dd></div>
             <div class="review-row"><dt>Denied</dt><dd>${editorDisplay([editorField('f-deny-schemas'), editorField('f-deny-tables')].filter(Boolean).join(', '), 'none')}</dd></div>
             <div class="review-row"><dt>PII cols</dt><dd>${editorDisplay(editorField('f-pii-columns'), 'none')}</dd></div>
+            <div class="review-row"><dt>Personal data</dt><dd>${document.getElementById('f-mask-personal').checked ? 'masked' : 'returned unmasked'}</dd></div>
             <div class="review-row"><dt>Limits</dt><dd>${editorDisplay([editorField('f-max-rows') && `max ${editorField('f-max-rows')} rows`, editorField('f-timeout') && `${editorField('f-timeout')} ms`].filter(Boolean).join(', '), 'default')}</dd></div>
           </dl>
         </div>`;
@@ -1382,6 +1384,9 @@
       if (sensitiveNameHeuristics !== null && sensitiveNameHeuristics !== undefined) {
         profile.sensitive_name_heuristics = sensitiveNameHeuristics;
       }
+      if (!document.getElementById('f-mask-personal').checked) {
+        profile.personal_data_heuristics = false;
+      }
       return {
         profile,
         password: document.getElementById('f-password').disabled ? null : (document.getElementById('f-password').value || null),
@@ -1410,6 +1415,7 @@
       sensitiveNameHeuristics = Object.prototype.hasOwnProperty.call(pr, 'sensitive_name_heuristics')
         ? pr.sensitive_name_heuristics
         : null;
+      document.getElementById('f-mask-personal').checked = pr.personal_data_heuristics !== false;
       document.getElementById('f-max-rows').value = pr.max_rows || '';
       document.getElementById('f-timeout').value = pr.statement_timeout_ms || '';
       document.getElementById('f-default').checked = !!p.is_default;

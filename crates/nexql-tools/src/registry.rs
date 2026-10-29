@@ -160,7 +160,8 @@ impl ToolName {
         Self::CheckDdlSafety,
     ];
 
-    /// Phase 9 write/admin tools (listed always; gated at call time by access mode).
+    /// Phase 9 write/admin tools. Listed only when a connection's access mode
+    /// can run them (see `required_mode`), and still gated at call time.
     pub const PHASE9: &'static [ToolName] = &[
         Self::ExecuteSql,
         Self::EditRow,
@@ -419,6 +420,30 @@ impl ToolName {
         Self::ACTIVE.iter().copied().find(|t| t.as_str() == s)
     }
 
+    /// Lowest access mode that can run this tool. Write tools are hidden from
+    /// `tools/list` when no connection allows them, so the model never tries one.
+    pub fn required_mode(self) -> nexql_policy::AccessMode {
+        use nexql_policy::AccessMode;
+        match self {
+            Self::ExecuteSql | Self::EditRow | Self::ImportData => AccessMode::Write,
+            Self::ApplyDdl
+            | Self::CreateIndexConcurrently
+            | Self::RunMaintenance
+            | Self::TerminateQuery => AccessMode::Admin,
+            _ => AccessMode::Read,
+        }
+    }
+
+    /// True when a session whose most permissive connection is `mode` can run this tool.
+    pub fn runnable_in(self, mode: nexql_policy::AccessMode) -> bool {
+        use nexql_policy::AccessMode;
+        match self.required_mode() {
+            AccessMode::Read => true,
+            AccessMode::Write => mode.allows_writes(),
+            AccessMode::Admin => mode.allows_admin(),
+        }
+    }
+
     /// MCP client hints (`readOnlyHint`, `destructiveHint`, …).
     pub fn hints(self) -> ToolHints {
         let read_only = Self::READ_ONLY.contains(&self);
@@ -461,6 +486,22 @@ pub struct ToolHints {
 #[cfg(test)]
 mod tests {
     use super::ToolName;
+
+    #[test]
+    fn every_phase9_tool_needs_more_than_read() {
+        use nexql_policy::AccessMode;
+        for tool in ToolName::ACTIVE {
+            assert_eq!(
+                ToolName::PHASE9.contains(tool),
+                !tool.runnable_in(AccessMode::Read),
+                "{}",
+                tool.as_str()
+            );
+            assert!(tool.runnable_in(AccessMode::Admin), "{}", tool.as_str());
+        }
+        assert!(ToolName::ExecuteSql.runnable_in(AccessMode::Write));
+        assert!(!ToolName::ApplyDdl.runnable_in(AccessMode::Write));
+    }
 
     #[test]
     fn read_only_is_forty_one_tools() {

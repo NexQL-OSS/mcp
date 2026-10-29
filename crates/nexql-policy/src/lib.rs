@@ -21,7 +21,7 @@ pub use caps::{
 pub use error::PolicyError;
 pub use filter::{
     ObjectRef, PII_REDACTED, PolicyFilter, column_matches_pii_policy, column_should_redact,
-    configured_pii_names, is_pii_column, is_sensitive_column_name,
+    configured_pii_names, is_personal_data_column_name, is_pii_column, is_sensitive_column_name,
 };
 pub use lineage::{
     CatalogColumn, OutputLineage, UnresolvedRelation, ViewBody, analyze_output_lineage,

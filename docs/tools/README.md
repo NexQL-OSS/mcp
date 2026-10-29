@@ -6,13 +6,21 @@ PostgreSQL over stdio.
 
 ## Start here
 
-Call `orient` first, before anything else, on an unfamiliar database. It's a one-call
-schema bootstrap — tables (columns, PK, row estimate), FK join edges (declared vs
-inferred), enum-like low-cardinality text columns, and degradation notes — that
-replaces the `search_schema` → `describe_object` → `get_join_path` chain an agent
-would otherwise need several round trips to assemble. Only fall back to targeted
-`search_schema`/`describe_object`/`get_join_path` calls once `orient`'s digest isn't
-enough (a very large schema, or a specific object it didn't surface).
+For a question about specific data, the path is `search_schema` (with the user's
+words) → `describe_object` on the tables it found → `run_select`. Add
+`get_join_path` when the join isn't obvious from foreign keys. This is the path
+models take on their own, and the one the server instructions describe.
+
+For a broad question ("what's in this database?"), call `orient` once. It returns
+a compact overview: tables and views with columns, primary key and row estimate,
+foreign-key joins, and enum values. Past 40 tables it lists the rest by name only.
+
+When the data may live in another database on the same server, call
+`search_all_databases`. It indexes databases it hasn't seen yet, and its hits
+carry the `database` to pass to `describe_object` / `run_select`.
+
+The default `--tools query` profile lists 21 tools; write and admin tools appear
+only when a connection's `access_mode` allows them.
 
 ## Tool categories
 

@@ -20,6 +20,10 @@ access_mode = "read"
 schemas = ["public", "billing"]
 deny_tables = ["auth.*"]
 pii_columns = ["public.users.ssn", "public.users.email"]
+# Emails, phones, street addresses, people's names, dates of birth and IP
+# addresses are masked by column name even without pii_columns. Uncomment to
+# return them unmasked (secrets such as password_hash stay masked):
+# personal_data_heuristics = false
 max_rows = 200
 
 [profiles.rds]

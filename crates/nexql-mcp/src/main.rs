@@ -5,6 +5,7 @@
 
 mod client_targets;
 mod init_clients;
+mod launch;
 mod setup;
 mod tui;
 
@@ -50,10 +51,10 @@ impl EmbeddingsMode {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
 enum CliToolProfile {
+    #[default]
     Query,
     Dba,
     Meta,
-    #[default]
     Full,
 }
 
@@ -94,14 +95,15 @@ struct Cli {
     embeddings: EmbeddingsMode,
 
     /// Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all tools).
-    /// Env: `NEXQL_MCP_TOOLS=query|dba|full` (default full).
+    /// Env: `NEXQL_MCP_TOOLS=query|dba|meta|full` (default query).
     #[arg(
         long,
         value_enum,
-        default_value_t = CliToolProfile::Full,
+        default_value_t = CliToolProfile::Query,
         env = "NEXQL_MCP_TOOLS",
         long_help = format!(
-            "Tool surface profile: query (core query/discovery), dba (monitoring/admin), full (all {} tools).\nEnv: `NEXQL_MCP_TOOLS=query|dba|full` (default full).",
+            "Tool surface profile: query (core query/discovery, {} tools), dba (monitoring/admin), meta (minimal + discover_tools), full (all {} tools).\nWrite and admin tools are listed only when a connection's access mode allows them.\nEnv: `NEXQL_MCP_TOOLS=query|dba|meta|full` (default query).",
+            nexql_tools::ToolName::QUERY_PROFILE.len(),
             nexql_tools::ToolName::ACTIVE.len(),
         )
     )]
@@ -883,6 +885,21 @@ fn migrate_legacy_secrets(cli: &Cli) {
     }
 }
 
+/// Most permissive access mode across the configured connections, or the CLI
+/// mode when none is configured yet. Tools above it are left out of `tools/list`.
+fn access_ceiling(cli_mode: AccessMode, connections: &[nexql_tools::ConnectionInfo]) -> AccessMode {
+    let modes = connections.iter().map(|c| c.policy.access_mode);
+    if connections.is_empty() {
+        cli_mode
+    } else if modes.clone().any(AccessMode::allows_admin) {
+        AccessMode::Admin
+    } else if modes.clone().any(AccessMode::allows_writes) {
+        AccessMode::Write
+    } else {
+        AccessMode::Read
+    }
+}
+
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
     migrate_legacy_secrets(cli);
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
@@ -938,6 +955,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
         check_superuser_guard(mode, is_superuser, cli.access.i_know_what_im_doing)?;
     }
 
+    let access_ceiling = access_ceiling(cli_mode, &connections);
     let session = ToolSession::from_connections(connections, active_id).await?;
 
     if let Some(store) = session.index_store.clone()
@@ -996,6 +1014,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
 
     let mut router = ToolRouter::new(session.clone())
         .with_profile(cli.tools.into())
+        .with_access_ceiling(access_ceiling)
         .with_semantic(cli.embeddings.is_local(), embedder);
     if cli.access.managed_extension {
         router = router.with_managed_extension(true);
@@ -1752,6 +1771,58 @@ async fn run_profile_action(
     }
 }
 
+/// Every user column (`schema`, `table`, `column`) visible to the role.
+const USER_COLUMNS_SQL: &str = "SELECT n.nspname::text, c.relname::text, a.attname::text \
+     FROM pg_attribute a \
+     JOIN pg_class c ON c.oid = a.attrelid \
+     JOIN pg_namespace n ON n.oid = c.relnamespace \
+     WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') AND a.attnum > 0 AND NOT a.attisdropped \
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema') \
+       AND n.nspname NOT LIKE 'pg\\_%' \
+     ORDER BY 1, 2, a.attnum";
+
+/// `schema.table.column` for each column the profile masks by name or by
+/// `pii_columns`, skipping tables the policy hides.
+fn masked_columns(
+    filter: &nexql_policy::PolicyFilter,
+    columns: impl IntoIterator<Item = (String, String, String)>,
+) -> Vec<String> {
+    columns
+        .into_iter()
+        .filter(|(schema, table, column)| {
+            let tables = [nexql_policy::ObjectRef::new(schema.clone(), table.clone())];
+            filter.allows_table(schema, table)
+                && nexql_policy::column_should_redact(filter, &tables, column)
+        })
+        .map(|(schema, table, column)| format!("{schema}.{table}.{column}"))
+        .collect()
+}
+
+fn masked_columns_summary(filter: &nexql_policy::PolicyFilter, cols: &[String]) -> String {
+    let personal = if filter.personal_data_heuristics {
+        "on"
+    } else {
+        "off (personal_data_heuristics = false)"
+    };
+    if cols.is_empty() {
+        return format!("masking: personal data {personal}; no columns masked");
+    }
+    const SHOWN: usize = 12;
+    let mut out = format!(
+        "masking: personal data {personal}; {} column(s) masked in results: {}",
+        cols.len(),
+        cols.iter()
+            .take(SHOWN)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if cols.len() > SHOWN {
+        out.push_str(&format!(", … and {} more", cols.len() - SHOWN));
+    }
+    out
+}
+
 async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let mode: AccessMode = cli.access.access_mode.parse()?;
     let resolved = resolve(&resolve_inputs(cli))?;
@@ -1800,6 +1871,19 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     {
         Ok(_) => println!("grants: can SELECT information_schema.tables"),
         Err(e) => eprintln!("warning: cannot SELECT information_schema ({e})"),
+    }
+
+    // Columns the name heuristics will mask (non-fatal).
+    let policy = policy_from_profile(resolved.profile.as_ref(), mode, PolicyCaps::default());
+    match client.query(USER_COLUMNS_SQL, &[]).await {
+        Ok(rows) => {
+            let cols = masked_columns(
+                &policy.filter,
+                rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))),
+            );
+            println!("{}", masked_columns_summary(&policy.filter, &cols));
+        }
+        Err(e) => eprintln!("warning: could not list masked columns ({e})"),
     }
 
     // Best-effort pg_stat_statements presence (non-fatal).
@@ -2067,6 +2151,46 @@ fn print_ascii_table(rows: &[Value]) {
 mod main_cli_tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn doctor_lists_masked_columns_and_respects_policy() {
+        let col = |s: &str, t: &str, c: &str| (s.to_owned(), t.to_owned(), c.to_owned());
+        let columns = vec![
+            col("customers", "users", "email"),
+            col("customers", "users", "first_name"),
+            col("customers", "users", "id"),
+            col("auth", "sessions", "token"),
+            col("catalog", "products", "name"),
+            col("billing", "invoices", "note"),
+        ];
+        let filter = nexql_policy::PolicyFilter {
+            deny_tables: vec!["auth.*".into()],
+            pii_columns: vec!["billing.invoices.note".into()],
+            ..Default::default()
+        };
+        let masked = masked_columns(&filter, columns.clone());
+        assert_eq!(
+            masked,
+            vec![
+                "customers.users.email",
+                "customers.users.first_name",
+                "billing.invoices.note"
+            ]
+        );
+        let summary = masked_columns_summary(&filter, &masked);
+        assert!(
+            summary.starts_with("masking: personal data on; 3 column(s)"),
+            "{summary}"
+        );
+
+        let off = nexql_policy::PolicyFilter {
+            personal_data_heuristics: false,
+            ..Default::default()
+        };
+        let masked = masked_columns(&off, columns);
+        assert_eq!(masked, vec!["auth.sessions.token"]);
+        assert!(masked_columns_summary(&off, &masked).contains("off (personal_data_heuristics"));
+    }
 
     /// Guards the `--tools` help text against drifting from the real active tool
     /// surface count — this class of drift has regressed once before (see

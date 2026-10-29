@@ -96,8 +96,8 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
             input_schema: object_schema(&[(
                 "connectionId",
                 "string",
-                true,
-                "Name of a configured connection profile, as returned by list_connections.",
+                false,
+                "Name of a configured connection profile, as returned by list_connections. Defaults to the active connection.",
             )]),
         },
         ToolSpec {
@@ -137,7 +137,7 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
             ]),
         },
@@ -153,8 +153,8 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                 (
                     "connectionId",
                     "string",
-                    true,
-                    "Name of a configured connection profile, as returned by list_connections.",
+                    false,
+                    "Name of a configured connection profile, as returned by list_connections. Defaults to the active connection, so passing only `database` switches database.",
                 ),
                 (
                     "database",
@@ -202,7 +202,7 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
                 (
                     "resolve_fks",
@@ -238,7 +238,7 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
             ]),
         },
@@ -448,7 +448,7 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: ToolName::ResolveTarget,
-            description: "Autonomously find which connection/database matches a user's hint (a database name, environment, host fragment) and/or an object hint (a table/view name), searching across ALL configured connections and their indexed schemas. Call this FIRST whenever the request references a database, environment, or object that is not the current session context — before search_schema, before list_connections. When the match is unambiguous it switches the session context automatically and returns the resolved connection/database; only returns `ambiguous: true` with a candidate list when multiple equally-plausible matches exist, in which case surface those candidates to the user rather than guessing.",
+            description: "Autonomously find which connection/database matches a user's hint (a database name, environment, host fragment) and/or an object hint (a table/view name), searching across ALL configured connections and their indexed schemas. Use it when the request names a database, environment, or object outside the current session context. When the match is unambiguous it switches the session context automatically and returns the resolved connection/database; only returns `ambiguous: true` with a candidate list when multiple equally-plausible matches exist, in which case surface those candidates to the user rather than guessing.",
             input_schema: object_schema(&[
                 (
                     "hint",
@@ -466,7 +466,7 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::Orient,
-            description: "One-call schema bootstrap digest: tables (columns, PK, row estimate), FK join edges (declared vs inferred), enum-like low-cardinality text columns, and degradation notes. Call this FIRST on an unfamiliar database — before search_schema, describe_object, or get_join_path — to build context in a single low-token round trip instead of many.",
+            description: "Compact overview of the whole database: tables and views with columns, primary key and row estimate, foreign-key joins, and enum values. Use it for broad questions (\"what's in this database?\"); for a specific question, search_schema is cheaper.",
             input_schema: object_schema(&[(
                 "focus",
                 "string",
@@ -500,7 +500,7 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::SearchAllDatabases,
-            description: "Cross-database schema search: find which connection/database owns an entity across all configured profiles and indexed databases.",
+            description: "Cross-database schema search: find which connection/database owns a table or view across every configured profile and every database it can connect to. Databases without a schema index are indexed on first search. Query a hit with run_select's `database` argument.",
             input_schema: object_schema(&[
                 (
                     "query",
@@ -524,7 +524,7 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::SearchSchema,
-            description: "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Call this FIRST before writing any SQL — do not assume a table exists without finding it here.",
+            description: "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Start here before writing SQL, then describe_object the tables you will use — do not assume a table exists without finding it here.",
             input_schema: object_schema(&[(
                 "query",
                 "string",
@@ -564,7 +564,7 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
             ]),
         },
@@ -651,7 +651,7 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
             ]),
         },
@@ -675,7 +675,7 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
                     "database",
                     "string",
                     false,
-                    "Database on connectionId. Requires connectionId when set.",
+                    "Database to use instead of the current one, on connectionId or the active connection.",
                 ),
             ]),
         },

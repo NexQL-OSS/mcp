@@ -10,7 +10,6 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nexql_policy::{
     CatalogColumn, ObjectRef, PII_REDACTED, PolicyFilter, UnresolvedRelation, ViewBody,
     analyze_output_lineage_with_views, column_matches_pii_policy, column_should_redact,
-    is_sensitive_column_name,
 };
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
@@ -620,7 +619,7 @@ pub async fn metadata_sensitive_output_names(
 
 /// Output keys that match the sensitive-name heuristics, regardless of lineage.
 pub fn heuristic_output_names(payload: &Value, filter: &PolicyFilter) -> Vec<String> {
-    if !filter.sensitive_name_heuristics {
+    if !filter.name_heuristics_enabled() {
         return Vec::new();
     }
     let mut names = Vec::new();
@@ -636,7 +635,7 @@ pub fn heuristic_output_names(payload: &Value, filter: &PolicyFilter) -> Vec<Str
             continue;
         };
         for key in obj.keys() {
-            if is_sensitive_column_name(key)
+            if filter.name_is_sensitive(key)
                 && !names.iter().any(|name| name.eq_ignore_ascii_case(key))
             {
                 names.push(key.clone());

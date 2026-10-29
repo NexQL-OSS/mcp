@@ -17,7 +17,7 @@ nexql-mcp profile add analytics \
 
 ## 2. Key Tools for Analysts
 
-- `orient`: Call this first on an unfamiliar database — one-call schema bootstrap (tables, FK joins, enum-like columns) instead of several manual lookups.
+- `orient`: compact overview of the whole database (tables, FK joins, enum values) for broad questions. For specific questions the model uses `search_schema` → `describe_object` → `run_select`.
 - `search_schema`: Fuzzy search tables, views, and column comments across large catalog schemas.
 - `sample_values`: Inspect distinct column values and distributions.
 - `run_select_group`: Build `GROUP BY` aggregations dynamically.

@@ -79,20 +79,30 @@ fn render_snippet(client: &str, args: &[String]) -> Result<String, String> {
     let args_toml = args_as_toml_array(args);
 
     let body = match key.as_str() {
-        "claude" | "claude-desktop" => format!(
-            r#"// Claude Desktop — merge into claude_desktop_config.json
+        "claude" | "claude-desktop" => {
+            let launch = crate::launch::absolute_launch("nexql-mcp", args);
+            let entry = crate::client_targets::merge_entry_with_env(
+                "",
+                crate::client_targets::ConfigShape::Claude,
+                "nexql",
+                &launch.command,
+                &launch.args,
+                &launch.env,
+            )?;
+            let note = if std::path::Path::new(&launch.command).is_absolute() {
+                "// The command is an absolute path: Claude Desktop does not see your shell PATH."
+            } else {
+                "// nexql-mcp was not found on PATH. Replace \"command\" with its absolute path:\n\
+                 // Claude Desktop does not see your shell PATH."
+            };
+            format!(
+                r#"// Claude Desktop — merge into claude_desktop_config.json
 // macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
 // Windows: %APPDATA%\Claude\claude_desktop_config.json
-{{
-  "mcpServers": {{
-    "nexql": {{
-      "command": "nexql-mcp",
-      "args": {args}
-    }}
-  }}
-}}"#,
-            args = args_json
-        ),
+{note}
+{entry}"#
+            )
+        }
         "claude-code" => format!(
             r#"// Claude Code — save as .mcp.json (project) or ~/.claude.json mcpServers
 {{

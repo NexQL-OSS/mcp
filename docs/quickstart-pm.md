@@ -13,7 +13,7 @@ Ask your team lead or DBA for an exported `.nexql/config.toml` project file or c
 
 ## 2. Key Tools for PMs
 
-- `orient`: Call this first on an unfamiliar database — one-call schema bootstrap (tables, FK joins, enum-like columns) instead of several manual lookups.
+- `orient`: compact overview of the whole database (tables, FK joins, enum values) for broad questions. For specific questions the model uses `search_schema` → `describe_object` → `run_select`.
 - `search_schema`: Locate metrics tables (e.g. `search_schema(query="monthly active users")`).
 - `get_join_path`: Find out how two entities connect (e.g. `get_join_path(a="users", b="subscriptions")`).
 - `sample_values`: View example values for a column without writing SQL.

@@ -47,6 +47,11 @@ pub struct ProfileConfig {
     /// existed) enables sensitive-name heuristics. Set `false` to opt out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitive_name_heuristics: Option<bool>,
+    /// `None` (the default) masks columns that look like personal data
+    /// (email, phone, address, a person's name, date of birth). Set `false`
+    /// to return them unmasked; secrets stay masked either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_data_heuristics: Option<bool>,
 }
 
 impl ProfileConfig {
@@ -125,11 +130,19 @@ impl ProfileConfig {
         if self.sensitive_name_heuristics.is_none() {
             self.sensitive_name_heuristics = other.sensitive_name_heuristics;
         }
+        if self.personal_data_heuristics.is_none() {
+            self.personal_data_heuristics = other.personal_data_heuristics;
+        }
     }
 
     /// `None` means the heuristics are on. Only an explicit `false` opts out.
     pub fn sensitive_heuristics_enabled(&self) -> bool {
         self.sensitive_name_heuristics.unwrap_or(true)
+    }
+
+    /// `None` means personal-data masking is on. Only an explicit `false` opts out.
+    pub fn personal_data_heuristics_enabled(&self) -> bool {
+        self.personal_data_heuristics.unwrap_or(true)
     }
 }
 

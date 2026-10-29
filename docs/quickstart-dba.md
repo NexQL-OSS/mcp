@@ -25,7 +25,7 @@ nexql-mcp profile add prod \
 
 ## 2. Key Tools for DBAs
 
-- `orient`: Call this first on an unfamiliar database — one-call schema bootstrap (tables, FK joins, enum-like columns) instead of several manual lookups.
+- `orient`: compact overview of the whole database (tables, FK joins, enum values) for broad questions. For specific questions the model uses `search_schema` → `describe_object` → `run_select`.
 - `auto_tune_query`: Analyzes execution plan metrics and recommends targeted index creations.
 - `suggest_indexes`: Detects high sequential-scan tables and unindexed foreign keys.
 - `check_ddl_safety`: Uses PostgreSQL AST parsing (`pg_query`) to inspect proposed DDL for locking risks (`AccessExclusiveLock`, missing `CONCURRENTLY`, table rewrites).
