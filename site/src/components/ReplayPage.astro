@@ -1,0 +1,218 @@
+---
+/**
+ * A replayed conversation page (/story, /setup): the shared header and footer,
+ * an intro in the tour's style, the scenes as a scrolling page, then links into
+ * the docs for the tools it shows.
+ */
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SiteHeader from "./SiteHeader.astro";
+import SiteFooter from "./SiteFooter.astro";
+import SceneFlow from "./SceneFlow.astro";
+import { TOOLS, toolHref } from "../data/docs";
+import type { Replay } from "../data/scenes";
+
+interface Props {
+  current: "story" | "setup";
+  title: string;
+  description: string;
+  canonical: string;
+  eyebrow: string;
+  lede: string;
+  hints: string[];
+  replay: Replay;
+  /** What each section is called on the progress rail. */
+  unit: string;
+}
+
+const { current, title, description, canonical, eyebrow, lede, hints, replay, unit } = Astro.props;
+const named = new Set(replay.scenes.flatMap((s) => s.steps.map((st) => st[0])));
+const used = TOOLS.filter((t) => named.has(t.name));
+const other =
+  current === "story"
+    ? { href: "/setup", k: "Agent prompts", t: "Let your AI agent set it up", s: "Six prompts to paste into Claude Code, Cursor and others." }
+    : { href: "/story", k: "See a session", t: "Watch NexQL answer a real question", s: "A sales drop, traced to one slow request and fixed." };
+---
+
+<BaseLayout title={title} description={description} canonical={canonical}>
+  <SiteHeader current={current} />
+  <main class="pp">
+    <section class="pp-intro wrap">
+      <p class="pp-eyebrow"><span class="live-dot" aria-hidden="true"></span>{eyebrow}</p>
+      <h1><slot name="title" /></h1>
+      <p class="pp-lede">{lede}</p>
+      <ul class="pp-hints">
+        {hints.map((h) => <li>{h}</li>)}
+      </ul>
+    </section>
+
+    <SceneFlow replay={replay} unit={unit} />
+
+    {
+      used.length > 0 && (
+        <section class="pp-tools wrap">
+          <h2>Tools in this {current === "story" ? "session" : "walkthrough"}</h2>
+          <p>Each one is explained in the docs: what it does, how it works and what it needs.</p>
+          <ul>
+            {used.map((t) => (
+              <li style={`--c:${t.line.color}`}>
+                <a href={toolHref(t.name)}>
+                  <code>{t.name}</code>
+                  <span>{t.summary}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
+
+    <section class="pp-next wrap">
+      <a class="pp-card" href="/">
+        <span class="k">Guided tour</span>
+        <strong>Set it up yourself in five minutes</strong>
+        <span class="s">Pick your app, install, connect a database, ask.</span>
+      </a>
+      <a class="pp-card" href={other.href}>
+        <span class="k">{other.k}</span>
+        <strong>{other.t}</strong>
+        <span class="s">{other.s}</span>
+      </a>
+      <a class="pp-card" href="/docs">
+        <span class="k">Docs</span>
+        <strong>How every tool and guardrail works</strong>
+        <span class="s">All {TOOLS.length} tools, access modes, masking and more.</span>
+      </a>
+    </section>
+  </main>
+  <SiteFooter />
+</BaseLayout>
+
+<style>
+  .pp-intro {
+    padding-top: clamp(40px, 7vw, 72px);
+    padding-bottom: 28px;
+  }
+  .pp-intro > * {
+    max-width: 820px;
+  }
+  .pp-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font: 500 12px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line-2);
+    border-radius: 99px;
+    padding: 8px 14px;
+  }
+  h1 {
+    margin-top: 22px;
+    font-size: clamp(34px, 5.6vw, 58px);
+    font-weight: 700;
+  }
+  .pp-lede {
+    margin-top: 18px;
+    font-size: clamp(17px, 1.6vw, 19.5px);
+    color: var(--muted);
+    max-width: 66ch;
+  }
+  .pp-hints {
+    list-style: none;
+    margin: 22px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pp-hints li {
+    font-size: 13.5px;
+    color: var(--muted);
+    padding: 6px 11px;
+    border-radius: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+
+  .pp-tools {
+    margin-top: 40px;
+    padding-top: 56px;
+    border-top: 1px solid var(--line);
+  }
+  h2 {
+    font-size: 26px;
+  }
+  .pp-tools > p {
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .pp-tools ul {
+    list-style: none;
+    margin: 20px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+    gap: 10px;
+  }
+  .pp-tools a {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--c);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--fg);
+  }
+  .pp-tools a:hover {
+    border-color: var(--c);
+    text-decoration: none;
+  }
+  .pp-tools code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: 14px;
+  }
+  .pp-tools a span {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+
+  .pp-next {
+    margin-top: 56px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 12px;
+  }
+  .pp-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--fg);
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .pp-card:hover {
+    border-color: var(--accent);
+    text-decoration: none;
+    transform: translateY(-2px);
+  }
+  .k {
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .s {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+</style>

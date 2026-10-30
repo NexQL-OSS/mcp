@@ -1,0 +1,18 @@
+---
+import ReplayPage from "../components/ReplayPage.astro";
+import { STORY } from "../data/story";
+---
+
+<ReplayPage
+  current="story"
+  title="See a session · NexQL MCP"
+  canonical="https://nexql-mcp.astrx.dev/story"
+  description="A replayed agent conversation: an evening sales drop noticed, narrowed to a single slow request, explained, fixed without locking payments, and confirmed recovered, all through NexQL MCP's tools."
+  eyebrow="See a session · about 4 minutes"
+  lede="A store's evening sales drop by a third. Follow an AI assistant with NexQL as it finds out why, from the live database: narrowed to one slow request, explained, fixed without locking payments, and confirmed recovered."
+  hints={["Seven questions, Monday to Tuesday", "Scroll to follow along", "Tool names open their docs"]}
+  replay={STORY}
+  unit="Question"
+>
+  <Fragment slot="title">One week, one database, <span class="serif-em grad-text">one conversation</span>.</Fragment>
+</ReplayPage>

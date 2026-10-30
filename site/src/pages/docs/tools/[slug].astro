@@ -1,0 +1,333 @@
+---
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import ModeBadge from "../../../components/ModeBadge.astro";
+import { TOOLS, toolHref, type DocTool } from "../../../data/docs";
+import { inline } from "../../../lib/inline";
+
+export function getStaticPaths() {
+  return TOOLS.map((tool) => ({ params: { slug: tool.name.replaceAll("_", "-") }, props: { tool } }));
+}
+
+const { tool } = Astro.props as { tool: DocTool };
+const onLine = TOOLS.filter((t) => t.line.id === tool.line.id);
+const i = onLine.findIndex((t) => t.name === tool.name);
+const prev = onLine[i - 1];
+const next = onLine[i + 1];
+const sets = [...tool.sets, "full"];
+const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.required));
+---
+
+<DocsLayout title={tool.name} description={`${tool.summary} How the ${tool.name} tool in NexQL MCP works, when your assistant uses it, and its parameters.`}>
+  <article class="tool" style={`--c:${tool.line.color}`}>
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href="/docs">Docs</a><span>/</span><a href="/docs/tools">Tools</a><span>/</span><a href={`/docs/tools#${tool.line.id}`}>{tool.line.name}</a>
+    </nav>
+
+    <p class="line-pill"><span class="dot" aria-hidden="true"></span>{tool.line.name} · stop {i + 1} of {onLine.length}</p>
+    <h1 class="name">{tool.name}</h1>
+    <p class="summary">{tool.summary}</p>
+
+    <div class="badges">
+      <ModeBadge mode={tool.mode} />
+      {tool.local && <span class="badge local">Saves to your nexql-mcp setup</span>}
+      <span class="badge sets" title="--tools sets that list this tool">Tool sets: {sets.join(" · ")}</span>
+    </div>
+
+    <section class="ask" aria-label="Example">
+      <p class="label">You might ask</p>
+      <p class="bubble">“{tool.ask}”</p>
+      <p class="then">Your assistant may call <code>{tool.name}</code> to answer.</p>
+    </section>
+
+    <section>
+      <h2>How it works</h2>
+      <ul class="how">
+        {tool.how.map((h) => <li set:html={inline(h)} />)}
+      </ul>
+    </section>
+
+    <section>
+      <h2>Parameters</h2>
+      {
+        params.length === 0 ? (
+          <p class="none">None. Call it as it is.</p>
+        ) : (
+          <dl class="params">
+            {params.map((p) => (
+              <div class="param">
+                <dt>
+                  <code>{p.name}</code>
+                  <span class="type">{p.type}</span>
+                  {p.required && <span class="req">required</span>}
+                </dt>
+                <dd>
+                  {p.description}
+                  {p.enum && (
+                    <span class="enum">
+                      One of: {p.enum.map((v) => <code>{v}</code>)}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )
+      }
+    </section>
+
+    <section>
+      <h2>What your assistant reads</h2>
+      <p class="hint">The description nexql-mcp sends with the tool. It's how the assistant decides when to use it.</p>
+      <blockquote class="server">{tool.description}</blockquote>
+    </section>
+
+    <nav class="stops" aria-label={`Other tools on ${tool.line.name}`}>
+      {
+        prev ? (
+          <a class="stop prev" href={toolHref(prev.name)}>
+            <span class="dir">← Previous stop</span>
+            <code>{prev.name}</code>
+          </a>
+        ) : (
+          <span />
+        )
+      }
+      {
+        next ? (
+          <a class="stop next" href={toolHref(next.name)}>
+            <span class="dir">Next stop →</span>
+            <code>{next.name}</code>
+          </a>
+        ) : (
+          <a class="stop next" href="/docs/tools">
+            <span class="dir">End of the line</span>
+            <span>All tools →</span>
+          </a>
+        )
+      }
+    </nav>
+  </article>
+</DocsLayout>
+
+<style>
+  .tool {
+    max-width: 76ch;
+  }
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--faint);
+    margin-bottom: 22px;
+  }
+  .crumbs a {
+    color: var(--muted);
+  }
+  .line-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font: 500 12px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    color: var(--c);
+    border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+    background: color-mix(in srgb, var(--c) 9%, transparent);
+    border-radius: 99px;
+    padding: 7px 12px;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+  .name {
+    font-family: var(--font-mono);
+    font-size: clamp(28px, 5vw, 42px) !important;
+    font-weight: 500 !important;
+    margin-top: 16px;
+    overflow-wrap: anywhere;
+  }
+  .summary {
+    font-size: 20px;
+    color: var(--fg);
+    margin-top: 10px;
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .badge {
+    font: 500 12.5px/1 var(--font-body);
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line-2);
+    color: var(--muted);
+  }
+  .badge.local {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .sets {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  section {
+    margin-top: 40px;
+  }
+  h2 {
+    font-size: 22px;
+    margin-bottom: 14px;
+  }
+  .ask {
+    margin-top: 32px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .label {
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .bubble {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 14px 14px 4px 14px;
+    background: color-mix(in srgb, var(--accent) 16%, var(--panel-2));
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    font-size: 16.5px;
+  }
+  .then {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+  .how {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 2px solid var(--c);
+  }
+  .how li {
+    position: relative;
+    padding: 0 0 14px 22px;
+    color: #c9d1d9;
+  }
+  .how li::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--c);
+  }
+  .how li:last-child {
+    padding-bottom: 0;
+  }
+  .none,
+  .hint {
+    color: var(--muted);
+  }
+  .hint {
+    font-size: 14.5px;
+    margin: -6px 0 12px;
+  }
+  .params {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .param {
+    padding: 14px 16px;
+  }
+  .param + .param {
+    border-top: 1px solid var(--line);
+  }
+  dt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  dt code {
+    color: var(--fg);
+    font-size: 14px;
+  }
+  .type {
+    font: 400 12px/1 var(--font-mono);
+    color: var(--kw);
+  }
+  .req {
+    font: 500 11px/1 var(--font-mono);
+    color: var(--str);
+    border: 1px solid color-mix(in srgb, var(--str) 40%, transparent);
+    border-radius: 5px;
+    padding: 3px 5px;
+  }
+  dd {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .enum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 13.5px;
+  }
+  .server {
+    margin: 0;
+    padding: 16px 18px;
+    border-left: 3px solid var(--c);
+    background: var(--bg-deep);
+    border-radius: 0 10px 10px 0;
+    font: 400 13.5px/1.7 var(--font-mono);
+    color: #c9d1d9;
+  }
+  .stops {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 56px;
+  }
+  .stop {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--fg);
+    min-width: 0;
+  }
+  .stop:hover {
+    border-color: var(--c);
+    text-decoration: none;
+  }
+  .stop code {
+    overflow-wrap: anywhere;
+  }
+  .next {
+    text-align: right;
+    align-items: flex-end;
+  }
+  .dir {
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+</style>
