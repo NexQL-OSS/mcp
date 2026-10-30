@@ -6,6 +6,9 @@ import sitemap from "@astrojs/sitemap";
 export default defineConfig({
   site: "https://nexql-mcp.astrx.dev",
   integrations: [preact(), sitemap()],
+  markdown: {
+    shikiConfig: { theme: "css-variables" },
+  },
   build: {
     assets: "_astro",
   },

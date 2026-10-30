@@ -1,0 +1,237 @@
+---
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import ModeBadge from "../../../components/ModeBadge.astro";
+import { LINES, TOOLS, toolHref } from "../../../data/docs";
+---
+
+<DocsLayout title="All tools" description={`Every one of NexQL MCP's ${TOOLS.length} tools, grouped by what they're for, with what each does and which access mode it needs.`}>
+  <p class="eyebrow">Reference</p>
+  <h1>All {TOOLS.length} tools</h1>
+  <p class="lede">
+    You don't call these yourself. Your assistant picks them while answering you. This is what each one does, so you know what
+    it can and can't do for you.
+  </p>
+
+  <div class="filters" role="search">
+    <label class="search">
+      <span class="sr">Filter tools</span>
+      <input id="q" type="search" placeholder="Filter: locks, export, index…" autocomplete="off" spellcheck="false" />
+    </label>
+    <div class="modes" role="group" aria-label="Access mode">
+      <button type="button" data-mode="" aria-pressed="true">Any mode</button>
+      <button type="button" data-mode="read" aria-pressed="false">Read</button>
+      <button type="button" data-mode="write" aria-pressed="false">Write</button>
+      <button type="button" data-mode="admin" aria-pressed="false">Admin</button>
+    </div>
+  </div>
+  <p class="count" id="count" aria-live="polite"></p>
+
+  {
+    LINES.map((line) => (
+      <section class="line" id={line.id} style={`--c:${line.color}`}>
+        <header>
+          <span class="dot" aria-hidden="true" />
+          <h2>{line.name}</h2>
+          <p>{line.blurb}</p>
+        </header>
+        <ul>
+          {TOOLS.filter((t) => t.line.id === line.id).map((t) => (
+            <li data-mode={t.mode} data-text={`${t.name} ${t.name.replaceAll("_", " ")} ${t.summary} ${t.ask} ${t.description}`.toLowerCase()}>
+              <a href={toolHref(t.name)}>
+                <code class="tname">{t.name}</code>
+                <span class="tsum">{t.summary}</span>
+                {t.mode !== "read" && <ModeBadge mode={t.mode} />}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+  <p class="empty" id="empty" hidden>No tool matches. Try a shorter word.</p>
+</DocsLayout>
+
+<script>
+  const q = document.querySelector<HTMLInputElement>("#q")!;
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>(".modes button")];
+  const rows = [...document.querySelectorAll<HTMLLIElement>(".line li")];
+  const count = document.querySelector("#count")!;
+  const empty = document.querySelector<HTMLElement>("#empty")!;
+  let mode = "";
+
+  function apply() {
+    const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const row of rows) {
+      const text = row.dataset.text ?? "";
+      const ok = (!mode || row.dataset.mode === mode) && words.every((w) => text.includes(w));
+      row.hidden = !ok;
+      if (ok) shown++;
+    }
+    for (const section of document.querySelectorAll<HTMLElement>(".line")) {
+      section.hidden = !section.querySelector("li:not([hidden])");
+    }
+    count.textContent = shown === rows.length ? "" : `${shown} of ${rows.length} tools`;
+    empty.hidden = shown > 0;
+  }
+
+  q.addEventListener("input", apply);
+  for (const b of buttons) {
+    b.addEventListener("click", () => {
+      mode = b.dataset.mode ?? "";
+      for (const o of buttons) o.setAttribute("aria-pressed", String(o === b));
+      apply();
+    });
+  }
+</script>
+
+<style>
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
+    position: sticky;
+    top: var(--header-h);
+    z-index: 5;
+    padding: 12px 0;
+    background: var(--bg);
+  }
+  .search {
+    flex: 1 1 260px;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  input {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--line-2);
+    background: var(--panel);
+    color: var(--fg);
+    font: 400 15px var(--font-body);
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .modes {
+    display: flex;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .modes button {
+    min-height: 44px;
+    padding: 0 14px;
+    border: 0;
+    background: var(--panel);
+    color: var(--muted);
+    font: 500 14px var(--font-body);
+    cursor: pointer;
+  }
+  .modes button + button {
+    border-left: 1px solid var(--line-2);
+  }
+  .modes button[aria-pressed="true"] {
+    background: var(--panel-2);
+    color: var(--fg);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .count {
+    min-height: 1.6em;
+    color: var(--faint);
+    font: 400 13px var(--font-mono);
+  }
+  .line {
+    margin-top: 28px;
+  }
+  .line[hidden] {
+    display: none;
+  }
+  header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    align-items: center;
+  }
+  .dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--c);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent);
+  }
+  h2 {
+    font-size: 22px;
+  }
+  header p {
+    grid-column: 2;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  ul {
+    list-style: none;
+    margin: 14px 0 0 6px;
+    padding: 0 0 0 0;
+    border-left: 3px solid var(--c);
+  }
+  li[hidden] {
+    display: none;
+  }
+  li a {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 15em) minmax(0, 1fr) auto;
+    gap: 6px 18px;
+    align-items: center;
+    padding: 11px 14px 11px 26px;
+    color: var(--fg);
+    border-bottom: 1px solid var(--line);
+  }
+  li a::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    width: 13px;
+    height: 13px;
+    margin-top: -6.5px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid var(--c);
+  }
+  li a:hover {
+    background: var(--panel);
+    text-decoration: none;
+  }
+  li a:hover::before {
+    background: var(--c);
+  }
+  .tname {
+    font-size: 14px;
+    background: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    overflow-wrap: anywhere;
+  }
+  .tsum {
+    color: var(--muted);
+    font-size: 15px;
+  }
+  @media (max-width: 640px) {
+    li a {
+      grid-template-columns: 1fr;
+    }
+  }
+  .empty {
+    margin-top: 32px;
+    color: var(--muted);
+  }
+</style>

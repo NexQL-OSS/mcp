@@ -1,0 +1,17 @@
+---
+/**
+ * A command or snippet with a copy button. `html` may hold <span> markup:
+ * `.p` (prompt) and `.c` (comment) are left out of what Copy puts on the
+ * clipboard, and `[data-fill]` spans are filled in by the tour script.
+ */
+interface Props {
+  html: string;
+  label?: string;
+}
+const { html, label = "Copy" } = Astro.props;
+---
+
+<figure class="code">
+  <pre set:html={html} />
+  <button class="copy" type="button" aria-label={label}>Copy</button>
+</figure>

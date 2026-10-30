@@ -1,0 +1,292 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
+---
+
+<DocsLayout
+  title="Docs"
+  description="How NexQL MCP works: every tool it gives your AI assistant, the guardrails around them, connections, the schema index, and the command line."
+>
+  <p class="eyebrow">Docs</p>
+  <h1>The map of <span class="serif-em grad-text">everything</span> NexQL does.</h1>
+  <p class="lede">
+    NexQL MCP gives your AI assistant {TOOLS.length} tools for your Postgres database, plus the guardrails that decide what
+    they're allowed to do. Read a guide to understand a feature, or open a tool to see exactly how it behaves.
+  </p>
+
+  <div class="starts">
+    <a class="start" href="/">
+      <span class="k">New here?</span>
+      <strong>Take the guided tour</strong>
+      <span class="s">Install, connect and ask your first question in about five minutes.</span>
+    </a>
+    <a class="start" href="/docs/how-it-works">
+      <span class="k">Curious?</span>
+      <strong>How a question travels</strong>
+      <span class="s">From your words to rows, and every check in between.</span>
+    </a>
+    <a class="start" href="/docs/tools">
+      <span class="k">Looking for one?</span>
+      <strong>Search all {TOOLS.length} tools</strong>
+      <span class="s">Filter by name, task or access mode.</span>
+    </a>
+  </div>
+
+  <section class="flow" aria-labelledby="flow-h">
+    <h2 id="flow-h">One question, four stops</h2>
+    <ol class="route">
+      <li>
+        <span class="stopn">01</span>
+        <strong>You ask</strong>
+        <span>“Which customers churned last month?”</span>
+      </li>
+      <li>
+        <span class="stopn">02</span>
+        <strong>Your AI app</strong>
+        <span>Picks tools: <code>search_schema</code>, then <code>run_select</code>.</span>
+      </li>
+      <li class="nex">
+        <span class="stopn">03</span>
+        <strong>nexql-mcp, on your computer</strong>
+        <span>Finds the real tables in its schema index, checks the SQL is allowed, masks personal data.</span>
+      </li>
+      <li>
+        <span class="stopn">04</span>
+        <strong>Your database</strong>
+        <span>Runs the query read-only, under a time limit and a row cap.</span>
+      </li>
+    </ol>
+    <p class="more"><a href="/docs/how-it-works">Follow the whole route →</a></p>
+  </section>
+
+  <section aria-labelledby="lines-h">
+    <h2 id="lines-h">Tools, by line</h2>
+    <p class="sub">Grouped by what you'd use them for. All but seven work in the default read-only mode; those seven, on the Changes line, need write or admin mode.</p>
+    <div class="lines">
+      {
+        LINES.map((line) => (
+          <div class="line" style={`--c:${line.color}`}>
+            <a class="lh" href={`/docs/tools#${line.id}`}>
+              <span class="dot" aria-hidden="true" />
+              {line.name}
+            </a>
+            <p class="lb">{line.blurb}</p>
+            <ul>
+              {Object.keys(line.tools).map((name) => (
+                <li>
+                  <a href={toolHref(name)}>{name}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section aria-labelledby="guides-h">
+    <h2 id="guides-h">Guides</h2>
+    <div class="guides">
+      {
+        GUIDES.map((g, i) => (
+          <a class="guide" href={`/docs/${g.slug}`}>
+            <span class="gn">{String(i + 1).padStart(2, "0")}</span>
+            <strong>{g.title}</strong>
+            <span>{g.blurb}</span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+</DocsLayout>
+
+<style>
+  h1 {
+    max-width: 18ch;
+  }
+  section {
+    margin-top: 64px;
+  }
+  h2 {
+    font-size: 26px;
+  }
+  .sub {
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .starts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+    gap: 12px;
+    margin-top: 32px;
+  }
+  .start,
+  .guide {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--fg);
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .start:hover,
+  .guide:hover {
+    border-color: var(--accent);
+    text-decoration: none;
+    transform: translateY(-2px);
+  }
+  .k,
+  .gn {
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .s,
+  .guide span:last-child {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+
+  /* The route: a gradient track with four stops. */
+  .route {
+    list-style: none;
+    margin: 22px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 14px;
+    position: relative;
+  }
+  @media (min-width: 900px) {
+    .route {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      padding-top: 26px;
+    }
+    .route::before {
+      content: "";
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      right: 8px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--nex-grad);
+    }
+    .route li::before {
+      content: "";
+      position: absolute;
+      top: -26px;
+      left: 0;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 3px solid var(--fg);
+    }
+  }
+  .route li {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .route li span:last-child {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+  .route li.nex {
+    border-color: transparent;
+    background:
+      linear-gradient(var(--panel-2), var(--panel-2)) padding-box,
+      var(--nex-grad) border-box;
+    border: 1px solid transparent;
+  }
+  .stopn {
+    font: 400 22px/1 var(--font-serif);
+    font-style: italic;
+    color: var(--accent);
+  }
+  .more {
+    margin-top: 14px;
+  }
+
+  .lines {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .line {
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    border-top: 3px solid var(--c);
+  }
+  .lh {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 17px;
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+  .lb {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 6px;
+  }
+  .line ul {
+    list-style: none;
+    margin: 14px 0 0 5px;
+    padding: 0;
+    border-left: 2px solid var(--c);
+  }
+  .line li a {
+    position: relative;
+    display: block;
+    padding: 3px 0 3px 16px;
+    font: 400 13px/1.5 var(--font-mono);
+    color: #c9d1d9;
+  }
+  .line li a::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--panel);
+    border: 2px solid var(--c);
+  }
+  .line li a:hover {
+    color: var(--fg);
+  }
+  .line li a:hover::before {
+    background: var(--c);
+  }
+
+  .guides {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+    gap: 12px;
+    margin-top: 22px;
+  }
+</style>

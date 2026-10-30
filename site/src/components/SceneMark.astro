@@ -1,0 +1,485 @@
+---
+/**
+ * A scene's evidence: the chart, table, list, plan or prompts that came with
+ * the answer. Charts draw in and bars grow when SceneFlow marks the scene `.in`;
+ * without JS they are simply drawn.
+ */
+import { HUE, linePoints, type Mark, type Tone } from "../data/scenes";
+
+interface Props {
+  mark: Mark;
+}
+const { mark } = Astro.props;
+
+const toneClass = (t: Tone) => (t === 1 ? "hot" : t === 2 ? "ok" : "");
+const cell = (c: string | [string, Tone]) => (Array.isArray(c) ? { text: c[0], tone: c[1] } : { text: c, tone: 0 as Tone });
+const sub = "sub" in mark ? mark.sub : undefined;
+---
+
+<figure class={`mark mark-${mark.kind}`}>
+  {
+    mark.kind !== "code" && (
+      <figcaption>
+        <span class="t">{mark.title}</span>
+        {sub && <span class="s">{sub}</span>}
+      </figcaption>
+    )
+  }
+
+  {
+    mark.kind === "line" &&
+      (() => {
+        const pts = linePoints(mark.vals, mark.ymax);
+        const color = mark.tone === "ok" ? HUE.ok : HUE.hot;
+        return (
+          <div class="chart" style={`--c:${color}`}>
+            <svg viewBox="0 0 600 140" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="0" x2="600" y1="70" y2="70" class="grid" />
+              <polygon points={`0,140 ${pts} 600,140`} class="area" />
+              <polyline points={pts} class="stroke" />
+            </svg>
+            {mark.vline != null && (
+              <span class="vline" style={`left:${(mark.vline * 100).toFixed(1)}%`}>
+                <em>{mark.vlineLabel}</em>
+              </span>
+            )}
+            <span class="x a">{mark.xa}</span>
+            <span class="x b">{mark.xb}</span>
+          </div>
+        );
+      })()
+  }
+
+  {
+    mark.kind === "hbars" && (
+      <div class="bars">
+        {mark.items.map(([label, value, shown, tone]) => (
+          <div class={`bar ${toneClass(tone)}`}>
+            <span class="bl">{label}</span>
+            <span class="bv">{shown}</span>
+            <span class="track">
+              <span class="fill" style={`--w:${Math.max(1.2, (value / mark.max) * 100).toFixed(1)}%`} />
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  {
+    mark.kind === "table" && (
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {mark.head.map((h) => (
+                <th class={h.al}>{h.t}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mark.rows.map((r) => (
+              <tr>
+                {r.map((c, i) => {
+                  const { text, tone } = cell(c);
+                  return i === 0 ? (
+                    <th scope="row">{text}</th>
+                  ) : (
+                    <td class={`${mark.head[i]?.al ?? "left"} ${toneClass(tone)}`}>{text}</td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  {
+    mark.kind === "list" && (
+      <ul class="items">
+        {mark.items.map(([kind, text, detail]) => (
+          <li class={kind}>
+            <span class="glyph" aria-hidden="true">
+              {kind === "hot" ? "▲" : "✓"}
+            </span>
+            <span>
+              <span class="it">{text}</span>
+              {detail && <span class="id">{detail}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  {
+    mark.kind === "note" && (
+      <ol class="plan">
+        {mark.lines.map(([kind, text, detail], i) => (
+          <li class={kind}>
+            <span class="lead" aria-hidden="true">
+              {kind === "step" ? i + 1 : kind === "warn" ? "▲" : ""}
+            </span>
+            <span>
+              <span class="it">{text}</span>
+              {detail && <span class="id">{detail}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+
+  {
+    mark.kind === "code" && (
+      <div class="blocks">
+        {mark.blocks.map((b, i) => (
+          <div class={`block${i === 0 ? " primary" : ""}`}>
+            <div class="block-head">
+              <span class="bl">{b.label}</span>
+              <button class="block-copy" type="button" aria-label={`Copy: ${b.label.toLowerCase()}`}>
+                Copy
+              </button>
+            </div>
+            <pre>{b.code}</pre>
+            {b.hint && <p class="hint">{b.hint}</p>}
+          </div>
+        ))}
+      </div>
+    )
+  }
+</figure>
+
+<style>
+  .mark {
+    margin: 0;
+    padding: 18px 20px 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    margin-bottom: 18px;
+  }
+  .t {
+    font: 500 11.5px/1.3 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .s {
+    font-size: 13.5px;
+    color: var(--faint);
+  }
+
+  /* Line chart */
+  .chart {
+    position: relative;
+    height: clamp(120px, 18vw, 170px);
+    margin-bottom: 26px;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .grid {
+    stroke: var(--line);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .area {
+    fill: color-mix(in srgb, var(--c) 10%, transparent);
+  }
+  .stroke {
+    fill: none;
+    stroke: var(--c);
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .vline {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: color-mix(in srgb, var(--ok) 60%, transparent);
+  }
+  .vline em {
+    position: absolute;
+    top: -2px;
+    left: 8px;
+    font: 400 12px/1 var(--font-mono);
+    font-style: normal;
+    color: var(--ok);
+    white-space: nowrap;
+  }
+  .x {
+    position: absolute;
+    bottom: -22px;
+    font: 400 12px/1 var(--font-mono);
+    color: var(--faint);
+  }
+  .x.a {
+    left: 0;
+  }
+  .x.b {
+    right: 0;
+  }
+
+  /* Bars */
+  .bars {
+    display: grid;
+    gap: 16px;
+  }
+  .bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+  }
+  .bar .bl {
+    color: var(--muted);
+  }
+  .bar .bv {
+    font: 500 14px/1.6 var(--font-mono);
+    color: var(--muted);
+  }
+  .bar.hot .bv {
+    color: var(--nex-amber);
+  }
+  .bar.ok .bv {
+    color: var(--ok);
+  }
+  .track {
+    grid-column: 1 / -1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-deep);
+    overflow: hidden;
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    width: var(--w);
+    border-radius: 4px;
+    background: var(--line-2);
+  }
+  .bar.hot .fill {
+    background: var(--nex-amber);
+  }
+  .bar.ok .fill {
+    background: var(--ok);
+  }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+  thead th {
+    font: 500 11px/1.2 var(--font-mono);
+    letter-spacing: 0.1em;
+    color: var(--faint);
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  tbody th,
+  td {
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody tr:last-child > * {
+    border-bottom: 0;
+  }
+  tbody th {
+    text-align: left;
+    font-weight: 400;
+    color: var(--fg);
+    padding-right: 16px;
+  }
+  td {
+    font: 400 14px/1.4 var(--font-mono);
+    color: var(--muted);
+    padding-left: 16px;
+    white-space: nowrap;
+  }
+  @media (max-width: 560px) {
+    table {
+      font-size: 14px;
+    }
+    td {
+      font-size: 12.5px;
+      padding-left: 10px;
+      white-space: normal;
+    }
+  }
+  .left {
+    text-align: left;
+  }
+  .right {
+    text-align: right;
+  }
+  td.hot {
+    color: var(--nex-amber);
+  }
+  td.ok {
+    color: var(--ok);
+  }
+
+  /* List and plan */
+  .items,
+  .plan {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 14px;
+  }
+  .items li,
+  .plan li {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 10px;
+  }
+  .glyph,
+  .lead {
+    font: 500 12px/1.9 var(--font-mono);
+    color: var(--faint);
+  }
+  .items .hot .glyph,
+  .plan .warn .lead {
+    color: var(--nex-amber);
+  }
+  .items .ok .glyph {
+    color: var(--ok);
+  }
+  .it {
+    display: block;
+    color: var(--fg);
+  }
+  .id {
+    display: block;
+    font-size: 14.5px;
+    color: var(--faint);
+  }
+  .plan .warn {
+    padding: 12px 14px 12px 12px;
+    border-left: 3px solid var(--nex-amber);
+    border-radius: 3px 10px 10px 3px;
+    background: color-mix(in srgb, var(--nex-amber) 8%, transparent);
+  }
+  .plan .warn .it {
+    color: var(--nex-amber);
+    font-weight: 500;
+  }
+  .plan .p {
+    grid-template-columns: 1fr;
+    color: var(--muted);
+  }
+  .plan .p .lead {
+    display: none;
+  }
+  .plan .p .it {
+    color: var(--muted);
+  }
+
+  /* Prompts and commands */
+  .mark-code {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .blocks {
+    display: grid;
+    gap: 14px;
+  }
+  .block {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-deep);
+    overflow: hidden;
+  }
+  .block.primary {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 10px 9px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .block-head .bl {
+    font: 500 11.5px/1.3 var(--font-mono);
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .primary .block-head .bl {
+    color: var(--accent);
+  }
+  .block-copy {
+    flex: none;
+    font: 500 13px/1 var(--font-body);
+    color: var(--fg);
+    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  .block-copy:hover {
+    border-color: var(--accent);
+  }
+  .block-copy[data-done] {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  }
+  pre {
+    margin: 0;
+    padding: 14px 16px;
+    font: 400 13.5px/1.65 var(--font-mono);
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .hint {
+    margin: 0;
+    padding: 10px 16px 12px;
+    border-top: 1px dashed var(--line);
+    font-size: 14px;
+    color: var(--faint);
+  }
+</style>
+
+<style>
+  /* Draw-in once SceneFlow marks the scene as seen. Only when JS runs, so the
+     marks are never left hidden. */
+  svg {
+    transition: clip-path 1.3s cubic-bezier(0.3, 0.7, 0.3, 1) 0.35s;
+    clip-path: inset(-20px 0 -20px 0);
+  }
+  :global(html.js .scene:not(.in)) svg {
+    clip-path: inset(-20px 100% -20px 0);
+  }
+  .fill {
+    transition: width 1s cubic-bezier(0.3, 0.7, 0.3, 1) 0.35s;
+  }
+  :global(html.js .scene:not(.in)) .fill {
+    width: 0;
+  }
+</style>

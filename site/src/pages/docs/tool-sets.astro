@@ -1,0 +1,66 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import Code from "../../components/Code.astro";
+import { TOOLS, toolHref } from "../../data/docs";
+
+const count = (set: string) => TOOLS.filter((t) => t.sets.includes(set)).length;
+const SETS = [
+  { id: "query", note: "(default)", for: "Asking questions: schema search, run_select, explain_query, exports, connections." },
+  { id: "dba", note: "", for: "Looking after a database: health checks, locks, slow queries, index advice, migrations." },
+  { id: "meta", note: "", for: "The smallest start. The assistant loads more with discover_tools when it needs them." },
+];
+const config = `{
+  "mcpServers": {
+    "nexql-mcp": {
+      "command": "npx",
+      "args": ["-y", "nexql-mcp@latest", "--profile", "mydb", "--tools", "dba"]
+    }
+  }
+}`;
+---
+
+<DocsLayout title="Tool sets" description="How many of NexQL's tools your app sees, and why fewer can be better.">
+  <article class="prose">
+    <p class="eyebrow">Guide · 06</p>
+    <h1>Tool sets</h1>
+    <p class="lede">How many of NexQL's tools your app sees, and why fewer can be better.</p>
+
+    <p>
+      Every tool your app lists costs room in the assistant's context window, on every message. NexQL can show all of its tools,
+      or a smaller set suited to the job. Pick with <code>--tools</code> (or <code>NEXQL_MCP_TOOLS</code>).
+    </p>
+
+    <table>
+      <thead><tr><th>Set</th><th>Tools</th><th>For</th></tr></thead>
+      <tbody>
+        {
+          SETS.map((s) => (
+            <tr>
+              <td><code>{s.id}</code> {s.note}</td>
+              <td>{count(s.id)}</td>
+              <td>{s.for}</td>
+            </tr>
+          ))
+        }
+        <tr><td><code>full</code></td><td>{TOOLS.length}</td><td>Everything.</td></tr>
+      </tbody>
+    </table>
+
+    <p>Each tool's page lists the sets it's in. To pick one, add <code>--tools</code> to the app's config:</p>
+    <Code html={config.replace(/&/g, "&amp;").replace(/</g, "&lt;")} />
+
+    <h2>Sets aren't permissions</h2>
+    <p>
+      A tool set only decides what the assistant is <em>shown</em>. What it may <em>run</em> is decided by the{" "}
+      <a href="/docs/safety">access mode</a>. Write and admin tools stay off the list until a connection allows them, whichever
+      set you choose, and are still checked on every call.
+    </p>
+
+    <h2>Loading tools on demand</h2>
+    <p>
+      With <code>meta</code>, the assistant starts with the essentials plus{" "}
+      <a href={toolHref("discover_tools")}><code>discover_tools</code></a>. When you ask about something outside that set, say
+      lock contention, it searches by keyword ("locks") or category ("dba"), gets the matching tools, and carries on.
+    </p>
+  </article>
+</DocsLayout>

@@ -1,0 +1,67 @@
+---
+import { NEXQL_URL, REGISTRY_URL, REPO_URL, THEMES_URL, FACTS } from "../data/site";
+---
+
+<footer class="site-footer">
+  <div class="ribbon"></div>
+  <div class="wrap cols">
+    <div>
+      <p class="name">NexQL MCP</p>
+      <p class="small">A Postgres MCP server that runs on your computer. {FACTS.license}.</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="/docs">Docs</a>
+      <a href="/docs/tools">All tools</a>
+      <a href={REPO_URL}>GitHub</a>
+      <a href={`${REPO_URL}/issues`}>Report a problem</a>
+      <a href={REGISTRY_URL}>MCP Registry</a>
+      <a href={NEXQL_URL}>NexQL for VS Code</a>
+      <a href={THEMES_URL}>NexQL themes</a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: 96px;
+    background: var(--bg-deep);
+    border-top: 1px solid var(--line);
+    position: relative;
+  }
+  .ribbon {
+    position: absolute;
+    top: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 0;
+  }
+  .cols {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 24px;
+    padding-top: 36px;
+    padding-bottom: 48px;
+  }
+  .name {
+    font-weight: 700;
+  }
+  .small {
+    color: var(--faint);
+    font-size: 14px;
+    margin-top: 4px;
+  }
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+  nav a {
+    color: var(--muted);
+    font-size: 14.5px;
+  }
+  nav a:hover {
+    color: var(--fg);
+  }
+</style>
