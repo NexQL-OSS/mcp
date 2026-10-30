@@ -122,6 +122,14 @@ fn terminal_command(name: &str, profile: &ProfileConfig) -> String {
         if let Some(u) = &profile.user {
             cmd.push_str(&format!(" --user {u}"));
         }
+        // Only values `profile add --sslmode` accepts reach the shell.
+        if let Some(m) = profile
+            .sslmode
+            .as_deref()
+            .filter(|m| ["disable", "prefer", "require", "verify-ca", "verify-full"].contains(m))
+        {
+            cmd.push_str(&format!(" --sslmode {m}"));
+        }
     }
     cmd.push_str(" --access-mode read");
     cmd
@@ -420,5 +428,25 @@ mod tests {
             terminal_command("billing", &profile),
             "nexql-mcp profile add billing --host localhost --port 5433 --dbname billing --user billing_reader --access-mode read"
         );
+    }
+
+    #[test]
+    fn terminal_command_keeps_sslmode() {
+        let profile = ProfileConfig {
+            host: Some("db.example.com".into()),
+            user: Some("app".into()),
+            sslmode: Some("require".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            terminal_command("shop", &profile),
+            "nexql-mcp profile add shop --host db.example.com --user app --sslmode require --access-mode read"
+        );
+        let odd = ProfileConfig {
+            host: Some("h".into()),
+            sslmode: Some("require; rm -rf ~".into()),
+            ..Default::default()
+        };
+        assert!(!terminal_command("x", &odd).contains("sslmode"));
     }
 }

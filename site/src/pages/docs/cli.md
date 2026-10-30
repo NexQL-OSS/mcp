@@ -24,7 +24,7 @@ npx -y nexql-mcp@latest postgres://dev@localhost:5432/appdb doctor
 | `setup` | Opens a local browser page to add profiles and wire them into your apps. |
 | `tui` | The same in the terminal: add, edit and test profiles, then wire up to seven apps at once. Running `nexql-mcp` with nothing to connect to opens it too. |
 | `init <app>` | Adds NexQL to an app's config. Without `--apply` it prints what to paste; with `--apply` it writes the change itself and keeps a backup. |
-| `profile add <name>` | Saves a profile. Leave out `--password` and you're asked for it without it showing. |
+| `profile add <name>` | Saves a profile. Leave out `--password` and you're asked for it without it showing. With `--host`, hosted databases usually need `--sslmode require` (`--sslrootcert`, `--sslcert` and `--sslkey` are there too); with `--url`, put `?sslmode=require` in the URL. |
 | `profile set-password <name>` | Changes a saved password in the keyring. |
 
 Apps `init` knows: `claude-desktop`, `claude-code`, `cursor`, `vscode`, `vscode-copilot`, `windsurf`, `zed`, `continue`, `jetbrains`, `openai-agents`. The last three are print-only.
