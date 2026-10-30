@@ -1,7 +1,11 @@
-/* NexQL MCP site theme: nexql.astrx.dev's default "Mute Dark" surfaces plus
-   its fixed brand ribbon. Shared by every page through BaseLayout. */
+/* NexQL MCP site theme. Dark is nexql.astrx.dev's "Mute Dark". Light is the
+   same cool blue cast and brand ribbon, read in daylight: paper instead of
+   night, the rose accent deepened so text and controls clear WCAG AA.
+   The ribbon (--nex-grad) stays the bright brand gradient in both.
+   Keep the two light blocks identical. */
 
 :root {
+  color-scheme: dark;
   --bg: #0b0e14;
   --bg-deep: #07080e;
   --panel: #11151d;
@@ -9,12 +13,15 @@
   --line: #21262d;
   --line-2: #30363d;
   --fg: #e6edf3;
+  --prose: #c9d1d9;
   --muted: #a0a8b3;
   --faint: #7d8590;
   --accent: #e0a4cc;
   --accent-ink: #0b0e14;
+  --accent-hover: #ebbcdb;
+  /* Text that sits on the bright ribbon. Stays dark in both themes. */
+  --on-grad: #140c12;
 
-  /* Syntax tones from the same theme. */
   --kw: #8a9ad0;
   --fn: #c4a4b8;
   --str: #ffa588;
@@ -24,14 +31,64 @@
   --ok: #7ee8a8;
   --warn: #f5b23a;
 
-  /* Brand ribbon (fixed across themes on nexql.astrx.dev). */
   --nex-blue: #3d6fe0;
   --nex-indigo: #6c4cd6;
   --nex-magenta: #e0388f;
   --nex-amber: #f26b3a;
   --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
   --nex-grad-v: linear-gradient(180deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
+  --nex-grad-text: var(--nex-grad);
   --nex-grad-soft: linear-gradient(110deg, rgba(61, 111, 224, 0.16), rgba(108, 76, 214, 0.14), rgba(224, 56, 143, 0.14), rgba(242, 107, 58, 0.16));
+
+  /* Same hues as the ribbon, used as text and as line colours. */
+  --hue-accent: #e0a4cc;
+  --hue-blue: #3d6fe0;
+  --hue-indigo: #6c4cd6;
+  --hue-purple: #a23bc9;
+  --hue-magenta: #e0388f;
+  --hue-orange: #f26b3a;
+  --hue-amber: #f5b23a;
+  --hue-ok: #4ade80;
+  --hue-hot: #f26b3a;
+
+  --selection: rgba(224, 164, 204, 0.3);
+  --hover: rgba(255, 255, 255, 0.03);
+  --shadow-ticket: 0 30px 80px -30px rgba(108, 76, 214, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  --shadow-chat: 0 30px 70px -40px rgba(224, 56, 143, 0.5);
+  --accent-glow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+  --mark-glow: 0 0 18px rgba(224, 56, 143, 0.35);
+  --menu-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.6);
+  --str-wash: rgba(255, 165, 136, 0.16);
+  --warn-wash: rgba(245, 178, 58, 0.08);
+  --warn-line: rgba(245, 178, 58, 0.35);
+  --theme-color: #07080e;
+
+  /* Local password page, drawn as its own light window in either site theme. */
+  --chrome-bg: #f5f5f4;
+  --chrome-fg: #1c1917;
+  --chrome-bar: #e7e5e4;
+  --chrome-dot: #c8c4c0;
+  --chrome-url-bg: #fff;
+  --chrome-url-fg: #57534e;
+  --chrome-line: #e7e5e4;
+  --chrome-muted: #78716c;
+  --chrome-field-line: #d6d3d1;
+  --chrome-field-bg: #fff;
+  --chrome-caret: #b4532a;
+  --chrome-btn: #b4532a;
+  --chrome-btn-fg: #fff;
+
+  --astro-code-foreground: var(--fg);
+  --astro-code-background: var(--bg-deep);
+  --astro-code-token-keyword: var(--kw);
+  --astro-code-token-function: var(--fn);
+  --astro-code-token-string: var(--str);
+  --astro-code-token-string-expression: var(--str);
+  --astro-code-token-constant: var(--num);
+  --astro-code-token-parameter: var(--prop);
+  --astro-code-token-comment: var(--comment);
+  --astro-code-token-punctuation: var(--muted);
+  --astro-code-token-link: var(--accent);
 
   --font-body: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -39,7 +96,103 @@
 
   --radius: 12px;
   --header-h: 60px;
-  color-scheme: dark;
+}
+
+/* Daylight. Cool paper, the night colour used as ink, rose deepened for text. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef1f6;
+  --bg-deep: #e3e8f0;
+  --panel: #f8f9fc;
+  --panel-2: #ffffff;
+  --line: #d0d7e4;
+  --line-2: #74829b;
+  --fg: #161d2b;
+  --prose: #1e2838;
+  --muted: #3c4b60;
+  --faint: #4e5e74;
+  --accent: #882d5a;
+  --accent-ink: #f8f9fc;
+  --accent-hover: #9a3468;
+  --kw: #2f3f86;
+  --fn: #7a3d58;
+  --str: #9a3412;
+  --num: #0a6234;
+  --prop: #9a3f12;
+  --comment: #4a5868;
+  --ok: #0a6234;
+  --warn: #7a4e00;
+  --nex-amber: #b53c0a;
+  --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+  --hue-accent: #882d5a;
+  --hue-blue: #1e40af;
+  --hue-indigo: #5b21b6;
+  --hue-purple: #7e22ce;
+  --hue-magenta: #9d174d;
+  --hue-orange: #9a3412;
+  --hue-amber: #7a4e00;
+  --hue-ok: #0a6234;
+  --hue-hot: #b53c0a;
+  --selection: rgba(136, 45, 90, 0.18);
+  --hover: rgba(22, 29, 43, 0.05);
+  --shadow-ticket: 0 24px 50px -28px rgba(22, 32, 64, 0.22), 0 0 0 1px rgba(22, 29, 43, 0.05) inset;
+  --shadow-chat: 0 22px 40px -24px rgba(22, 32, 64, 0.18);
+  --accent-glow: 0 0 0 5px rgba(136, 45, 90, 0.14), 0 0 16px rgba(136, 45, 90, 0.2);
+  --mark-glow: 0 0 16px rgba(136, 45, 90, 0.25);
+  --menu-shadow: 0 18px 36px -16px rgba(22, 29, 43, 0.22);
+  --str-wash: rgba(154, 52, 18, 0.12);
+  --warn-wash: rgba(122, 78, 0, 0.1);
+  --warn-line: rgba(122, 78, 0, 0.45);
+  --theme-color: #eef1f6;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #eef1f6;
+    --bg-deep: #e3e8f0;
+    --panel: #f8f9fc;
+    --panel-2: #ffffff;
+    --line: #d0d7e4;
+    --line-2: #74829b;
+    --fg: #161d2b;
+    --prose: #1e2838;
+    --muted: #3c4b60;
+    --faint: #4e5e74;
+    --accent: #882d5a;
+    --accent-ink: #f8f9fc;
+    --accent-hover: #9a3468;
+    --kw: #2f3f86;
+    --fn: #7a3d58;
+    --str: #9a3412;
+    --num: #0a6234;
+    --prop: #9a3f12;
+    --comment: #4a5868;
+    --ok: #0a6234;
+    --warn: #7a4e00;
+    --nex-amber: #b53c0a;
+    --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+    --hue-accent: #882d5a;
+    --hue-blue: #1e40af;
+    --hue-indigo: #5b21b6;
+    --hue-purple: #7e22ce;
+    --hue-magenta: #9d174d;
+    --hue-orange: #9a3412;
+    --hue-amber: #7a4e00;
+    --hue-ok: #0a6234;
+    --hue-hot: #b53c0a;
+    --selection: rgba(136, 45, 90, 0.18);
+    --hover: rgba(22, 29, 43, 0.05);
+    --shadow-ticket: 0 24px 50px -28px rgba(22, 32, 64, 0.22), 0 0 0 1px rgba(22, 29, 43, 0.05) inset;
+    --shadow-chat: 0 22px 40px -24px rgba(22, 32, 64, 0.18);
+    --accent-glow: 0 0 0 5px rgba(136, 45, 90, 0.14), 0 0 16px rgba(136, 45, 90, 0.2);
+    --mark-glow: 0 0 16px rgba(136, 45, 90, 0.25);
+    --menu-shadow: 0 18px 36px -16px rgba(22, 29, 43, 0.22);
+    --str-wash: rgba(154, 52, 18, 0.12);
+    --warn-wash: rgba(122, 78, 0, 0.1);
+    --warn-line: rgba(122, 78, 0, 0.45);
+    --theme-color: #eef1f6;
+  }
 }
 
 *,
@@ -78,8 +231,16 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .site-header,
+  .site-footer {
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  }
+}
+
 ::selection {
-  background: rgba(224, 164, 204, 0.3);
+  background: var(--selection);
 }
 
 a {
@@ -150,7 +311,7 @@ pre {
 }
 
 .grad-text {
-  background: var(--nex-grad);
+  background: var(--nex-grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -205,8 +366,8 @@ pre {
   color: var(--accent-ink);
 }
 .btn-primary:hover {
-  background: #ebbcdb;
-  border-color: #ebbcdb;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .btn-ghost {
   background: transparent;

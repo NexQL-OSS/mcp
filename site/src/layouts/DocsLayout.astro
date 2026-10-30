@@ -352,7 +352,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
   .prose p,
   .prose li {
-    color: #c9d1d9;
+    color: var(--prose);
   }
   .prose ul,
   .prose ol {
@@ -415,20 +415,5 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
   .prose a code {
     color: var(--accent);
-  }
-
-  /* Shiki "css-variables" theme, mapped onto the site's syntax tones. */
-  :root {
-    --astro-code-foreground: #e6edf3;
-    --astro-code-background: #07080e;
-    --astro-code-token-keyword: #8a9ad0;
-    --astro-code-token-function: #c4a4b8;
-    --astro-code-token-string: #ffa588;
-    --astro-code-token-string-expression: #ffa588;
-    --astro-code-token-constant: #7ee8a8;
-    --astro-code-token-parameter: #e89870;
-    --astro-code-token-comment: #6b7a88;
-    --astro-code-token-punctuation: #a0a8b3;
-    --astro-code-token-link: #e0a4cc;
   }
 </style>

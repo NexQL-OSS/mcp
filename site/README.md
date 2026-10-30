@@ -12,7 +12,7 @@ No client islands. The tour, the docs, and the replay pages are server-rendered 
 | `/setup` | `src/pages/setup.astro` | Agent prompts, same replay shell |
 | `/docs` | `src/pages/docs/` | Guides and one page per tool |
 
-`src/styles/theme.css` holds the shared palette as custom properties. `src/data/site.ts` holds `SITE_URL`, `SITE_VERSION`, `REPO_URL`, and `FACTS` for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
+`src/styles/theme.css` holds the palette. The header toggle follows the system theme until a visitor picks Dark or Light; the choice is stored in `localStorage` and applied before paint. `src/data/site.ts` holds `SITE_URL`, `SITE_VERSION`, `REPO_URL`, and `FACTS` for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
 
 Tool pages are generated from `src/data/tools.json`. Regenerate that file with `scripts/sync-tools.mjs` when the server's tool list changes, and keep the plain-language notes in `src/data/docs.ts` in step with it (the build throws if they disagree).
 

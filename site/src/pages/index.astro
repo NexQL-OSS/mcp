@@ -571,9 +571,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     border: 1px solid var(--line-2);
     border-radius: 18px;
     padding: 22px 22px 18px;
-    box-shadow:
-      0 30px 80px -30px rgba(108, 76, 214, 0.45),
-      0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    box-shadow: var(--shadow-ticket);
   }
   .ticket::before {
     content: "";
@@ -629,7 +627,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   .route a:hover {
     text-decoration: none;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--hover);
   }
   .route-dot {
     width: 17px;
@@ -753,7 +751,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   .rail a.active .dot {
     border-color: var(--accent);
     background: var(--bg);
-    box-shadow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+    box-shadow: var(--accent-glow);
   }
   .rail-text {
     display: flex;
@@ -945,7 +943,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     text-transform: uppercase;
     padding: 5px 7px;
     border-radius: 6px;
-    color: var(--accent-ink);
+    color: var(--on-grad);
     background: var(--nex-grad);
   }
   .picked {
@@ -1200,7 +1198,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     color: var(--faint);
   }
   .fm-field mark {
-    background: rgba(255, 165, 136, 0.16);
+    background: var(--str-wash);
     color: var(--str);
     border-radius: 3px;
     padding: 0 2px;
@@ -1273,7 +1271,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     border-radius: 16px;
     background: var(--bg-deep);
     overflow: hidden;
-    box-shadow: 0 30px 70px -40px rgba(224, 56, 143, 0.5);
+    box-shadow: var(--shadow-chat);
   }
   .chat-top {
     display: flex;
@@ -1422,7 +1420,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     display: grid;
     place-items: center;
     font: 500 13px/1 var(--font-mono);
-    color: var(--accent-ink);
+    color: var(--on-grad);
     background: var(--nex-grad);
   }
   .prompts {
@@ -1502,30 +1500,30 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     max-width: 100%;
   }
   .browser {
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--chrome-line);
     border-radius: 10px;
     overflow: hidden;
-    background: #f5f5f4;
-    color: #1c1917;
+    background: var(--chrome-bg);
+    color: var(--chrome-fg);
   }
   .b-bar {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 7px 10px;
-    background: #e7e5e4;
+    background: var(--chrome-bar);
   }
   .b-bar .dots i {
-    background: #c8c4c0;
+    background: var(--chrome-dot);
   }
   .b-url {
     flex: 1;
     min-width: 0;
-    background: #fff;
+    background: var(--chrome-url-bg);
     border-radius: 6px;
     padding: 3px 8px;
     font: 12px/1.4 var(--font-mono);
-    color: #57534e;
+    color: var(--chrome-url-fg);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1544,12 +1542,12 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     gap: 3px 12px;
     margin: 0;
     padding: 9px 11px;
-    border: 1px solid #e7e5e4;
+    border: 1px solid var(--chrome-line);
     border-radius: 8px;
     font-size: 13px;
   }
   .b-page dt {
-    color: #78716c;
+    color: var(--chrome-muted);
   }
   .b-page dd {
     margin: 0;
@@ -1557,10 +1555,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     font-size: 12.5px;
   }
   .b-pw {
-    border: 1px solid #d6d3d1;
+    border: 1px solid var(--chrome-field-line);
     border-radius: 8px;
     padding: 7px 10px;
-    background: #fff;
+    background: var(--chrome-field-bg);
     font-family: var(--font-mono);
     letter-spacing: 2px;
     min-height: 34px;
@@ -1570,7 +1568,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     overflow: hidden;
     white-space: nowrap;
     vertical-align: bottom;
-    border-right: 2px solid #b4532a;
+    border-right: 2px solid var(--chrome-caret);
   }
   :global(.js) .board.play .typed {
     animation: type 2.4s steps(12) 0.4s both;
@@ -1587,8 +1585,8 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     text-align: center;
     padding: 8px;
     border-radius: 8px;
-    background: #b4532a;
-    color: #fff;
+    background: var(--chrome-btn);
+    color: var(--chrome-btn-fg);
     font-weight: 600;
     font-size: 14px;
   }
@@ -1609,8 +1607,8 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     margin-top: 20px;
     padding: 12px 16px;
     border-radius: 10px;
-    background: rgba(245, 178, 58, 0.08);
-    border: 1px solid rgba(245, 178, 58, 0.35);
+    background: var(--warn-wash);
+    border: 1px solid var(--warn-line);
     color: var(--muted);
     font-size: 15px;
   }

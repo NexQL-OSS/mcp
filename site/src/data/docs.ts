@@ -47,7 +47,7 @@ export const LINES: Line[] = [
   {
     id: "explore",
     name: "Explore the schema",
-    color: "#3d6fe0",
+    color: "var(--hue-blue)",
     blurb: "Find the right tables before any SQL is written, so the assistant works from what exists, not from guesses.",
     tools: {
       orient: {
@@ -135,7 +135,7 @@ export const LINES: Line[] = [
   {
     id: "query",
     name: "Ask with SQL",
-    color: "#6c4cd6",
+    color: "var(--hue-indigo)",
     blurb: "Run read-only queries, get results in the shape you need, and understand why a query is slow.",
     tools: {
       run_select: {
@@ -183,7 +183,7 @@ export const LINES: Line[] = [
   {
     id: "connect",
     name: "Connections",
-    color: "#a23bc9",
+    color: "var(--hue-purple)",
     blurb: "Add databases, move between them, and find which one holds the data, with passwords kept out of the chat.",
     tools: {
       add_database: {
@@ -278,7 +278,7 @@ export const LINES: Line[] = [
   {
     id: "health",
     name: "Health and performance",
-    color: "#e0388f",
+    color: "var(--hue-magenta)",
     blurb: "See how the database is doing, what's slow, what's stuck, and which indexes help or hurt.",
     tools: {
       db_dashboard: {
@@ -363,7 +363,7 @@ export const LINES: Line[] = [
   {
     id: "change",
     name: "Changes and migrations",
-    color: "#f26b3a",
+    color: "var(--hue-orange)",
     blurb: "Plan schema changes safely, and, only when you allow it, change data and run maintenance.",
     tools: {
       schema_diff: {
@@ -442,7 +442,7 @@ export const LINES: Line[] = [
   {
     id: "nexql",
     name: "NexQL itself",
-    color: "#f5b23a",
+    color: "var(--hue-amber)",
     blurb: "Look after the schema index, check the setup, and load more tools when the assistant needs them.",
     tools: {
       run_doctor: {
