@@ -22,12 +22,12 @@ npx -y nexql-mcp@latest postgres://dev@localhost:5432/appdb doctor
 | Command | What it does |
 | --- | --- |
 | `setup` | Opens a local browser page to add profiles and wire them into your apps. |
-| `tui` | The same in the terminal: add, edit and test profiles, then wire up to seven apps at once. Running `nexql-mcp` with nothing to connect to opens it too. |
+| `tui` | The same in the terminal: add, edit and test profiles, then wire up to 16 apps at once. Running `nexql-mcp` with nothing to connect to opens it too. |
 | `init <app>` | Adds NexQL to an app's config. Without `--apply` it prints what to paste; with `--apply` it writes the change itself and keeps a backup. |
 | `profile add <name>` | Saves a profile. Leave out `--password` and you're asked for it without it showing. |
 | `profile set-password <name>` | Changes a saved password in the keyring. |
 
-Apps `init` knows: `claude-desktop`, `claude-code`, `cursor`, `vscode`, `vscode-copilot`, `windsurf`, `zed`, `continue`, `jetbrains`, `openai-agents`. The last three are print-only.
+Apps `init` knows: `claude-desktop`, `claude-code`, `cursor`, `vscode`, `vscode-copilot`, `windsurf`, `zed`, `antigravity`, `gemini-cli`, `codex`, `copilot-cli`, `cline`, `lm-studio`, `kiro`, `kimi`, `qwen`, `goose`, `opencode`, `continue`, `jetbrains`, `openai-agents`. The last five are print-only. ChatGPT chat can't launch local servers; Codex in the ChatGPT desktop app uses `codex`.
 
 Two lines take you from nothing to a wired app. The first asks for the password without showing it and stores it in the keyring; the second writes the app's config:
 

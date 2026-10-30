@@ -9,7 +9,7 @@ import { HUE, type Replay, type Scene } from "./scenes";
 
 const PROFILE = "mydb";
 const NPX = "npx -y nexql-mcp@latest";
-const CLIENTS = "claude-code, claude-desktop, cursor, vscode-copilot, windsurf, zed or antigravity";
+const CLIENTS = "claude-code, claude-desktop, cursor, vscode-copilot, windsurf, zed, antigravity, gemini-cli, codex, copilot-cli, cline, lm-studio, kiro, kimi or qwen";
 
 /** Repeated in every prompt that touches a connection: the agent never handles the password. */
 const PASSWORD_RULE = `Never ask me for my database password, and never put one in a command, a file or this chat. If I paste one by accident, don't use it, and tell me to change it.`;
@@ -184,7 +184,7 @@ const scenes: Scene[] = [
         {
           label: "WHAT IT WRITES (CLAUDE-STYLE CONFIG)",
           code: EXAMPLE_MCP_CONFIG,
-          hint: "VS Code uses a servers block, and Windsurf and Antigravity have their own file paths. init picks the right one for the app you name.",
+          hint: "VS Code uses a servers block, Codex uses TOML, and most apps have their own file paths. init picks the right one for the app you name.",
         },
       ],
     },

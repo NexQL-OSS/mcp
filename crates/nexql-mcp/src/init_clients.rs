@@ -3,6 +3,8 @@
 
 //! Paste-ready MCP client configs for `nexql-mcp init <client>`.
 
+use crate::client_targets::ConfigShape;
+
 /// Clients accepted by `nexql-mcp init`.
 pub const SUPPORTED_CLIENTS: &[&str] = &[
     "claude",
@@ -17,11 +19,25 @@ pub const SUPPORTED_CLIENTS: &[&str] = &[
     "jetbrains",
     "openai-agents",
     "antigravity",
-    "deepseek",
+    "gemini-cli",
+    "codex",
+    "copilot-cli",
+    "cline",
+    "lm-studio",
+    "kiro",
     "kimi",
-    "ollama",
     "qwen",
+    "goose",
+    "opencode",
 ];
+
+/// `init <client>` help text, listing every supported client.
+pub fn client_arg_help() -> String {
+    format!(
+        "Target client: {}. If omitted, opens the TUI wizard.",
+        SUPPORTED_CLIENTS.join(" | ")
+    )
+}
 
 /// True when `url` carries a password (userinfo or a `password=` query
 /// parameter), or cannot be parsed, so its absence cannot be proven. Those
@@ -79,30 +95,34 @@ fn render_snippet(client: &str, args: &[String]) -> Result<String, String> {
     let args_toml = args_as_toml_array(args);
 
     let body = match key.as_str() {
-        "claude" | "claude-desktop" => {
-            let launch = crate::launch::absolute_launch("nexql-mcp", args);
-            let entry = crate::client_targets::merge_entry_with_env(
-                "",
-                crate::client_targets::ConfigShape::Claude,
-                "nexql",
-                &launch.command,
-                &launch.args,
-                &launch.env,
-            )?;
-            let note = if std::path::Path::new(&launch.command).is_absolute() {
-                "// The command is an absolute path: Claude Desktop does not see your shell PATH."
-            } else {
-                "// nexql-mcp was not found on PATH. Replace \"command\" with its absolute path:\n\
-                 // Claude Desktop does not see your shell PATH."
-            };
-            format!(
-                r#"// Claude Desktop — merge into claude_desktop_config.json
-// macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
-// Windows: %APPDATA%\Claude\claude_desktop_config.json
-{note}
-{entry}"#
-            )
-        }
+        "claude" | "claude-desktop" => desktop_app_snippet(
+            "// Claude Desktop — merge into claude_desktop_config.json\n\
+             // macOS: ~/Library/Application Support/Claude/claude_desktop_config.json\n\
+             // Windows: %APPDATA%\\Claude\\claude_desktop_config.json",
+            "//",
+            "Claude Desktop",
+            ConfigShape::Claude,
+            "nexql",
+            args,
+        )?,
+        "codex" => desktop_app_snippet(
+            "# OpenAI Codex — merge into ~/.codex/config.toml\n\
+             # The Codex CLI, IDE extension and ChatGPT desktop app all read this file.",
+            "#",
+            "ChatGPT's desktop app",
+            ConfigShape::Codex,
+            "nexql-mcp",
+            args,
+        )?,
+        "lm-studio" => desktop_app_snippet(
+            "// LM Studio — merge into ~/.lmstudio/mcp.json (Windows: %USERPROFILE%\\.lmstudio\\mcp.json)\n\
+             // or in the app: Program tab → Install → Edit mcp.json",
+            "//",
+            "LM Studio",
+            ConfigShape::Claude,
+            "nexql-mcp",
+            args,
+        )?,
         "claude-code" => format!(
             r#"// Claude Code — save as .mcp.json (project) or ~/.claude.json mcpServers
 {{
@@ -203,66 +223,82 @@ args = {args}"#,
             args = args_toml,
             args_py = args_json
         ),
-        "antigravity" => format!(
-            r#"// Antigravity (Google DeepMind AI IDE) — merge into ~/.gemini/antigravity-ide/mcp_config.json
+        "antigravity" => mcp_servers_snippet(
+            "// Google Antigravity — merge into ~/.gemini/config/mcp_config.json\n\
+             // (Settings → Customizations → Open MCP Config)",
+            &args_json,
+        ),
+        "gemini-cli" => mcp_servers_snippet(
+            "// Gemini CLI — merge into ~/.gemini/settings.json (or project .gemini/settings.json)",
+            &args_json,
+        ),
+        "cline" => mcp_servers_snippet(
+            "// Cline — CLI: merge into ~/.cline/data/settings/cline_mcp_settings.json\n\
+             // VS Code extension: MCP Servers icon → Configure → Configure MCP Servers",
+            &args_json,
+        ),
+        "kiro" => mcp_servers_snippet(
+            "// Kiro IDE / CLI (formerly Amazon Q Developer CLI) — merge into\n\
+             // ~/.kiro/settings/mcp.json (or workspace .kiro/settings/mcp.json)",
+            &args_json,
+        ),
+        "kimi" => mcp_servers_snippet(
+            "// Kimi Code CLI — merge into ~/.kimi-code/mcp.json (or project .kimi-code/mcp.json)",
+            &args_json,
+        ),
+        "qwen" => mcp_servers_snippet(
+            "// Qwen Code — merge into ~/.qwen/settings.json (or project .qwen/settings.json)",
+            &args_json,
+        ),
+        "copilot-cli" => format!(
+            r#"// GitHub Copilot CLI — merge into ~/.copilot/mcp-config.json
 {{
   "mcpServers": {{
     "nexql-mcp": {{
+      "type": "local",
       "command": "nexql-mcp",
-      "args": {args}
+      "args": {args},
+      "tools": ["*"]
     }}
   }}
 }}"#,
             args = args_json
         ),
-        "deepseek" => format!(
-            r#"// DeepSeek AI / DeepSeek Coder — save as .deepseek/mcp.json or ~/.config/deepseek/mcp.json
-{{
-  "mcpServers": {{
-    "nexql-mcp": {{
-      "command": "nexql-mcp",
-      "args": {args}
-    }}
-  }}
-}}"#,
+        "goose" => format!(
+            r#"# Goose — merge into ~/.config/goose/config.yaml
+# (Windows: %APPDATA%\Block\goose\config\config.yaml), or run `goose configure`
+extensions:
+  nexql-mcp:
+    name: nexql-mcp
+    type: stdio
+    enabled: true
+    cmd: nexql-mcp
+    args: {args}
+    envs: {{}}
+    env_keys: []
+    timeout: 300"#,
             args = args_json
         ),
-        "kimi" => format!(
-            r#"// Kimi (Moonshot AI) — save as .kimi/mcp.json or ~/.config/kimi/mcp.json
+        "opencode" => {
+            let command = args_as_json_array(
+                &std::iter::once("nexql-mcp".to_owned())
+                    .chain(args.iter().cloned())
+                    .collect::<Vec<_>>(),
+            );
+            format!(
+                r#"// opencode — merge into ~/.config/opencode/opencode.json (or project opencode.json)
+// OpenCode v2 nests servers one level deeper: "mcp": {{ "servers": {{ "nexql-mcp": … }} }}
 {{
-  "mcpServers": {{
+  "mcp": {{
     "nexql-mcp": {{
-      "command": "nexql-mcp",
-      "args": {args}
+      "type": "local",
+      "command": {command},
+      "enabled": true
     }}
   }}
-}}"#,
-            args = args_json
-        ),
-        "ollama" => format!(
-            r#"// Ollama (Local LLMs) — save as .ollama/mcp.json or ~/.ollama/mcp.json
-{{
-  "mcpServers": {{
-    "nexql-mcp": {{
-      "command": "nexql-mcp",
-      "args": {args}
-    }}
-  }}
-}}"#,
-            args = args_json
-        ),
-        "qwen" => format!(
-            r#"// Qwen (Alibaba Cloud AI) — save as .qwen/mcp.json or ~/.config/qwen/mcp.json
-{{
-  "mcpServers": {{
-    "nexql-mcp": {{
-      "command": "nexql-mcp",
-      "args": {args}
-    }}
-  }}
-}}"#,
-            args = args_json
-        ),
+}}"#
+            )
+        }
         other => {
             return Err(format!(
                 "unknown client '{other}'. Supported: {}",
@@ -272,6 +308,51 @@ args = {args}"#,
     };
 
     Ok(body)
+}
+
+/// A client launched from the Dock or Start menu rather than a shell: name the
+/// program by absolute path (see `launch.rs`) and say so in a comment.
+fn desktop_app_snippet(
+    header: &str,
+    comment: &str,
+    app: &str,
+    shape: ConfigShape,
+    server_key: &str,
+    args: &[String],
+) -> Result<String, String> {
+    let launch = crate::launch::absolute_launch("nexql-mcp", args);
+    let entry = crate::client_targets::merge_entry_with_env(
+        "",
+        shape,
+        server_key,
+        &launch.command,
+        &launch.args,
+        &launch.env,
+    )?;
+    let note = if std::path::Path::new(&launch.command).is_absolute() {
+        format!("{comment} The command is an absolute path: {app} does not see your shell PATH.")
+    } else {
+        format!(
+            "{comment} nexql-mcp was not found on PATH. Replace \"command\" with its absolute path:\n\
+             {comment} {app} does not see your shell PATH."
+        )
+    };
+    Ok(format!("{header}\n{note}\n{entry}"))
+}
+
+/// The common `{"mcpServers": {"nexql-mcp": {command, args}}}` shape.
+fn mcp_servers_snippet(header: &str, args_json: &str) -> String {
+    format!(
+        r#"{header}
+{{
+  "mcpServers": {{
+    "nexql-mcp": {{
+      "command": "nexql-mcp",
+      "args": {args_json}
+    }}
+  }}
+}}"#
+    )
 }
 
 fn args_as_json_array(args: &[String]) -> String {
@@ -417,6 +498,82 @@ mod tests {
         let agents = init_snippet("openai-agents", Some("postgres://x")).unwrap();
         assert!(agents.contains("[mcp.servers.nexql-mcp]"));
         assert!(agents.contains("command = \"nexql-mcp\""));
+    }
+
+    #[test]
+    fn removed_clients_are_unknown() {
+        for client in ["deepseek", "ollama"] {
+            assert!(!SUPPORTED_CLIENTS.contains(&client));
+            assert!(init_snippet(client, None).is_err(), "{client}");
+        }
+    }
+
+    #[test]
+    fn json_snippets_parse_after_comment_lines() {
+        let url = Some("postgres://u@localhost:5432/db");
+        for client in [
+            "antigravity",
+            "gemini-cli",
+            "copilot-cli",
+            "cline",
+            "lm-studio",
+            "kiro",
+            "kimi",
+            "qwen",
+            "opencode",
+        ] {
+            let snippet = init_snippet(client, url).unwrap();
+            let json: String = snippet
+                .lines()
+                .filter(|l| !l.starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let v: serde_json::Value =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{client}: {e}\n{json}"));
+            assert!(v.is_object(), "{client}");
+        }
+    }
+
+    #[test]
+    fn copilot_cli_and_opencode_shapes() {
+        let copilot = init_snippet("copilot-cli", None).unwrap();
+        assert!(copilot.contains("\"type\": \"local\""), "{copilot}");
+        assert!(copilot.contains("\"tools\": [\"*\"]"), "{copilot}");
+
+        let opencode = init_snippet("opencode", Some("postgres://u@h/db")).unwrap();
+        assert!(opencode.contains("\"mcp\": {"), "{opencode}");
+        assert!(
+            opencode.contains(r#""command": ["nexql-mcp", "postgres://u@h/db"]"#),
+            "{opencode}"
+        );
+    }
+
+    #[test]
+    fn codex_snippet_is_toml_under_mcp_servers() {
+        let snippet = init_snippet_with_profile("codex", "shop").unwrap();
+        let toml_text: String = snippet
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let v: toml::Value = toml::from_str(&toml_text).unwrap();
+        let entry = &v["mcp_servers"]["nexql-mcp"];
+        assert!(entry["command"].as_str().is_some(), "{snippet}");
+        let args: Vec<_> = entry["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.as_str())
+            .collect();
+        assert!(args.ends_with(&["--profile", "shop"]), "{snippet}");
+    }
+
+    #[test]
+    fn goose_snippet_is_stdio_extension() {
+        let goose = init_snippet("goose", Some("postgres://x")).unwrap();
+        assert!(goose.contains("extensions:"), "{goose}");
+        assert!(goose.contains("type: stdio"), "{goose}");
+        assert!(goose.contains("cmd: nexql-mcp"), "{goose}");
     }
 
     #[test]

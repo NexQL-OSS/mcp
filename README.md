@@ -326,7 +326,7 @@ Set `NEXQL_MCP_OPEN_BROWSER=0` to stop nexql-mcp opening the page itself; your a
 nexql-mcp postgres://dev@localhost:5432/appdb init cursor
 ```
 
-Supported `init` clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `continue` | `jetbrains` | `openai-agents`.
+Supported `init` clients: `claude` | `claude-desktop` | `claude-code` | `cursor` | `vscode` | `vscode-copilot` | `zed` | `windsurf` | `antigravity` | `gemini-cli` | `codex` | `copilot-cli` | `cline` | `lm-studio` | `kiro` | `kimi` | `qwen` | `goose` | `opencode` | `continue` | `jetbrains` | `openai-agents`. ChatGPT chat can only reach remote servers over HTTPS; see [docs/clients/README.md § ChatGPT](docs/clients/README.md#chatgpt-no-init-target).
 
 Per-client paste blocks: [docs/clients/README.md](docs/clients/README.md).
 
@@ -358,7 +358,7 @@ The extension resolves the binary in this order: `postgresExplorer.mcp.binaryPat
 nexql-mcp tui
 ```
 
-Guided profile editor: add/edit/delete a connection profile, test-connect it live before saving, then pick any of 7 clients (Claude Desktop, Claude Code, Cursor, VS Code, Copilot Chat, Zed, Windsurf) to wire it into at once. Each selected client's real config file is read, merged (existing unrelated servers are preserved), shown as a diff, and only written after you confirm — a timestamped backup is kept alongside it. `continue` / `jetbrains` / `openai-agents` have no safe on-disk merge target, so those stay copy-paste snippets in the summary screen, same as `init`.
+Guided profile editor: add/edit/delete a connection profile, test-connect it live before saving, then pick any of 16 clients (Claude Desktop, Claude Code, Cursor, VS Code, Copilot Chat, Zed, Windsurf, Antigravity, Gemini CLI, Codex, Copilot CLI, Cline CLI, LM Studio, Kiro, Kimi Code, Qwen Code) to wire it into at once. Each selected client's real config file is read, merged (existing unrelated servers are preserved), shown as a diff, and only written after you confirm — a timestamped backup is kept alongside it. `continue` / `goose` / `opencode` / `jetbrains` / `openai-agents` have no safe on-disk merge target, so those stay copy-paste snippets in the summary screen, same as `init`.
 
 Keys: `n` new · `e`/Enter edit · `d` delete · `t` test · `w` wire into clients · `q` quit. Bare `nexql-mcp` (no URL, no flags) launches the TUI automatically when nothing else resolves a connection.
 

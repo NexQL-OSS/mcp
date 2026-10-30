@@ -11,10 +11,15 @@
 
 use std::path::{Path, PathBuf};
 
-/// Clients that need an absolute command. Project-level configs that teams
-/// commit (`.mcp.json`, `.vscode/mcp.json`, …) keep the portable bare name.
+/// Clients that need an absolute command: desktop apps started outside a
+/// shell. Codex's `~/.codex/config.toml` is also read by the ChatGPT desktop
+/// app. Project-level configs that teams commit (`.mcp.json`,
+/// `.vscode/mcp.json`, …) keep the portable bare name.
 pub fn needs_absolute_command(client_key: &str) -> bool {
-    matches!(client_key, "claude" | "claude-desktop")
+    matches!(
+        client_key,
+        "claude" | "claude-desktop" | "codex" | "lm-studio"
+    )
 }
 
 /// A resolved launch: program, its arguments, and extra environment.
@@ -152,9 +157,12 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_desktop_gets_an_absolute_command() {
+    fn only_desktop_apps_get_an_absolute_command() {
         assert!(needs_absolute_command("claude-desktop"));
         assert!(needs_absolute_command("claude"));
+        assert!(needs_absolute_command("codex"));
+        assert!(needs_absolute_command("lm-studio"));
+        assert!(!needs_absolute_command("gemini-cli"));
         assert!(!needs_absolute_command("claude-code"));
         assert!(!needs_absolute_command("vscode"));
     }
