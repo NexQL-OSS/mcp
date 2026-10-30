@@ -31,7 +31,13 @@ Layering is one-directional: `policy` + `conn` are leaves → `index` → `tools
 
 ## Install
 
-### npx — recommended, zero install
+### Claude Desktop — one download
+
+Get the bundle for your computer from **[nexql-mcp.astrx.dev/install](https://nexql-mcp.astrx.dev/install)**,
+double-click it, and paste your database URL. No terminal, Node or PATH setup. The install form also has
+an "Allow changes to data" switch (off by default) and an optional schema list.
+
+### npx — recommended for every other client
 
 ```bash
 npx -y nexql-mcp@latest postgres://dev@localhost:5432/appdb doctor
@@ -216,9 +222,11 @@ docker run --rm -i nexql-mcp:0.5.0 postgres://dev@host.docker.internal:5432/appd
 <details>
 <summary><strong>Claude Desktop (MCPB one-click bundle)</strong></summary>
 
-Each release attaches a platform `.mcpb` bundle (`nexql-mcp-<vendor>.mcpb`) — download the one matching
-your OS/arch from the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest) and double-click
-to install into Claude Desktop. Built from [`mcpb/manifest.json`](mcpb/manifest.json) via
+Each release attaches a platform `.mcpb` bundle (`nexql-mcp-<vendor>.mcpb`).
+[nexql-mcp.astrx.dev/install](https://nexql-mcp.astrx.dev/install) picks the right one for your OS; they
+are also on the [Releases page](https://github.com/NexQL-OSS/mcp/releases/latest). Double-click to install
+into Claude Desktop. The install form maps to `DATABASE_URL`, `NEXQL_MCP_ALLOW_WRITES` and
+`NEXQL_MCP_SCHEMAS`. Built from [`mcpb/manifest.json`](mcpb/manifest.json) via
 [`scripts/package-mcpb.sh`](scripts/package-mcpb.sh).
 
 </details>

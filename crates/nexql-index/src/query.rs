@@ -11,15 +11,22 @@ use std::path::PathBuf;
 use crate::embed::Embedder;
 use crate::error::IndexError;
 use crate::joins;
-use crate::lexical::{TableCounts, candidate_refs_from_postings, score_object, tokenize};
+use crate::lexical::{
+    TableCounts, candidate_refs_from_postings, name_match_bonus, query_terms, score_object,
+};
 use crate::model::{
-    EmbeddingMetaEntry, IndexOverrides, JoinEdge, JoinGraph, ObjectEntry, TokenIndex, ValueIndex,
+    DbObjectKind, EmbeddingMetaEntry, IndexOverrides, JoinEdge, JoinGraph, ObjectEntry, TokenIndex,
+    ValueIndex,
 };
 use crate::rrf::{cosine_similarity, fuse_rrf};
 use crate::store::{IndexStore, deserialize_embedding};
 
 /// Boost applied when a query token hits the value inverted index (TS: `+ 2.0`).
 const VALUE_HIT_BOOST: f64 = 2.0;
+
+/// Functions rank below relations: the model needs something it can SELECT
+/// from, and a procedure that refreshes the sales matview is not that.
+const FUNCTION_SCORE_FACTOR: f64 = 0.5;
 
 /// Options for [`IndexQueryService::search_schema`].
 #[derive(Clone, Copy, Default)]
@@ -193,26 +200,27 @@ fn score_schema_lexical(
     value_index: Option<&ValueIndex>,
     overrides: Option<&IndexOverrides>,
 ) -> Vec<(String, f64)> {
-    let query_tokens = tokenize(query);
-    if query_tokens.is_empty() {
+    let terms = query_terms(query);
+    if terms.scoring.is_empty() {
         return Vec::new();
     }
 
-    let candidates = candidate_refs_from_postings(&query_tokens, tokens);
+    let candidates = candidate_refs_from_postings(&terms.scoring, tokens);
     let mut scores: HashMap<String, f64> = HashMap::new();
 
     for ref_ in candidates {
         if excluded.contains(&ref_) {
             continue;
         }
-        let score = score_object(&ref_, &query_tokens, tokens, counts);
+        let score = score_object(&ref_, &terms.scoring, tokens, counts);
         if score > 0.0 {
-            scores.insert(ref_, score);
+            let bonus = name_match_bonus(&ref_, &terms.name, tokens);
+            scores.insert(ref_, score + bonus);
         }
     }
 
     if let Some(value_index) = value_index {
-        for token in &query_tokens {
+        for token in &terms.scoring {
             let Some(hits) = value_index.get(token) else {
                 continue;
             };
@@ -363,6 +371,22 @@ impl<'a> IndexQueryService<'a> {
 
         scored.retain(|(ref_, _)| allows_ref(filter, ref_));
 
+        // Kinds of the leading candidates, to rank functions lower; reused below.
+        let mut kinds: HashMap<String, String> = HashMap::new();
+        for (ref_, score) in scored.iter_mut().take(limit.saturating_mul(3)) {
+            let (schema, name) = split_ref(ref_);
+            let kind = self
+                .store
+                .get_object_entry(&base, &manifest, &schema, &name)?
+                .map(|e| e.kind.as_str().to_owned())
+                .unwrap_or_else(|| "table".to_owned());
+            if kind == DbObjectKind::Function.as_str() {
+                *score *= FUNCTION_SCORE_FACTOR;
+            }
+            kinds.insert(ref_.clone(), kind);
+        }
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
         if opts.use_semantic
             && let Some(embedder) = opts.embedder
             && let Some((meta, bin)) = self.store.read_embeddings(&base, &manifest)?
@@ -379,12 +403,16 @@ impl<'a> IndexQueryService<'a> {
 
         let mut hits = Vec::with_capacity(scored.len());
         for (ref_, score) in scored {
-            let (schema, name) = split_ref(&ref_);
-            let kind = self
-                .store
-                .get_object_entry(&base, &manifest, &schema, &name)?
-                .map(|e| e.kind.as_str().to_owned())
-                .unwrap_or_else(|| "table".to_owned());
+            let kind = match kinds.remove(&ref_) {
+                Some(kind) => kind,
+                None => {
+                    let (schema, name) = split_ref(&ref_);
+                    self.store
+                        .get_object_entry(&base, &manifest, &schema, &name)?
+                        .map(|e| e.kind.as_str().to_owned())
+                        .unwrap_or_else(|| "table".to_owned())
+                }
+            };
             hits.push(RankedHit { ref_, score, kind });
         }
         Ok(hits)
@@ -784,6 +812,89 @@ mod tests {
         );
         assert!(hits[0].score > hits[1].score);
         assert_eq!(hits[0].kind, "table");
+    }
+
+    #[test]
+    fn search_schema_ranks_functions_below_relations() {
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = store.base_dir(CONN, DB);
+        store.write_manifest(&base, &sample_manifest(10)).unwrap();
+        // The function scores higher on tokens alone.
+        store
+            .write_tokens(
+                &base,
+                &TokenIndex {
+                    version: 1,
+                    df: HashMap::from([("sale".into(), 2.0)]),
+                    postings: HashMap::from([(
+                        "sale".into(),
+                        vec![
+                            ("public.sales".into(), 3.0),
+                            ("public.refresh_sales".into(), 4.0),
+                        ],
+                    )]),
+                    synonyms: HashMap::new(),
+                },
+            )
+            .unwrap();
+        let mut shard = HashMap::new();
+        shard.insert("public.sales".into(), table_entry(1, vec![col("id", None)]));
+        shard.insert(
+            "public.refresh_sales".into(),
+            ObjectEntry {
+                kind: DbObjectKind::Function,
+                ..table_entry(2, vec![])
+            },
+        );
+        store
+            .write_shard_entries(&base, "objects-public-0.json", &shard)
+            .unwrap();
+
+        let hits = svc_search(&store, "sales");
+        assert_eq!(hits, vec!["public.sales", "public.refresh_sales"]);
+    }
+
+    #[test]
+    fn search_schema_finds_ts_stemmed_tokens() {
+        // Indexes written with the TS stemmer hold "warehous" for "warehouses".
+        let tmp = TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let base = store.base_dir(CONN, DB);
+        store.write_manifest(&base, &sample_manifest(10)).unwrap();
+        store
+            .write_tokens(
+                &base,
+                &TokenIndex {
+                    version: 1,
+                    df: HashMap::from([("warehous".into(), 1.0)]),
+                    postings: HashMap::from([(
+                        "warehous".into(),
+                        vec![("public.warehouses".into(), 3.0)],
+                    )]),
+                    synonyms: HashMap::new(),
+                },
+            )
+            .unwrap();
+        let mut shard = HashMap::new();
+        shard.insert(
+            "public.warehouses".into(),
+            table_entry(1, vec![col("id", None)]),
+        );
+        store
+            .write_shard_entries(&base, "objects-public-0.json", &shard)
+            .unwrap();
+
+        assert_eq!(svc_search(&store, "warehouses"), vec!["public.warehouses"]);
+    }
+
+    fn svc_search(store: &IndexStore, query: &str) -> Vec<String> {
+        IndexQueryService::new(store, CONN, DB)
+            .search_schema(query, 10, None, SearchOptions::default())
+            .unwrap()
+            .into_iter()
+            .map(|h| h.ref_)
+            .collect()
     }
 
     #[test]

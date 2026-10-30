@@ -197,3 +197,38 @@ async fn phase2_catalog_tools_smoke() {
         .await;
     assert!(stacked.is_error, "stacked must fail: {}", stacked.text);
 }
+
+#[tokio::test]
+async fn run_select_pages_with_one_extra_row_and_counts_on_request() {
+    let Some(pg) = start_temp_pg() else {
+        eprintln!("skip: initdb/postgres unavailable");
+        return;
+    };
+    let router = router_for(&pg.url).await;
+    let sql = "SELECT g AS n FROM generate_series(1, 7) AS g ORDER BY g;";
+
+    let page = router
+        .call("run_select", json!({ "sql": sql, "limit": 5 }))
+        .await;
+    assert!(!page.is_error, "{}", page.text);
+    let s = page.structured.unwrap();
+    assert_eq!(s["rows"].as_array().unwrap().len(), 5, "{s}");
+    assert_eq!(s["has_more"], true);
+    assert!(s.get("total_count").is_none(), "total is opt-in: {s}");
+
+    let counted = router
+        .call(
+            "run_select",
+            json!({ "sql": sql, "limit": 5, "count": true }),
+        )
+        .await;
+    let s = counted.structured.unwrap();
+    assert_eq!(s["total_count"], 7, "{s}");
+
+    let whole = router
+        .call("run_select", json!({ "sql": sql, "limit": 10 }))
+        .await;
+    let s = whole.structured.unwrap();
+    assert_eq!(s["has_more"], false);
+    assert_eq!(s["total_count"], 7, "{s}");
+}

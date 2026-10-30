@@ -135,17 +135,17 @@ fn all_tool_cases(url: &str) -> Vec<ToolSmokeCase> {
         },
         ToolSmokeCase {
             name: "describe_object",
-            args: json!({ "ref": "public.users" }),
+            args: json!({ "table": "public.users" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
             name: "get_join_path",
-            args: json!({ "a": "public.orders", "b": "public.users" }),
+            args: json!({ "from": "public.orders", "to": "public.users" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
             name: "sample_values",
-            args: json!({ "ref": "public.users", "col": "email" }),
+            args: json!({ "table": "public.users", "column": "email" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
@@ -160,17 +160,17 @@ fn all_tool_cases(url: &str) -> Vec<ToolSmokeCase> {
         },
         ToolSmokeCase {
             name: "get_ddl",
-            args: json!({ "ref": "public.users" }),
+            args: json!({ "object": "public.users" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
             name: "table_stats",
-            args: json!({ "ref": "public.users" }),
+            args: json!({ "table": "public.users" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
             name: "index_usage",
-            args: json!({ "ref": "public.users" }),
+            args: json!({ "table": "public.users" }),
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {

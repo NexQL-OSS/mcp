@@ -46,6 +46,12 @@ Before write/compare:
 
 Gate: `cargo test -p nexql-index --test pre_cutover_compat`.
 
+`pre_cutover/…/tokens.json` is not synced: it keeps the TS stemmer's tokens
+(`purchases` → `purchas`) so the gate proves queries still find objects in
+indexes the extension wrote. The Rust stemmer differs from TS `stemWord` on
+plurals ending in `-ses`/`-ces` (`purchases` → `purchase`), so `ts/tokens.json`
+is no longer a byte-for-byte TS stand-in for those words.
+
 When a host-free TS `IndexBuilder` harness exists, regenerate `ts/` from that
 builder against `seed_schema.sql` and keep the byte-compare gate green.
 

@@ -248,6 +248,27 @@ GROUP BY state, waiting
     .trim()
 }
 
+/// Planner statistics for string columns in `$1` schemas: the most common
+/// values and how much of the table they cover. No table is scanned, and
+/// `pg_stats` only shows columns the role may read.
+pub fn string_column_stats() -> &'static str {
+    r#"
+SELECT s.schemaname::text, s.tablename::text, s.attname::text,
+       s.n_distinct::float8, s.null_frac::float8,
+       s.most_common_vals::text::text[], s.most_common_freqs::float8[]
+FROM pg_stats s
+JOIN pg_namespace n ON n.nspname = s.schemaname
+JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = s.tablename
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = s.attname
+JOIN pg_type t ON t.oid = a.atttypid
+WHERE s.schemaname = ANY($1)
+  AND NOT s.inherited
+  AND t.typcategory = 'S'
+  AND s.most_common_vals IS NOT NULL
+"#
+    .trim()
+}
+
 pub fn cache_hit_ratio() -> &'static str {
     r#"
 SELECT

@@ -10,5 +10,11 @@ PRE="$ROOT/crates/nexql-index/tests/golden/pre_cutover/dbindex/golden-conn/postg
 
 mkdir -p "$TS" "$PRE"
 cp -f "$EXPECTED"/* "$TS/"
-cp -f "$EXPECTED"/* "$PRE/"
-echo "Synced expected/ → ts/ and pre_cutover/dbindex/golden-conn/postgres/"
+# pre_cutover/ stands for an index the VS Code extension wrote, so its
+# tokens.json keeps the TS stemmer's output ("purchas"). Queries must keep
+# finding objects in such indexes; see legacy_stem_word in lexical.rs.
+for f in "$EXPECTED"/*; do
+  [ "$(basename "$f")" = "tokens.json" ] && continue
+  cp -f "$f" "$PRE/"
+done
+echo "Synced expected/ → ts/ and pre_cutover/dbindex/golden-conn/postgres/ (except tokens.json)"

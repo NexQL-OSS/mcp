@@ -1,0 +1,266 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { REPO_URL } from "../data/site";
+
+/** Release assets keep these names across versions, so `latest/download` always resolves. */
+const DOWNLOAD = `${REPO_URL}/releases/latest/download`;
+const BUNDLES = [
+  { id: "darwin-arm64", label: "macOS (Apple silicon)" },
+  { id: "darwin-x64", label: "macOS (Intel)" },
+  { id: "win32-x64", label: "Windows (x64)" },
+  { id: "linux-x64", label: "Linux (x64)" },
+  { id: "linux-arm64", label: "Linux (arm64)" },
+];
+---
+
+<BaseLayout
+  title="Add NexQL to Claude Desktop"
+  description="One download for Claude Desktop: paste your Postgres connection string and ask questions about your data in plain English. Read-only by default, with personal data masked."
+  canonical="https://nexql-mcp.astrx.dev/install"
+>
+  <main class="wrap">
+    <p class="eyebrow"><a href="/">NexQL MCP</a></p>
+    <h1>Ask your Postgres database questions in Claude Desktop</h1>
+    <p class="lede">
+      One file, no terminal. NexQL is read-only unless you switch writes on, and it masks columns that look like
+      personal data or secrets before results reach Claude.
+    </p>
+
+    <div class="cta">
+      <a id="primary" class="button" href={`${DOWNLOAD}/nexql-mcp-darwin-arm64.mcpb`} data-bundle="darwin-arm64">
+        Download for <span id="primary-label">macOS (Apple silicon)</span>
+      </a>
+      <p id="detected" class="hint">Not your computer? Pick another download below.</p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <h2>Open the file</h2>
+        <p>
+          Double-click the downloaded <code>.mcpb</code> file. Claude Desktop shows an install dialog. If it doesn't,
+          open Claude Desktop's <strong>Settings → Extensions</strong> and drop the file there.
+        </p>
+      </li>
+      <li>
+        <h2>Paste your database URL</h2>
+        <p>
+          It looks like <code>postgres://user:password@host:5432/dbname</code>. Leave <strong>Allow changes to data</strong> off
+          unless you want Claude to edit rows. To limit what Claude can see, list schemas such as <code>public,sales</code>.
+        </p>
+      </li>
+      <li>
+        <h2>Ask a question</h2>
+        <p>
+          Start with “What tables are in my database?” to check the connection, then ask what you actually want to
+          know: “How much revenue did we make each month this year?”
+        </p>
+      </li>
+    </ol>
+
+    <section class="note">
+      <h2>What leaves your computer</h2>
+      <p>
+        NexQL runs on your machine and connects to your database directly. The tables it describes and the rows it
+        returns become part of your conversation, so Claude's provider sees them like anything else you type. Masked
+        columns are replaced with <code>&lt;redacted&gt;</code> before that happens. For least privilege, connect as a
+        role that can only read, for example one granted <code>pg_read_all_data</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2>All downloads</h2>
+      <ul class="downloads">
+        {
+          BUNDLES.map((b) => (
+            <li>
+              <a href={`${DOWNLOAD}/nexql-mcp-${b.id}.mcpb`} data-bundle={b.id}>
+                {b.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="hint">
+        Using Cursor, VS Code, Claude Code or another client? Follow the <a href="/setup">setup guide</a> or
+        the <a href={REPO_URL}>README</a>.
+      </p>
+    </section>
+  </main>
+</BaseLayout>
+
+<script>
+  const LABELS: Record<string, string> = {
+    "darwin-arm64": "macOS (Apple silicon)",
+    "darwin-x64": "macOS (Intel)",
+    "win32-x64": "Windows (x64)",
+    "linux-x64": "Linux (x64)",
+    "linux-arm64": "Linux (arm64)",
+  };
+
+  type UAData = {
+    platform?: string;
+    getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>;
+  };
+
+  async function detect(): Promise<{ id: string; sure: boolean } | null> {
+    const uaData = (navigator as Navigator & { userAgentData?: UAData }).userAgentData;
+    const platform = (uaData?.platform || navigator.platform || "").toLowerCase();
+    const ua = navigator.userAgent.toLowerCase();
+    if (platform.includes("win") || ua.includes("windows")) return { id: "win32-x64", sure: true };
+    if (platform.includes("mac") || ua.includes("mac os")) {
+      // Only Chromium reports the CPU. Safari and Firefox say "MacIntel" on
+      // Apple silicon too, and nearly every Mac sold since 2021 is arm64.
+      const arch = await uaData?.getHighEntropyValues?.(["architecture"]).catch(() => undefined);
+      if (arch?.architecture === "x86") return { id: "darwin-x64", sure: true };
+      return { id: "darwin-arm64", sure: arch?.architecture === "arm" };
+    }
+    if (platform.includes("linux") || ua.includes("linux")) {
+      const arm = ua.includes("aarch64") || ua.includes("arm64");
+      return { id: arm ? "linux-arm64" : "linux-x64", sure: false };
+    }
+    return null;
+  }
+
+  detect().then((found) => {
+    if (!found) return;
+    const primary = document.getElementById("primary") as HTMLAnchorElement | null;
+    const label = document.getElementById("primary-label");
+    const hint = document.getElementById("detected");
+    const target = document.querySelector<HTMLAnchorElement>(`.downloads a[data-bundle="${found.id}"]`);
+    if (!primary || !label || !target) return;
+    primary.href = target.href;
+    primary.dataset.bundle = found.id;
+    label.textContent = LABELS[found.id];
+    if (hint && !found.sure && found.id === "darwin-arm64") {
+      hint.textContent = "On an Intel Mac? Use the macOS (Intel) download below.";
+    }
+  });
+</script>
+
+<style is:global>
+  :root {
+    --bg: #0a0b0d;
+    --panel: #121418;
+    --line: #20242b;
+    --text: #e8e6e3;
+    --muted: #9a9ea6;
+    --accent: #cc785c;
+  }
+  html,
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+  }
+  body {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.9em;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.05em 0.35em;
+    overflow-wrap: anywhere;
+  }
+  .wrap {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 3.5rem 16px 4rem;
+  }
+  .eyebrow {
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  h1 {
+    font-family: "Instrument Serif", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.1rem, 6vw, 3rem);
+    line-height: 1.1;
+    margin: 0 0 1rem;
+  }
+  h2 {
+    font-size: 1.1rem;
+    margin: 0 0 0.35rem;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 1.1rem;
+    margin: 0 0 2rem;
+  }
+  .cta {
+    margin-bottom: 2.5rem;
+  }
+  .button {
+    display: inline-block;
+    background: var(--accent);
+    color: #14100e;
+    font-weight: 600;
+    padding: 0.8rem 1.3rem;
+    border-radius: 8px;
+  }
+  .button:hover {
+    text-decoration: none;
+    filter: brightness(1.08);
+  }
+  .hint {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin: 0.6rem 0 0;
+  }
+  .steps {
+    list-style: none;
+    counter-reset: step;
+    padding: 0;
+    margin: 0 0 2.5rem;
+    display: grid;
+    gap: 1.25rem;
+  }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 2.6rem;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+    font-size: 0.9rem;
+    color: var(--accent);
+  }
+  .steps p,
+  .note p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .note {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 2.5rem;
+  }
+  .downloads {
+    padding-left: 1.2rem;
+    margin: 0.5rem 0 0;
+  }
+</style>
