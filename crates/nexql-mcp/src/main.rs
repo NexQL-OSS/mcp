@@ -6,6 +6,7 @@
 mod client_targets;
 mod init_clients;
 mod launch;
+mod password_page;
 mod setup;
 mod tui;
 
@@ -357,6 +358,8 @@ enum ProfileAction {
         dbname: Option<String>,
         #[arg(long)]
         user: Option<String>,
+        /// Ends up in shell history; leave it out to be asked without the
+        /// password showing.
         #[arg(long)]
         password: Option<String>,
         #[arg(long)]
@@ -953,6 +956,57 @@ fn apply_cli_schemas(access: &AccessArgs, policy: &mut nexql_tools::ConnectionPo
     }
 }
 
+/// Connections for a session. Launch settings (`--allow-writes`, `--schemas`
+/// and their env vars) belong to the connection the launch named, a URL or
+/// `DATABASE_URL`. Saved profiles loaded beside it keep their own settings
+/// and default to read-only, so ticking "Allow changes" in an installer's
+/// form for one database never opens up another. With no such connection the
+/// launch settings apply to every profile, as before.
+fn connection_infos(
+    access: &AccessArgs,
+    resolved: &[nexql_conn::ResolvedConnection],
+    cli_mode: AccessMode,
+    default_caps: &PolicyCaps,
+) -> Vec<nexql_tools::ConnectionInfo> {
+    let launched = resolved.iter().any(|r| r.profile_name.is_none());
+    let launch_id = if resolved
+        .iter()
+        .any(|r| r.profile_name.as_deref() == Some("default"))
+    {
+        "database_url"
+    } else {
+        "default"
+    };
+    resolved
+        .iter()
+        .map(|r| {
+            let id = r.profile_name.clone().unwrap_or_else(|| launch_id.into());
+            let launch_settings = !launched || r.profile_name.is_none();
+            let mode = if launch_settings {
+                cli_mode
+            } else {
+                AccessMode::Read
+            };
+            let mut policy = policy_from_profile(r.profile.as_ref(), mode, default_caps.clone());
+            if access.managed_extension {
+                policy.access_mode = AccessMode::Read;
+            }
+            if launch_settings {
+                apply_cli_schemas(access, &mut policy);
+            }
+            nexql_tools::ConnectionInfo {
+                id: id.clone(),
+                name: id,
+                host: r.params.host.clone(),
+                port: r.params.port,
+                database: r.params.dbname.clone(),
+                params: r.params.clone(),
+                policy,
+            }
+        })
+        .collect()
+}
+
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
     migrate_legacy_secrets(cli);
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
@@ -966,30 +1020,12 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
     }
 
     let active_id = active_resolved.and_then(|r| r.profile_name.clone());
-    let mut connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
-        .iter()
-        .map(|r| {
-            let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
-            let mut policy =
-                policy_from_profile(r.profile.as_ref(), cli_mode, default_caps.clone());
-            if cli.access.managed_extension {
-                policy.access_mode = AccessMode::Read;
-            }
-            apply_cli_schemas(&cli.access, &mut policy);
-            if let Some(n) = cli.access.max_rows {
-                policy.caps = policy.caps.with_max_rows(n);
-            }
-            nexql_tools::ConnectionInfo {
-                id: id.clone(),
-                name: id,
-                host: r.params.host.clone(),
-                port: r.params.port,
-                database: r.params.dbname.clone(),
-                params: r.params.clone(),
-                policy,
-            }
-        })
-        .collect();
+    let mut connections = connection_infos(&cli.access, &resolved_list, cli_mode, &default_caps);
+    if let Some(n) = cli.access.max_rows {
+        for c in &mut connections {
+            c.policy.caps = c.policy.caps.clone().with_max_rows(n);
+        }
+    }
 
     let mut access_notice = None;
     if let Some(resolved) = active_resolved {
@@ -1105,6 +1141,13 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
     session.set_elicitation_backend(Arc::new(McpElicitationAdapter {
         handler: handler.clone(),
     }));
+
+    // add_database asks for the password on a page on 127.0.0.1, so only
+    // offer it where the human is on this machine: stdio, or HTTP on loopback.
+    if !cli.transport.http || is_loopback_bind(&cli.transport.bind) {
+        let open_browser = std::env::var("NEXQL_MCP_OPEN_BROWSER").map_or(true, |v| v != "0");
+        session.set_password_page(Arc::new(password_page::LocalPasswordPage { open_browser }));
+    }
 
     Ok(handler)
 }
@@ -1629,10 +1672,45 @@ fn load_profile_config(cli: &Cli) -> Result<(PathBuf, ConfigFile), Box<dyn std::
     Ok((path, config))
 }
 
+/// Read a password from the terminal without echoing it.
+fn read_hidden(prompt: &str) -> std::io::Result<String> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, read};
+    use std::io::Write;
+    eprint!("{prompt}");
+    std::io::stderr().flush()?;
+    crossterm::terminal::enable_raw_mode()?;
+    let mut password = String::new();
+    let outcome = loop {
+        match read() {
+            Ok(Event::Key(key)) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Enter => break Ok(()),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "cancelled",
+                    ));
+                }
+                KeyCode::Backspace => {
+                    password.pop();
+                }
+                KeyCode::Char(c) => password.push(c),
+                _ => {}
+            },
+            Ok(Event::Paste(text)) => password.push_str(&text),
+            Ok(_) => {}
+            Err(e) => break Err(e),
+        }
+    };
+    crossterm::terminal::disable_raw_mode()?;
+    eprintln!();
+    outcome.map(|()| password)
+}
+
 async fn run_profile_action(
     cli: &Cli,
     action: &ProfileAction,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::IsTerminal;
     match action {
         ProfileAction::List => {
             let (path, config) = load_profile_config(cli)?;
@@ -1667,13 +1745,34 @@ async fn run_profile_action(
             set_default,
             no_test,
         } => {
+            // No password source given: ask for one at a terminal, hidden, so
+            // it stays out of shell history and the screen.
+            let url_has_password = url
+                .as_deref()
+                .and_then(|u| url::Url::parse(u).ok())
+                .is_some_and(|u| u.password().is_some());
+            let password = match password {
+                Some(p) => Some(p.clone()),
+                None if password_command.is_none()
+                    && password_file.is_none()
+                    && credential_provider.is_none()
+                    && !url_has_password
+                    && std::io::stdin().is_terminal() =>
+                {
+                    let typed = read_hidden(&format!(
+                        "password for '{name}' (hidden; leave empty if none): "
+                    ))?;
+                    (!typed.is_empty()).then_some(typed)
+                }
+                None => None,
+            };
             let profile = nexql_conn::ProfileConfig {
                 url: url.clone(),
                 host: host.clone(),
                 port: *port,
                 dbname: dbname.clone(),
                 user: user.clone(),
-                password: password.clone(),
+                password,
                 password_command: password_command.clone(),
                 password_file: password_file.clone(),
                 credential_provider: credential_provider.clone(),
@@ -1708,12 +1807,14 @@ async fn run_profile_action(
                 .get(name)
                 .cloned()
                 .ok_or_else(|| format!("profile not found: {name}"))?;
-            eprint!("password for '{name}' (visible — not hidden input): ");
-            use std::io::Write;
-            std::io::stderr().flush()?;
-            let mut line = String::new();
-            std::io::stdin().read_line(&mut line)?;
-            let password = line.trim_end_matches(['\r', '\n']).to_string();
+            let password = if std::io::stdin().is_terminal() {
+                read_hidden(&format!("password for '{name}' (hidden): "))?
+            } else {
+                // Piped in, e.g. from a password manager.
+                let mut line = String::new();
+                std::io::stdin().read_line(&mut line)?;
+                line.trim_end_matches(['\r', '\n']).to_string()
+            };
             let stored = nexql_conn::store_profile_password(name, &password)?;
             profile.password = None;
             profile.credential_provider = Some(stored.provider.clone());
@@ -2020,27 +2121,7 @@ async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error
     }
 
     let active_id = resolved_list.first().and_then(|r| r.profile_name.clone());
-    let connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
-        .iter()
-        .map(|r| {
-            let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
-            let mut policy =
-                policy_from_profile(r.profile.as_ref(), cli_mode, default_caps.clone());
-            if cli.access.managed_extension {
-                policy.access_mode = AccessMode::Read;
-            }
-            apply_cli_schemas(&cli.access, &mut policy);
-            nexql_tools::ConnectionInfo {
-                id: id.clone(),
-                name: id,
-                host: r.params.host.clone(),
-                port: r.params.port,
-                database: r.params.dbname.clone(),
-                params: r.params.clone(),
-                policy,
-            }
-        })
-        .collect();
+    let connections = connection_infos(&cli.access, &resolved_list, cli_mode, &default_caps);
 
     let session = ToolSession::from_connections(connections, active_id).await?;
     Ok(session)
@@ -2240,6 +2321,64 @@ mod main_cli_tests {
         assert_eq!(cli_access_mode(&access).unwrap(), AccessMode::Admin);
         access.managed_extension = true;
         assert_eq!(cli_access_mode(&access).unwrap(), AccessMode::Read);
+    }
+
+    fn resolved(profile: Option<&str>, dbname: &str) -> nexql_conn::ResolvedConnection {
+        nexql_conn::ResolvedConnection {
+            params: nexql_conn::ConnectionParams {
+                host: Some("h".into()),
+                dbname: Some(dbname.into()),
+                ..Default::default()
+            },
+            source: if profile.is_some() {
+                nexql_conn::ConnectionSource::Profile
+            } else {
+                nexql_conn::ConnectionSource::DatabaseUrl
+            },
+            profile_name: profile.map(str::to_owned),
+            profile: profile.map(|_| nexql_conn::ProfileConfig::default()),
+            project_config: None,
+        }
+    }
+
+    #[test]
+    fn launch_settings_stay_with_the_launch_connection() {
+        let access = AccessArgs {
+            schemas: vec!["sales".into()],
+            ..Default::default()
+        };
+        let list = [resolved(None, "shop"), resolved(Some("billing"), "billing")];
+        let conns = connection_infos(&access, &list, AccessMode::Write, &PolicyCaps::default());
+        assert_eq!(conns[0].id, "default");
+        assert_eq!(conns[0].policy.access_mode, AccessMode::Write);
+        assert_eq!(conns[0].policy.filter.allow_schemas, ["sales"]);
+        assert_eq!(conns[1].id, "billing");
+        assert_eq!(conns[1].policy.access_mode, AccessMode::Read);
+        assert!(conns[1].policy.filter.allow_schemas.is_empty());
+
+        // Without a launch connection the settings apply to every profile.
+        let only_profiles = [resolved(Some("billing"), "billing")];
+        let conns = connection_infos(
+            &access,
+            &only_profiles,
+            AccessMode::Write,
+            &PolicyCaps::default(),
+        );
+        assert_eq!(conns[0].policy.access_mode, AccessMode::Write);
+        assert_eq!(conns[0].policy.filter.allow_schemas, ["sales"]);
+    }
+
+    #[test]
+    fn launch_connection_never_takes_a_saved_profiles_name() {
+        let list = [resolved(None, "shop"), resolved(Some("default"), "other")];
+        let conns = connection_infos(
+            &AccessArgs::default(),
+            &list,
+            AccessMode::Read,
+            &PolicyCaps::default(),
+        );
+        assert_eq!(conns[0].id, "database_url");
+        assert_eq!(conns[1].id, "default");
     }
 
     #[test]

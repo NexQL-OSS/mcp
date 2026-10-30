@@ -130,6 +130,7 @@ pub struct ToolRouter {
     /// Per-connection notes on why access is narrower than configured, shown
     /// with every result so the model can explain a refused change.
     access_notices: std::collections::HashMap<String, String>,
+    setups: crate::add_database::DatabaseSetups,
 }
 
 impl ToolRouter {
@@ -142,6 +143,7 @@ impl ToolRouter {
             specs: active_tools(),
             managed_extension: false,
             access_notices: std::collections::HashMap::new(),
+            setups: Default::default(),
         }
     }
 
@@ -155,6 +157,7 @@ impl ToolRouter {
             specs: active_tools(),
             managed_extension: false,
             access_notices: std::collections::HashMap::new(),
+            setups: Default::default(),
         }
     }
 
@@ -371,6 +374,9 @@ impl ToolRouter {
             ToolName::ExplainQuery => self.explain_query(&args).await,
             ToolName::DiscoverTools => self.discover_tools(&args).await,
             ToolName::RunDoctor => self.run_doctor_tool().await,
+            ToolName::AddDatabase => {
+                crate::add_database::add_database(&self.session, &self.setups, &args).await
+            }
             ToolName::SetupConnection => self.setup_connection_tool(&args).await,
             ToolName::SaveProfile => self.save_profile_tool(&args).await,
             ToolName::TestProfile => self.test_profile_tool(&args).await,

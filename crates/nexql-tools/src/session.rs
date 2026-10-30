@@ -83,6 +83,9 @@ pub struct ToolSession {
     /// `crate::elicitation`) — `None` until then, and always `None` in tests
     /// that don't explicitly inject one via [`Self::set_elicitation_backend`].
     elicitation: RwLock<Option<Arc<dyn crate::elicitation::ElicitationRequester>>>,
+    /// Set by the binary for local launches (see `crate::password_page`);
+    /// `None` means `add_database` can only offer the terminal route.
+    password_page: RwLock<Option<Arc<dyn crate::password_page::PasswordPage>>>,
     /// In-process single-flight for startup auto-index and tool-triggered builds.
     pub index_builds: Arc<IndexBuildGate>,
 }
@@ -323,6 +326,7 @@ impl ToolSession {
                 pools,
             }),
             elicitation: RwLock::new(None),
+            password_page: RwLock::new(None),
             index_builds: IndexBuildGate::new(),
         }))
     }
@@ -337,6 +341,18 @@ impl ToolSession {
         if let Ok(mut guard) = self.elicitation.write() {
             *guard = Some(backend);
         }
+    }
+
+    /// Inject the one-time password page — called by the binary for local
+    /// launches, where the human can open a page on 127.0.0.1.
+    pub fn set_password_page(&self, page: Arc<dyn crate::password_page::PasswordPage>) {
+        if let Ok(mut guard) = self.password_page.write() {
+            *guard = Some(page);
+        }
+    }
+
+    pub fn password_page(&self) -> Option<Arc<dyn crate::password_page::PasswordPage>> {
+        self.password_page.read().ok()?.clone()
     }
 
     /// Ask the connected client to elicit a yes/no confirmation from the
@@ -582,6 +598,7 @@ impl ToolSession {
                 pools: HashMap::new(),
             }),
             elicitation: RwLock::new(None),
+            password_page: RwLock::new(None),
             index_builds: IndexBuildGate::new(),
         })
     }

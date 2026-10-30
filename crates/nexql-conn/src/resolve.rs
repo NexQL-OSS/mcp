@@ -418,10 +418,26 @@ pub fn resolve_all_with_runner(
     }
 
     let mut results = Vec::new();
+    // DATABASE_URL / POSTGRES_URL is this launch's own connection (an
+    // installer's form, a client's env block), so it goes first and is active,
+    // as in `resolve`. Saved profiles stay reachable beside it; one pointing at
+    // the same database is not loaded twice.
+    let env_map = collect_env(inputs)?;
+    if env_map.contains_key("DATABASE_URL") || env_map.contains_key("POSTGRES_URL") {
+        match resolve_with_runner(inputs, runner) {
+            Ok(res) if res.source == ConnectionSource::DatabaseUrl => results.push(res),
+            Ok(_) => {}
+            Err(e) => eprintln!("warning: DATABASE_URL could not be resolved: {e}"),
+        }
+    }
     for key in keys {
         let mut single_inputs = inputs.clone();
         single_inputs.profile_names = vec![key.clone()];
         match resolve_with_runner(&single_inputs, runner) {
+            Ok(res)
+                if results
+                    .iter()
+                    .any(|r| same_database(&r.params, &res.params)) => {}
             Ok(res) => results.push(res),
             Err(e) => eprintln!("warning: profile \"{key}\" could not be resolved: {e}"),
         }
@@ -432,6 +448,14 @@ pub fn resolve_all_with_runner(
     } else {
         Ok(results)
     }
+}
+
+/// Same server, database and login, ignoring how the password is supplied.
+fn same_database(a: &ConnectionParams, b: &ConnectionParams) -> bool {
+    a.host == b.host
+        && a.port.unwrap_or(5432) == b.port.unwrap_or(5432)
+        && a.dbname == b.dbname
+        && a.user == b.user
 }
 
 fn collect_env(inputs: &ResolveInputs) -> Result<HashMap<String, String>, ConnError> {
@@ -812,6 +836,74 @@ mod tests {
         assert_eq!(r.params.host.as_deref(), Some("prod.example.com"));
         // flag fills nothing because host already set
         assert_eq!(r.profile_name.as_deref(), Some("prod"));
+    }
+
+    fn saved_profiles(names: &[(&str, &str)]) -> ConfigFile {
+        let profiles = names
+            .iter()
+            .map(|(name, db)| {
+                (
+                    (*name).to_string(),
+                    ProfileConfig {
+                        host: Some("h".into()),
+                        dbname: Some((*db).into()),
+                        user: Some("u".into()),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        ConfigFile {
+            profiles,
+            ..Default::default()
+        }
+    }
+
+    /// An installer passes its form's URL as DATABASE_URL. It used to be
+    /// dropped whenever any profile was saved, so the server connected
+    /// somewhere other than what the user had just typed.
+    #[test]
+    fn resolve_all_puts_database_url_first_beside_saved_profiles() {
+        let inputs = ResolveInputs {
+            config: Some(saved_profiles(&[("analytics", "analytics_db")])),
+            env: Some(env(&[("DATABASE_URL", "postgres://u@h:5432/shop_db")])),
+            ..Default::default()
+        };
+        let all = resolve_all(&inputs).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].source, ConnectionSource::DatabaseUrl);
+        assert_eq!(all[0].params.dbname.as_deref(), Some("shop_db"));
+        assert_eq!(all[1].profile_name.as_deref(), Some("analytics"));
+    }
+
+    #[test]
+    fn resolve_all_skips_a_profile_for_the_database_url_database() {
+        let inputs = ResolveInputs {
+            config: Some(saved_profiles(&[
+                ("shop", "shop_db"),
+                ("analytics", "analytics_db"),
+            ])),
+            env: Some(env(&[("DATABASE_URL", "postgres://u@h/shop_db")])),
+            ..Default::default()
+        };
+        let all = resolve_all(&inputs).unwrap();
+        let names: Vec<_> = all.iter().map(|r| r.profile_name.as_deref()).collect();
+        assert_eq!(names, [None, Some("analytics")]);
+    }
+
+    #[test]
+    fn resolve_all_without_database_url_loads_only_profiles() {
+        let inputs = ResolveInputs {
+            config: Some(saved_profiles(&[
+                ("shop", "shop_db"),
+                ("analytics", "analytics_db"),
+            ])),
+            env: Some(env(&[])),
+            ..Default::default()
+        };
+        let all = resolve_all(&inputs).unwrap();
+        assert!(all.iter().all(|r| r.profile_name.is_some()));
+        assert_eq!(all.len(), 2);
     }
 
     #[test]

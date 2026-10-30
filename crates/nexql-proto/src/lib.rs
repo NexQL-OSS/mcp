@@ -39,6 +39,7 @@ Before writing any SQL (run_select / explain_query), ground it in the actual sch
   4. run_select.
 For a broad question about the whole database (\"what's in here?\"), call orient once instead of step 1.
 If the data may live in another database, call search_all_databases, then pass its `database` to the other tools.
+To connect another database, call add_database with its host, port, database and user: the user types the password on a page it opens, never in the chat. Never ask for a password, put one in a shell command, or write one to a file.
 If a table you expect is not returned, it does not exist — ask the user or pick from what was returned instead of guessing.
 Some columns (emails, phones, names, secrets) may come back masked as <redacted>; tell the user rather than trying to work around it.
 save_profile merges into the existing named profile by default — omitted fields are preserved. Pass replace: true to wholesale-replace instead.

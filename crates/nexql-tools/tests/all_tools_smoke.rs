@@ -77,6 +77,18 @@ fn all_tool_cases(url: &str) -> Vec<ToolSmokeCase> {
             expect: SmokeExpect::Success,
         },
         ToolSmokeCase {
+            // No password page is injected here, so this returns the
+            // terminal-command fallback without saving anything.
+            name: "add_database",
+            args: json!({
+                "name": "smoke_added",
+                "host": "127.0.0.1",
+                "dbname": "postgres",
+                "user": "spike"
+            }),
+            expect: SmokeExpect::Success,
+        },
+        ToolSmokeCase {
             name: "setup_connection",
             args: json!({ "name": "default", "url": url }),
             expect: SmokeExpect::Success,
