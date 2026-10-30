@@ -154,6 +154,7 @@ pub fn preview_wire(
     launch: &LaunchConfig,
     workspace_root: Option<&Path>,
 ) -> WirePreview {
+    let _ = config;
     if profile_names.is_empty() {
         return WirePreview {
             diffs: Vec::new(),
@@ -163,7 +164,6 @@ pub fn preview_wire(
 
     let (command, args) = launch.command_and_args(profile_names);
     let first_name = &profile_names[0];
-    let first_profile = config.profiles.get(first_name).cloned();
 
     let mut diffs = Vec::new();
     let targets = client_targets::mergeable_targets();
@@ -211,11 +211,6 @@ pub fn preview_wire(
         }
     }
 
-    let url = first_profile
-        .as_ref()
-        .and_then(|p| nexql_conn::resolve_profile(first_name, p).ok())
-        .and_then(|p| p.to_url().ok());
-
     let mut snippets = Vec::new();
     for key in copy_only_client_keys {
         let display_name = client_targets::COPY_ONLY_CLIENTS
@@ -223,7 +218,7 @@ pub fn preview_wire(
             .find(|(k, _)| *k == key.as_str())
             .map(|(_, d)| *d)
             .unwrap_or(key.as_str());
-        match init_clients::init_snippet(key, url.as_deref()) {
+        match init_clients::init_snippet_with_profile(key, first_name) {
             Ok(content) => snippets.push(WireSnippet {
                 client_key: key.clone(),
                 display_name: display_name.to_string(),

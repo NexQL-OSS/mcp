@@ -35,6 +35,17 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libdbus-1-dev
 
+      - name: Install Postgres so live policy tests cannot skip
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y postgresql postgresql-client
+          pg_bin="$(ls -d /usr/lib/postgresql/*/bin | sort | tail -1)"
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          sudo chmod a+rx "$pg_bin" "$pg_bin/initdb" "$pg_bin/postgres"
+          "$pg_bin/initdb" --version
+          "$pg_bin/postgres" --version
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
@@ -51,6 +62,9 @@ jobs:
         run: cargo check --workspace --features embeddings
 
       - name: cargo test
+        env:
+          # Linux installs initdb above. Other OS jobs still skip live tests.
+          NEXQL_REQUIRE_LIVE_PG: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: cargo test --workspace
 
       # Phase 5 exit gate ("semantic search beats lexical on a synonym

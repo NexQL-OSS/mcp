@@ -31,6 +31,7 @@ toml = { workspace = true }
 pg_query = { workspace = true }
 
 [dev-dependencies]
+nexql-conn = { workspace = true, features = ["isolated-credentials"] }
 tempfile = "3"
 tokio = { workspace = true }
 

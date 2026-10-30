@@ -229,23 +229,21 @@ impl ToolName {
         Self::TerminateQuery,
     ];
 
-    /// Read-only subset (Phase 2–4b). Write/admin tools are in ACTIVE but gated at dispatch.
+    /// Tools that do not write config, session routing, index files, or SQL.
+    /// `readOnlyHint` is this set. Config writers and index builds are excluded
+    /// even when they do not mutate Postgres.
     pub const READ_ONLY: &'static [ToolName] = &[
         Self::ListConnections,
         Self::ListDatabases,
         Self::ListSchemas,
         Self::ListObjects,
         Self::GetCurrentContext,
-        Self::SwitchConnection,
         Self::RunSelect,
         Self::ExplainQuery,
+        Self::DiscoverTools,
         Self::RunDoctor,
-        Self::SetupConnection,
-        Self::SaveProfile,
         Self::TestProfile,
         Self::ExportProfile,
-        Self::ImportProfile,
-        Self::ResolveTarget,
         Self::Orient,
         Self::InspectOrSearch,
         Self::SearchAllDatabases,
@@ -253,8 +251,6 @@ impl ToolName {
         Self::DescribeObject,
         Self::GetJoinPath,
         Self::SampleValues,
-        Self::RebuildIndex,
-        Self::RefreshIndex,
         Self::GetDdl,
         Self::TableStats,
         Self::IndexUsage,
@@ -275,9 +271,8 @@ impl ToolName {
         Self::DeepPlanAnalysis,
         Self::SchemaDiff,
         Self::GenerateMigration,
-        // Non-destructive (both callees are read-only); was previously missing
-        // from this list — drive-by fix found alongside the EXPLAIN consolidation.
         Self::AutoTuneQuery,
+        Self::CheckDdlSafety,
     ];
 
     /// Subset of tools optimized for context-constrained query & schema exploration tasks.
@@ -437,16 +432,13 @@ impl ToolName {
                 | Self::TerminateQuery
         );
         let idempotent = read_only
-            && !matches!(
+            || matches!(
                 self,
-                Self::RebuildIndex
-                    | Self::RefreshIndex
-                    | Self::RunDoctor
+                Self::SwitchConnection
                     | Self::SetupConnection
                     | Self::SaveProfile
                     | Self::ImportProfile
-                    | Self::SwitchConnection
-                    | Self::DiscoverTools
+                    | Self::ResolveTarget
             );
         ToolHints {
             read_only,
@@ -472,7 +464,81 @@ mod tests {
 
     #[test]
     fn read_only_is_forty_one_tools() {
-        assert_eq!(ToolName::READ_ONLY.len(), 45);
+        assert_eq!(ToolName::READ_ONLY.len(), 40);
+    }
+
+    #[test]
+    fn every_tool_annotation_matches_behaviour() {
+        // (name, read_only, destructive)
+        let expected = [
+            ("list_connections", true, false),
+            ("list_databases", true, false),
+            ("list_schemas", true, false),
+            ("list_objects", true, false),
+            ("get_current_context", true, false),
+            ("switch_connection", false, false),
+            ("run_select", true, false),
+            ("explain_query", true, false),
+            ("discover_tools", true, false),
+            ("run_doctor", true, false),
+            ("setup_connection", false, false),
+            ("save_profile", false, false),
+            ("test_profile", true, false),
+            ("export_profile", true, false),
+            ("import_profile", false, false),
+            ("resolve_target", false, false),
+            ("orient", true, false),
+            ("inspect_or_search", true, false),
+            ("search_all_databases", true, false),
+            ("search_schema", true, false),
+            ("describe_object", true, false),
+            ("get_join_path", true, false),
+            ("sample_values", true, false),
+            ("rebuild_index", false, false),
+            ("refresh_index", false, false),
+            ("get_ddl", true, false),
+            ("table_stats", true, false),
+            ("index_usage", true, false),
+            ("list_running_queries", true, false),
+            ("find_blocking_locks", true, false),
+            ("slow_queries", true, false),
+            ("db_health_check", true, false),
+            ("get_index_status", true, false),
+            ("list_extensions", true, false),
+            ("server_settings", true, false),
+            ("suggest_indexes", true, false),
+            ("find_unused_indexes", true, false),
+            ("bloat_report", true, false),
+            ("find_missing_fks", true, false),
+            ("export_query", true, false),
+            ("list_roles", true, false),
+            ("db_dashboard", true, false),
+            ("deep_plan_analysis", true, false),
+            ("schema_diff", true, false),
+            ("generate_migration", true, false),
+            ("auto_tune_query", true, false),
+            ("check_ddl_safety", true, false),
+            ("execute_sql", false, true),
+            ("edit_row", false, true),
+            ("import_data", false, true),
+            ("apply_ddl", false, true),
+            ("create_index_concurrently", false, false),
+            ("run_maintenance", false, true),
+            ("terminate_query", false, true),
+        ];
+        assert_eq!(expected.len(), ToolName::ACTIVE.len());
+        for tool in ToolName::ACTIVE {
+            let hints = tool.hints();
+            let row = expected
+                .iter()
+                .find(|(name, _, _)| *name == tool.as_str())
+                .unwrap_or_else(|| panic!("missing annotation row for {}", tool.as_str()));
+            assert_eq!(hints.read_only, row.1, "{}", tool.as_str());
+            assert_eq!(hints.destructive, row.2, "{}", tool.as_str());
+            if hints.read_only {
+                assert!(!hints.destructive, "{}", tool.as_str());
+            }
+        }
     }
 
     #[test]

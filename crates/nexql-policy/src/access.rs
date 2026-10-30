@@ -41,6 +41,31 @@ impl AccessMode {
     }
 }
 
+/// Role created by `nexql-mcp profile readonly-role`.
+pub const NEXQL_READONLY_ROLE: &str = "nexql_readonly";
+
+/// Copy-paste SQL for a least-privilege read role (PostgreSQL 14+).
+///
+/// `pg_read_all_data` is the supported grant. The password placeholder must be
+/// replaced before the statement is run.
+pub fn readonly_role_sql() -> &'static str {
+    "\
+-- Least-privilege login for nexql-mcp (PostgreSQL 14+).
+-- Replace the password, then point the profile at this role instead of a superuser.
+CREATE ROLE nexql_readonly WITH LOGIN PASSWORD 'replace-with-a-secret';
+GRANT pg_read_all_data TO nexql_readonly;"
+}
+
+/// Prominent warning when the connected role is a superuser.
+pub fn superuser_warning() -> String {
+    format!(
+        "WARNING: connected as a superuser. A prompt-injected query can read server files \
+(pg_read_file) and control the database server. Create role `{NEXQL_READONLY_ROLE}` \
+(GRANT pg_read_all_data) and reconnect as that role. Copy-paste SQL: \
+`nexql-mcp profile readonly-role`."
+    )
+}
+
 /// Refuse write/admin against a superuser unless override is set.
 pub fn check_superuser_guard(
     mode: AccessMode,
@@ -74,5 +99,14 @@ mod tests {
         assert!(check_superuser_guard(AccessMode::Write, true, false).is_err());
         assert!(check_superuser_guard(AccessMode::Write, true, true).is_ok());
         assert!(check_superuser_guard(AccessMode::Write, false, false).is_ok());
+    }
+
+    #[test]
+    fn readonly_role_sql_is_copyable() {
+        let sql = readonly_role_sql();
+        assert!(sql.contains("CREATE ROLE nexql_readonly"));
+        assert!(sql.contains("GRANT pg_read_all_data TO nexql_readonly"));
+        assert!(superuser_warning().contains("WARNING"));
+        assert!(superuser_warning().contains("nexql-mcp profile readonly-role"));
     }
 }

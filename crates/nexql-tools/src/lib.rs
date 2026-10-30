@@ -6,6 +6,7 @@
 //! Tools return typed results; the protocol layer serializes them.
 //! This crate must NOT depend on `nexql-proto`.
 
+pub mod catalog_guard;
 pub mod cell_json;
 pub mod completions;
 pub mod critique;

@@ -12,7 +12,7 @@ use nexql_conn::{
     ConnectionParams, PoolOptions, ProfileConfig, ResolvedConnection, checkout_guarded,
     create_pool, resolve_profile,
 };
-use nexql_index::IndexStore;
+use nexql_index::{IndexBuildGate, IndexStore};
 use nexql_policy::{AccessMode, PolicyCaps, PolicyFilter, clamp_statement_timeout_ms};
 use tokio::sync::RwLock as AsyncRwLock;
 
@@ -83,6 +83,8 @@ pub struct ToolSession {
     /// `crate::elicitation`) — `None` until then, and always `None` in tests
     /// that don't explicitly inject one via [`Self::set_elicitation_backend`].
     elicitation: RwLock<Option<Arc<dyn crate::elicitation::ElicitationRequester>>>,
+    /// In-process single-flight for startup auto-index and tool-triggered builds.
+    pub index_builds: Arc<IndexBuildGate>,
 }
 
 fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
@@ -91,6 +93,7 @@ fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
         deny_schemas: profile.deny_schemas.clone(),
         deny_tables: profile.deny_tables.clone(),
         pii_columns: profile.pii_columns.clone(),
+        sensitive_name_heuristics: profile.sensitive_heuristics_enabled(),
     }
 }
 
@@ -319,6 +322,7 @@ impl ToolSession {
                 pools,
             }),
             elicitation: RwLock::new(None),
+            index_builds: IndexBuildGate::new(),
         }))
     }
 
@@ -581,6 +585,7 @@ impl ToolSession {
                 pools: HashMap::new(),
             }),
             elicitation: RwLock::new(None),
+            index_builds: IndexBuildGate::new(),
         })
     }
 }
@@ -604,6 +609,7 @@ mod tests {
         assert_eq!(f.deny_schemas, vec!["pgboss"]);
         assert_eq!(f.deny_tables, vec!["auth.*"]);
         assert_eq!(f.pii_columns, vec!["public.users.ssn"]);
+        assert!(f.sensitive_name_heuristics);
         assert!(f.allows_schema("public"));
         assert!(!f.allows_schema("pgboss"));
         assert!(!f.allows_table("auth", "sessions"));

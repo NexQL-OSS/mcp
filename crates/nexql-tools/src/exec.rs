@@ -6,19 +6,21 @@
 use std::sync::Arc;
 
 use nexql_index::{
-    BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, IndexQueryService, IndexScope,
-    IndexStore, ObjectEntry, PgCatalogDb, QueryPolicyFilter, RefResolution, SearchOptions,
-    build_index,
+    BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, GateRole, IndexManifest,
+    IndexQueryService, IndexScope, IndexStore, ObjectEntry, PgCatalogDb, QueryPolicyFilter,
+    RefResolution, SearchOptions, build_index,
 };
 use nexql_policy::{
-    PolicyCaps, PolicyFilter, SqlDecision, enforce_read_table_policy, select_table_refs,
-    validate_readonly_sql,
+    AccessMode, ObjectRef, PolicyCaps, PolicyFilter, SqlDecision, column_should_redact,
+    enforce_read_table_policy, select_table_refs, validate_readonly_sql,
 };
 use serde_json::{Value, json};
 
+use crate::catalog_guard::enforce_routine_guards;
 use crate::cell_json::{
-    columnarize_read_payload, columnarize_row_arrays, redact_pii_in_payload, rows_to_json_array,
-    rows_to_json_array_with_total,
+    columnarize_read_payload, columnarize_row_arrays, ensure_redaction_names_present,
+    heuristic_output_names, metadata_sensitive_output_names, redact_named_columns_in_payload,
+    rows_to_json_array, rows_to_json_array_with_total, sensitive_output_names,
 };
 use crate::critique;
 use crate::error::ToolError;
@@ -859,36 +861,22 @@ impl ToolRouter {
         let (connection_id, database) = self.session.active_context().await;
 
         let Some(store) = self.index_store() else {
-            return Ok(ToolOutcome::ok_json(json!({
-                "database": database,
-                "tables": [],
-                "joins": [],
-                "enums": {},
-                "notes": [NO_INDEX_HINT],
-            })));
+            return Ok(orient_index_status(&database, "missing", NO_INDEX_HINT));
         };
         let base = store.base_dir(&connection_id, &database);
         if store.read_manifest(&base)?.is_none()
             && let Err(e) = self.ensure_index_warm().await
         {
-            return Ok(ToolOutcome::ok_json(json!({
-                "database": database,
-                "tables": [],
-                "joins": [],
-                "enums": {},
-                "notes": [e.to_string()],
-            })));
+            return Ok(orient_index_status(&database, "failed", e.to_string()));
         }
         let Some(manifest) = store.read_manifest(&base)? else {
-            return Ok(ToolOutcome::ok_json(json!({
-                "database": database,
-                "tables": [],
-                "joins": [],
-                "enums": {},
-                "notes": [format!(
+            return Ok(orient_index_status(
+                &database,
+                "missing",
+                format!(
                     "No schema index for database \"{database}\" — call the 'rebuild_index' tool to build an index."
-                )],
-            })));
+                ),
+            ));
         };
 
         let mut entries: Vec<(String, ObjectEntry)> = Vec::new();
@@ -1165,12 +1153,9 @@ impl ToolRouter {
             embeddings: self.use_semantic,
         };
 
-        let client = self.session.checkout().await?;
-        let db = PgCatalogDb::new(&client);
-        let manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
-            .await
-            .map_err(|e| ToolError::Execution(format!("Index build failed: {e}")))?;
-        self.session.clear_index_stale(&connection_id, &database);
+        let manifest = self
+            .build_index_single_flight(store, req, "Index build failed")
+            .await?;
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "completed",
@@ -1204,12 +1189,9 @@ impl ToolRouter {
             embeddings: self.use_semantic,
         };
 
-        let client = self.session.checkout().await?;
-        let db = PgCatalogDb::new(&client);
-        let new_manifest = build_index(store, &db, &req, None, None, self.embedder.as_deref())
-            .await
-            .map_err(|e| ToolError::Execution(format!("Index refresh failed: {e}")))?;
-        self.session.clear_index_stale(&connection_id, &database);
+        let new_manifest = self
+            .build_index_single_flight(store, req, "Index refresh failed")
+            .await?;
 
         Ok(ToolOutcome::ok_json(json!({
             "status": "refreshed",
@@ -1285,6 +1267,8 @@ impl ToolRouter {
             "version": version.split(',').next().unwrap_or(&version),
             "access_mode": format!("{:?}", self.session.access_mode()),
             "superuser": is_superuser,
+            "superuserWarning": is_superuser.then(nexql_policy::superuser_warning),
+            "readonlyRoleSql": is_superuser.then(nexql_policy::readonly_role_sql),
             "read_only": ro,
             "statement_timeout": timeout,
             "pg_stat_statements": pgs_present,
@@ -1657,6 +1641,7 @@ impl ToolRouter {
     }
 
     /// Build a structure-only index when none exists for the given connection/database.
+    /// Joins an in-flight build instead of failing on the process file lock.
     async fn ensure_index_warm_for(&self, ctx: &ScopedContext) -> Result<(), ToolError> {
         let store = self
             .index_store()
@@ -1678,23 +1663,67 @@ impl ToolRouter {
             environment: "development".into(),
             embeddings: self.use_semantic,
         };
+        self.build_index_single_flight(store, req, "Automatic index build failed")
+            .await?;
+        Ok(())
+    }
+
+    /// One build per connection/database inside this process. Joiners wait for
+    /// the leader instead of taking a second file lock.
+    async fn build_index_single_flight(
+        &self,
+        store: &IndexStore,
+        req: BuildRequest,
+        failure_prefix: &str,
+    ) -> Result<IndexManifest, ToolError> {
+        let key = format!("{}\0{}", req.connection_id, req.database);
+        match self.session.index_builds.enter(&key).await {
+            GateRole::Joined(Ok(())) => {
+                let base = store.base_dir(&req.connection_id, &req.database);
+                store.read_manifest(&base)?.ok_or_else(|| {
+                    ToolError::Execution(format!(
+                        "{failure_prefix}: in-flight build finished without a manifest"
+                    ))
+                })
+            }
+            GateRole::Joined(Err(err)) => {
+                Err(ToolError::Execution(format!("{failure_prefix}: {err}")))
+            }
+            GateRole::Leader(lease) => {
+                let built = self.build_index_locked(store, &req).await;
+                let published = built.as_ref().map(|_| ()).map_err(|err| err.to_string());
+                lease.finish(published);
+                built.map_err(|err| ToolError::Execution(format!("{failure_prefix}: {err}")))
+            }
+        }
+    }
+
+    async fn build_index_locked(
+        &self,
+        store: &IndexStore,
+        req: &BuildRequest,
+    ) -> Result<IndexManifest, String> {
+        let ctx = ScopedContext {
+            connection_id: req.connection_id.clone(),
+            database: req.database.clone(),
+        };
         let (client, _) = self
             .session
-            .checkout_for(CheckoutTarget::Scoped(ctx))
+            .checkout_for(CheckoutTarget::Scoped(&ctx))
             .await
             .map_err(|_| {
-                ToolError::Execution(format!(
+                format!(
                     "No schema index for database \"{}\" — call the 'rebuild_index' tool to build an index.",
                     ctx.database
-                ))
+                )
             })?;
         let db = PgCatalogDb::new(&client);
-        build_index(store, &db, &req, None, None, self.embedder.as_deref())
+        let manifest = build_index(store, &db, req, None, None, self.embedder.as_deref())
             .await
-            .map_err(|e| ToolError::Execution(format!("Automatic index build failed: {e}")))?;
+            .map_err(|err| err.to_string())?;
         self.session
-            .clear_index_stale(&ctx.connection_id, &ctx.database);
-        Ok(())
+            .clear_index_stale(&req.connection_id, &req.database);
+        Ok(manifest)
     }
 
     async fn ensure_index_warm(&self) -> Result<(), ToolError> {
@@ -2096,6 +2125,24 @@ impl ToolRouter {
         let resolved = Self::resolve_indexed_ref_soft(&svc, ref_)?;
         let ref_ = resolved.as_str();
         let filter = self.query_filter();
+        let parts: Vec<&str> = ref_.split('.').collect();
+        let (schema, table) = match parts.as_slice() {
+            [schema, table] => (*schema, *table),
+            _ => ("public", ref_),
+        };
+        if column_should_redact(
+            &self.session.filter(),
+            &[ObjectRef::new(schema, table)],
+            col,
+        ) {
+            return Ok(ToolOutcome::ok_json(json!({
+                "values": [],
+                "piiRedactedColumns": [col],
+                "message": format!(
+                    "column {schema}.{table}.{col} is treated as sensitive and was not sampled"
+                ),
+            })));
+        }
         let result = svc.sample_values(ref_, col, Some(&filter), None)?;
 
         let mut values = result.values;
@@ -3602,8 +3649,15 @@ impl ToolRouter {
                 .query_with_hints(&client, sql, &pg_param_refs, timeout_ms)
                 .await?;
             let values = rows_to_json(&rows);
-            let payload =
-                self.apply_pii_redaction_for(sql, ensure_structured_object(values), &scope.filter);
+            let payload = self
+                .apply_pii_redaction_for(
+                    &client,
+                    sql,
+                    &rows,
+                    ensure_structured_object(values),
+                    &scope.filter,
+                )
+                .await?;
             return self
                 .finalize_run_select_payload(
                     sql,
@@ -3634,8 +3688,15 @@ impl ToolRouter {
         let (total_count, values) =
             rows_to_json_array_with_total(&rows[..keep_len], NEXQL_TOTAL_COUNT_COL);
         let returned = keep_len;
-        let mut payload =
-            self.apply_pii_redaction_for(sql, ensure_structured_object(values), &scope.filter);
+        let mut payload = self
+            .apply_pii_redaction_for(
+                &client,
+                sql,
+                &rows[..keep_len],
+                ensure_structured_object(values),
+                &scope.filter,
+            )
+            .await?;
         if let Some(obj) = payload.as_object_mut() {
             obj.insert("limit".into(), json!(max_rows));
             if let Some(total) = total_count {
@@ -3670,7 +3731,14 @@ impl ToolRouter {
         params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
         timeout_ms: u32,
     ) -> Result<Vec<tokio_postgres::Row>, ToolError> {
-        match client.query(sql, params).await {
+        enforce_routine_guards(client, sql).await?;
+        let opened = self.session.access_mode() == AccessMode::Read;
+        if opened {
+            nexql_conn::begin_read_only(client)
+                .await
+                .map_err(|err| ToolError::Execution(err.to_string()))?;
+        }
+        let result = match client.query(sql, params).await {
             Ok(rows) => Ok(rows),
             Err(e) if is_statement_timeout(&e) => Err(ToolError::Execution(
                 serde_json::to_string(&json!({
@@ -3682,29 +3750,67 @@ impl ToolRouter {
                 .unwrap_or_else(|_| format!("statement timeout after {timeout_ms}ms")),
             )),
             Err(e) => Err(ToolError::Execution(self.enrich_query_error(&e).await)),
+        };
+        if opened {
+            let end = if result.is_ok() { "COMMIT" } else { "ROLLBACK" };
+            if let Err(err) = client.batch_execute(end).await {
+                let _ = client.batch_execute("ROLLBACK").await;
+                if result.is_ok() {
+                    return Err(ToolError::Execution(format!(
+                        "failed to end read-only transaction: {err}"
+                    )));
+                }
+            }
         }
+        result
     }
 
-    fn apply_pii_redaction_for(
+    async fn apply_pii_redaction_for(
         &self,
+        client: &deadpool_postgres::Object,
         sql: &str,
+        rows: &[tokio_postgres::Row],
         mut payload: Value,
         filter: &PolicyFilter,
-    ) -> Value {
-        if filter.pii_columns.is_empty() {
-            return payload;
+    ) -> Result<Value, ToolError> {
+        let mut names = sensitive_output_names(client, sql, filter).await?;
+        if let Some(row) = rows.first() {
+            let result_columns: Vec<&str> = row.columns().iter().map(|c| c.name()).collect();
+            ensure_redaction_names_present(&names, &result_columns)?;
         }
-        let Ok(tables) = select_table_refs(sql) else {
-            return payload;
-        };
-        let (redacted, cols) = redact_pii_in_payload(payload, &filter.pii_columns, &tables);
+        names.extend(metadata_sensitive_output_names(client, rows, filter).await);
+        for extra in heuristic_output_names(&payload, filter) {
+            if !names.iter().any(|name| name.eq_ignore_ascii_case(&extra)) {
+                names.push(extra);
+            }
+        }
+        if names.is_empty() {
+            return Ok(payload);
+        }
+        let (redacted, cols) = redact_named_columns_in_payload(payload, &names);
         payload = redacted;
         if !cols.is_empty()
             && let Some(obj) = payload.as_object_mut()
         {
             obj.insert("piiRedactedColumns".into(), json!(cols));
         }
-        payload
+        Ok(payload)
+    }
+}
+
+fn orient_index_status(database: &str, status: &str, message: impl Into<String>) -> ToolOutcome {
+    let message = message.into();
+    ToolOutcome {
+        text: message.clone(),
+        structured: Some(json!({
+            "database": database,
+            "tables": [],
+            "joins": [],
+            "enums": {},
+            "indexStatus": status,
+            "error": message,
+        })),
+        is_error: true,
     }
 }
 
@@ -3963,6 +4069,7 @@ mod tests {
             deny_schemas: vec!["pgboss".into()],
             deny_tables: vec!["auth.*".into()],
             pii_columns: vec!["public.users.ssn".into()],
+            sensitive_name_heuristics: true,
         };
         let q = policy_to_query_filter(&f);
         assert_eq!(q.allow_schemas, f.allow_schemas);
@@ -4718,10 +4825,49 @@ mod tests {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
         let out = router.call("orient", json!({})).await;
-        assert!(!out.is_error, "{}", out.text);
+        assert!(out.is_error, "{}", out.text);
         let structured = out.structured.unwrap();
         assert_eq!(structured["tables"].as_array().unwrap().len(), 0);
-        assert!(!structured["notes"].as_array().unwrap().is_empty());
+        assert_eq!(structured["indexStatus"], "missing");
+        assert!(structured["error"].as_str().unwrap().contains("index"));
+    }
+
+    #[tokio::test]
+    async fn orient_waits_for_inflight_index_build() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        let session = ToolSession::for_tests(
+            vec![test_conn()],
+            PolicyFilter::default(),
+            Some(IndexStore::new(tmp.path())),
+        );
+        let key = "conn-1\0appdb";
+        let nexql_index::GateRole::Leader(lease) = session.index_builds.enter(key).await else {
+            panic!("test must own the in-flight build");
+        };
+        let writer = IndexStore::new(tmp.path());
+        let build = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            write_join_path_fixture(&writer);
+            lease.finish(Ok(()));
+        });
+        let router = ToolRouter::with_index_store(session, Some(store));
+        let out = router.call("orient", json!({})).await;
+        build.await.unwrap();
+        assert!(
+            !out.text.contains("another process"),
+            "in-flight build must be awaited, got: {}",
+            out.text
+        );
+        assert!(!out.is_error, "{}", out.text);
+        let tables = out.structured.unwrap()["tables"]
+            .as_array()
+            .cloned()
+            .unwrap();
+        assert!(
+            !tables.is_empty(),
+            "orient returned no tables after the build"
+        );
     }
 
     #[tokio::test]

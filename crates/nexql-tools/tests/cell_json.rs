@@ -38,6 +38,14 @@ fn which(bin: &str) -> Option<PathBuf> {
 }
 
 fn start_temp_pg() -> Option<TempPg> {
+    let started = start_temp_pg_inner();
+    if started.is_none() && std::env::var("NEXQL_REQUIRE_LIVE_PG").ok().as_deref() == Some("1") {
+        panic!("NEXQL_REQUIRE_LIVE_PG=1 but initdb/postgres could not start a temporary server");
+    }
+    started
+}
+
+fn start_temp_pg_inner() -> Option<TempPg> {
     let initdb = which("initdb")?;
     let postgres = which("postgres")?;
     let data = TempDir::new().ok()?;
@@ -85,8 +93,15 @@ fn start_temp_pg() -> Option<TempPg> {
     let url = format!("postgres://spike@127.0.0.1:{port}/postgres?sslmode=disable");
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            std::thread::sleep(Duration::from_millis(300));
+        // An open port is not enough: the server rejects connections while it
+        // is still starting up. Postgres writes `ready` as the 8th line of
+        // postmaster.pid once it accepts connections.
+        let ready = std::fs::read_to_string(data.path().join("postmaster.pid")).is_ok_and(|pid| {
+            pid.lines()
+                .nth(7)
+                .is_some_and(|line| line.trim() == "ready")
+        });
+        if ready {
             return Some(TempPg {
                 _data: data,
                 child,

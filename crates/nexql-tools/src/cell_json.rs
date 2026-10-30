@@ -3,9 +3,15 @@
 
 //! Typed Postgres cell → JSON conversion shared by read and write tools.
 
+use std::collections::HashMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use nexql_policy::{ObjectRef, PII_REDACTED, column_matches_pii_policy};
+use nexql_policy::{
+    CatalogColumn, ObjectRef, PII_REDACTED, PolicyFilter, UnresolvedRelation, ViewBody,
+    analyze_output_lineage_with_views, column_matches_pii_policy, column_should_redact,
+    is_sensitive_column_name,
+};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use tokio_postgres::types::{FromSql, Kind, Type};
@@ -258,6 +264,386 @@ pub fn redact_pii_in_payload(
         return (payload, cols);
     }
     (payload, Vec::new())
+}
+
+/// Redact result columns by output name (lineage aliases, not just physical names).
+pub fn redact_named_columns_in_payload(
+    mut payload: Value,
+    names: &[String],
+) -> (Value, Vec<String>) {
+    if names.is_empty() {
+        return (payload, Vec::new());
+    }
+    let hit = |key: &str| names.iter().any(|name| name.eq_ignore_ascii_case(key));
+    if let Some(rows) = payload.get_mut("rows").and_then(|v| v.as_array_mut()) {
+        let taken = std::mem::take(rows);
+        let (redacted, cols) = redact_named_rows(taken, hit);
+        *rows = redacted;
+        return (payload, cols);
+    }
+    if let Value::Array(rows) = &mut payload {
+        let taken = std::mem::take(rows);
+        let (redacted, cols) = redact_named_rows(taken, hit);
+        *rows = redacted;
+        return (payload, cols);
+    }
+    (payload, Vec::new())
+}
+
+fn redact_named_rows(rows: Vec<Value>, hit: impl Fn(&str) -> bool) -> (Vec<Value>, Vec<String>) {
+    let mut redacted_cols: Vec<String> = Vec::new();
+    let out = rows
+        .into_iter()
+        .map(|row| {
+            let mut obj = match row {
+                Value::Object(map) => map,
+                other => return other,
+            };
+            for (col, val) in obj.iter_mut() {
+                if hit(col) {
+                    *val = Value::String(PII_REDACTED.into());
+                    if !redacted_cols.iter().any(|c| c.eq_ignore_ascii_case(col)) {
+                        redacted_cols.push(col.clone());
+                    }
+                }
+            }
+            Value::Object(obj)
+        })
+        .collect();
+    (out, redacted_cols)
+}
+
+const RELATION_COLUMNS_SQL: &str = "\
+SELECT n.nspname::text, c.relname::text, a.attname::text
+FROM unnest($1::text[], $2::text[]) AS x(schema_name, table_name)
+JOIN pg_namespace n ON n.nspname = x.schema_name
+JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = x.table_name
+JOIN pg_attribute a ON a.attrelid = c.oid
+WHERE a.attnum > 0 AND NOT a.attisdropped
+ORDER BY x.schema_name, x.table_name, a.attnum";
+
+const OUTPUT_COLUMN_META_SQL: &str = "\
+SELECT x.ord::int4, n.nspname::text, c.relname::text, a.attname::text
+FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS x(oid_text, att_text, ord)
+JOIN pg_attribute a ON a.attrelid = x.oid_text::oid AND a.attnum = x.att_text::int2
+JOIN pg_class c ON c.oid = a.attrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+ORDER BY x.ord";
+
+/// Schema the session `search_path` resolves each unqualified name to
+/// (`pg_tables` → `pg_catalog`). Names that do not resolve are left out.
+const VIEW_BODIES_SQL: &str = "\
+SELECT n.nspname::text,
+       c.relname::text,
+       pg_get_viewdef(c.oid, true),
+       COALESCE(
+         array_agg(a.attname::text ORDER BY a.attnum)
+           FILTER (WHERE a.attnum > 0 AND NOT a.attisdropped),
+         '{}'::text[]
+       )
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_attribute a ON a.attrelid = c.oid
+WHERE c.relkind IN ('v', 'm')
+  AND c.relname = ANY($1::text[])
+GROUP BY n.nspname, c.relname, c.oid";
+
+const SEARCH_PATH_SCHEMAS_SQL: &str = "\
+SELECT x.name, n.nspname::text
+FROM unnest($1::text[]) AS x(name)
+JOIN pg_class c ON c.oid = to_regclass(quote_ident(x.name))
+JOIN pg_namespace n ON n.oid = c.relnamespace";
+
+/// Column-lineage redaction names for `sql`. Resolves unqualified relations
+/// through the session `search_path`, and loads `pg_attribute` when a
+/// whole-row or star reference cannot be classified from config alone.
+/// Whole-row constructs over sensitive relations return an error.
+pub async fn sensitive_output_names(
+    client: &tokio_postgres::Client,
+    sql: &str,
+    filter: &PolicyFilter,
+) -> Result<Vec<String>, crate::error::ToolError> {
+    let analyze = |known: &[CatalogColumn],
+                   schemas: &HashMap<String, String>,
+                   views: &HashMap<String, ViewBody>| {
+        analyze_output_lineage_with_views(sql, filter, known, schemas, views)
+            .map_err(|err| crate::error::ToolError::Execution(err.to_string()))
+    };
+    let mut known = Vec::new();
+    let mut schemas = HashMap::new();
+    let views = load_view_bodies(client, sql).await?;
+    let mut lineage = analyze(&known, &schemas, &views)?;
+    if !lineage.unqualified_relations.is_empty() {
+        schemas = resolve_search_path_schemas(client, &lineage.unqualified_relations).await;
+        if !schemas.is_empty() {
+            lineage = analyze(&known, &schemas, &views)?;
+        }
+    }
+    if !lineage.unresolved_whole_rows.is_empty() {
+        known = load_relation_columns(client, &lineage.unresolved_whole_rows).await;
+        lineage = analyze(&known, &schemas, &views)?;
+    }
+    if !lineage.rejections.is_empty() {
+        return Err(crate::error::ToolError::Execution(
+            lineage.rejections.join("; "),
+        ));
+    }
+    if !lineage.unresolved_whole_rows.is_empty() {
+        let rels = lineage
+            .unresolved_whole_rows
+            .iter()
+            .map(|rel| format!("{}.{}", rel.schema, rel.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(crate::error::ToolError::Execution(format!(
+            "refusing whole-row output over {rels}: column list is unknown, so sensitive values could leak"
+        )));
+    }
+    Ok(lineage.redact_names)
+}
+
+/// Views and matviews referenced by `sql`, including views nested in those
+/// definitions, keyed `schema.name`. A catalog error fails closed. Expansion
+/// stops after a few rounds; a view still unseen after that is an error.
+async fn load_view_bodies(
+    client: &tokio_postgres::Client,
+    sql: &str,
+) -> Result<HashMap<String, ViewBody>, crate::error::ToolError> {
+    let mut pending = nexql_policy::sql::relation_refs(sql)
+        .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+    let mut loaded: HashMap<String, ViewBody> = HashMap::new();
+    for _ in 0..8 {
+        if pending.is_empty() {
+            return Ok(loaded);
+        }
+        let names: Vec<String> = pending.iter().map(|rel| rel.name.clone()).collect();
+        pending.clear();
+        let rows = client
+            .query(VIEW_BODIES_SQL, &[&names])
+            .await
+            .map_err(|err| {
+                crate::error::ToolError::Execution(format!(
+                    "could not load view definitions ({err}); refusing"
+                ))
+            })?;
+        let mut fresh = false;
+        for row in rows {
+            let schema: String = row.get(0);
+            let name: String = row.get(1);
+            let def: String = row.get(2);
+            let columns: Vec<String> = row.get(3);
+            let key = format!(
+                "{}.{}",
+                schema.to_ascii_lowercase(),
+                name.to_ascii_lowercase()
+            );
+            if loaded.contains_key(&key) {
+                continue;
+            }
+            fresh = true;
+            let nested = nexql_policy::sql::relation_refs(&def)
+                .map_err(|err| crate::error::ToolError::Execution(err.to_string()))?;
+            pending.extend(nested);
+            loaded.insert(key, ViewBody { sql: def, columns });
+        }
+        if !fresh {
+            return Ok(loaded);
+        }
+    }
+    if pending.is_empty() {
+        return Ok(loaded);
+    }
+    let names: Vec<String> = pending.iter().map(|rel| rel.name.clone()).collect();
+    let rows = client
+        .query(VIEW_BODIES_SQL, &[&names])
+        .await
+        .map_err(|err| {
+            crate::error::ToolError::Execution(format!(
+                "could not load view definitions ({err}); refusing"
+            ))
+        })?;
+    let unseen = rows.into_iter().any(|row| {
+        let schema: String = row.get(0);
+        let name: String = row.get(1);
+        let key = format!(
+            "{}.{}",
+            schema.to_ascii_lowercase(),
+            name.to_ascii_lowercase()
+        );
+        !loaded.contains_key(&key)
+    });
+    if unseen {
+        return Err(crate::error::ToolError::Execution(
+            "refusing to run SQL: view expansion exceeded the safety depth, so a view over \
+             sensitive columns could not be classified"
+                .into(),
+        ));
+    }
+    Ok(loaded)
+}
+
+async fn resolve_search_path_schemas(
+    client: &tokio_postgres::Client,
+    names: &[String],
+) -> HashMap<String, String> {
+    match client.query(SEARCH_PATH_SCHEMAS_SQL, &[&names]).await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+            .collect(),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "search_path lookup for PII lineage failed; unqualified relations assumed public"
+            );
+            HashMap::new()
+        }
+    }
+}
+
+/// Fail closed when a sensitive output name from lineage is not one of the
+/// result's columns: redaction is by name, so a mismatch would mean the
+/// sensitive column went out unredacted under some other name.
+pub fn ensure_redaction_names_present(
+    lineage_names: &[String],
+    result_columns: &[&str],
+) -> Result<(), crate::error::ToolError> {
+    if result_columns.is_empty() {
+        return Ok(());
+    }
+    let missing: Vec<&str> = lineage_names
+        .iter()
+        .filter(|name| {
+            !result_columns
+                .iter()
+                .any(|col| col.eq_ignore_ascii_case(name))
+        })
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(crate::error::ToolError::Execution(format!(
+        "could not match sensitive output column(s) {} to the result columns; give each \
+         expression an explicit alias (AS name) and retry",
+        missing.join(", ")
+    )))
+}
+
+async fn load_relation_columns(
+    client: &tokio_postgres::Client,
+    relations: &[UnresolvedRelation],
+) -> Vec<CatalogColumn> {
+    if relations.is_empty() {
+        return Vec::new();
+    }
+    let schemas: Vec<String> = relations.iter().map(|rel| rel.schema.clone()).collect();
+    let tables: Vec<String> = relations.iter().map(|rel| rel.name.clone()).collect();
+    let rows = match client
+        .query(RELATION_COLUMNS_SQL, &[&schemas, &tables])
+        .await
+    {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "pg_attribute lookup for PII lineage failed; whole-row output stays unresolved"
+            );
+            return Vec::new();
+        }
+    };
+    rows.into_iter()
+        .map(|row| CatalogColumn {
+            schema: row.get(0),
+            table: row.get(1),
+            column: row.get(2),
+        })
+        .collect()
+}
+
+/// Extra redaction from `RowDescription` table OID + attnum, when the driver
+/// populated them. Output names (aliases) are what get redacted.
+pub async fn metadata_sensitive_output_names(
+    client: &tokio_postgres::Client,
+    rows: &[tokio_postgres::Row],
+    filter: &PolicyFilter,
+) -> Vec<String> {
+    let Some(row) = rows.first() else {
+        return Vec::new();
+    };
+    let mut oids = Vec::new();
+    let mut attnums = Vec::new();
+    let mut output_names = Vec::new();
+    for col in row.columns() {
+        let Some(oid) = col.table_oid().filter(|oid| *oid != 0) else {
+            continue;
+        };
+        let Some(attnum) = col.column_id().filter(|attnum| *attnum > 0) else {
+            continue;
+        };
+        oids.push(oid.to_string());
+        attnums.push(attnum.to_string());
+        output_names.push(col.name().to_owned());
+    }
+    if oids.is_empty() {
+        return Vec::new();
+    }
+    let found = match client
+        .query(OUTPUT_COLUMN_META_SQL, &[&oids, &attnums])
+        .await
+    {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "result-column metadata lookup failed; AST lineage redaction still applies"
+            );
+            return Vec::new();
+        }
+    };
+    let mut redact: Vec<String> = Vec::new();
+    for meta in found {
+        let ord: i32 = meta.get(0);
+        let schema: String = meta.get(1);
+        let table: String = meta.get(2);
+        let column: String = meta.get(3);
+        let idx = usize::try_from(ord).unwrap_or(0).saturating_sub(1);
+        if column_should_redact(filter, &[ObjectRef::new(schema, table)], &column)
+            && let Some(output) = output_names.get(idx)
+            && !redact.iter().any(|name| name.eq_ignore_ascii_case(output))
+        {
+            redact.push(output.clone());
+        }
+    }
+    redact
+}
+
+/// Output keys that match the sensitive-name heuristics, regardless of lineage.
+pub fn heuristic_output_names(payload: &Value, filter: &PolicyFilter) -> Vec<String> {
+    if !filter.sensitive_name_heuristics {
+        return Vec::new();
+    }
+    let mut names = Vec::new();
+    let rows = payload
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .or_else(|| payload.as_array());
+    let Some(rows) = rows else {
+        return names;
+    };
+    for row in rows {
+        let Some(obj) = row.as_object() else {
+            continue;
+        };
+        for key in obj.keys() {
+            if is_sensitive_column_name(key)
+                && !names.iter().any(|name| name.eq_ignore_ascii_case(key))
+            {
+                names.push(key.clone());
+            }
+        }
+    }
+    names
 }
 
 /// Detect SQL NULL for any column type without committing to a concrete `FromSql` type.

@@ -43,6 +43,10 @@ pub struct ProfileConfig {
     pub max_rows: Option<u32>,
     pub statement_timeout_ms: Option<u32>,
     pub credential_provider: Option<String>,
+    /// `None` (the default, including profiles saved before this field
+    /// existed) enables sensitive-name heuristics. Set `false` to opt out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensitive_name_heuristics: Option<bool>,
 }
 
 impl ProfileConfig {
@@ -118,6 +122,14 @@ impl ProfileConfig {
         if self.credential_provider.is_none() {
             self.credential_provider = other.credential_provider.clone();
         }
+        if self.sensitive_name_heuristics.is_none() {
+            self.sensitive_name_heuristics = other.sensitive_name_heuristics;
+        }
+    }
+
+    /// `None` means the heuristics are on. Only an explicit `false` opts out.
+    pub fn sensitive_heuristics_enabled(&self) -> bool {
+        self.sensitive_name_heuristics.unwrap_or(true)
     }
 }
 

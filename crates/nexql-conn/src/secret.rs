@@ -5,6 +5,8 @@
 //! and user-managed `password_file`.
 
 use std::path::Path;
+#[cfg(any(test, feature = "isolated-credentials"))]
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::error::ConnError;
@@ -84,8 +86,37 @@ pub fn resolve_profile_file_password(password_file: &Path) -> Result<String, Con
     read_password_file(password_file)
 }
 
+/// Test builds keep secrets out of the developer's OS keyring and config
+/// directory. The keyring reports itself unavailable, so callers fall back to
+/// the encrypted file, which is written under a per-process temp directory.
+/// Enabled for this crate's tests and, through the `isolated-credentials`
+/// feature, for dependents' dev-dependencies; release builds never set it.
+#[cfg(any(test, feature = "isolated-credentials"))]
+pub(crate) fn isolated_credentials_dir() -> Option<&'static Path> {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let dir = DIR.get_or_init(|| {
+        std::env::temp_dir().join(format!("nexql-mcp-test-credentials-{}", std::process::id()))
+    });
+    Some(dir.as_path())
+}
+
+#[cfg(not(any(test, feature = "isolated-credentials")))]
+pub(crate) fn isolated_credentials_dir() -> Option<&'static Path> {
+    None
+}
+
+fn keyring_disabled_for_tests() -> Result<(), ConnError> {
+    match isolated_credentials_dir() {
+        Some(_) => Err(ConnError::PasswordCommand(
+            "OS keyring is disabled in test builds".into(),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Resolve password from OS keyring (`nexql-mcp` service).
 pub fn resolve_keyring_password(profile_name: &str) -> Result<String, ConnError> {
+    keyring_disabled_for_tests()?;
     let entry = keyring::Entry::new("nexql-mcp", profile_name)
         .map_err(|e| ConnError::PasswordCommand(format!("keyring init error: {e}")))?;
     entry
@@ -95,6 +126,7 @@ pub fn resolve_keyring_password(profile_name: &str) -> Result<String, ConnError>
 
 /// Store password into OS keyring (`nexql-mcp` service).
 pub fn store_keyring_password(profile_name: &str, password: &str) -> Result<(), ConnError> {
+    keyring_disabled_for_tests()?;
     let entry = keyring::Entry::new("nexql-mcp", profile_name)
         .map_err(|e| ConnError::PasswordCommand(format!("keyring init error: {e}")))?;
     entry

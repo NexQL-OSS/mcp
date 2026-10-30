@@ -425,16 +425,37 @@ impl OnboardingApp {
 
         // Process copy-only / manual targets
         let url_arg = if self.use_custom_url && !self.custom_url.trim().is_empty() {
-            Some(self.custom_url.trim())
+            let url = self.custom_url.trim();
+            if init_clients::url_contains_password(url) {
+                None
+            } else {
+                Some(url)
+            }
         } else {
             None
         };
+        let password_in_custom_url =
+            self.use_custom_url && init_clients::url_contains_password(self.custom_url.trim());
 
         for item in self
             .model_items
             .iter()
             .filter(|i| i.selected && !i.mergeable)
         {
+            if password_in_custom_url {
+                self.summary.push(SummaryEntry {
+                    display_name: item.display_name.to_string(),
+                    path: None,
+                    backup: None,
+                    snippet: None,
+                    error: Some(
+                        "refusing to embed a database password in the client config. Save a profile and use --profile."
+                            .into(),
+                    ),
+                    skipped: true,
+                });
+                continue;
+            }
             match init_clients::init_snippet(item.key, url_arg) {
                 Ok(snippet) => self.summary.push(SummaryEntry {
                     display_name: item.display_name.to_string(),

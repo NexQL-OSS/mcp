@@ -48,6 +48,65 @@ pub async fn create_pool(params: &ConnectionParams, opts: &PoolOptions) -> Resul
         .map_err(|e| ConnError::Pool(e.to_string()))
 }
 
+/// Explicit transaction for user SQL in read mode. Session GUCs already set
+/// `default_transaction_read_only`, and this wraps the statement so
+/// `set_config` cannot flip the current transaction.
+pub const BEGIN_READ_ONLY: &str = "BEGIN READ ONLY";
+
+/// Detects an already-open transaction, then starts the read-only one, in a
+/// single round trip. During the first command of a transaction
+/// `transaction_timestamp()` equals `statement_timestamp()` (documented
+/// PostgreSQL behaviour), so `idle` is false only when an earlier command
+/// already opened the transaction.
+const BEGIN_READ_ONLY_PROBED: &str = "\
+SELECT transaction_timestamp() = statement_timestamp() AS nexql_idle; \
+BEGIN READ ONLY; \
+SHOW transaction_read_only";
+
+/// Open a read-only transaction and prove it took effect.
+///
+/// A second `BEGIN` inside an open transaction is only a warning, and it
+/// still switches that transaction to `READ ONLY`, so checking
+/// `transaction_read_only` alone would pass and the caller's `COMMIT` would
+/// commit work this server did not start. An open or aborted transaction is
+/// rolled back and the call is refused, so the pooled connection is idle
+/// again. Unlike a `SAVEPOINT` probe, the normal path raises no server-side
+/// error, so it does not add an `ERROR` line to the Postgres log per query.
+pub async fn begin_read_only(client: &Client) -> Result<(), ConnError> {
+    let messages = match client.simple_query(BEGIN_READ_ONLY_PROBED).await {
+        Ok(messages) => messages,
+        Err(err) if err.code().is_some_and(|code| code.code() == "25P02") => {
+            let _ = client.batch_execute("ROLLBACK").await;
+            return Err(ConnError::Pool(
+                "refusing to run a read-mode statement inside an aborted transaction".into(),
+            ));
+        }
+        Err(err) => return Err(ConnError::Postgres(err)),
+    };
+    let value_of = |column: &str| {
+        messages.iter().find_map(|msg| match msg {
+            tokio_postgres::SimpleQueryMessage::Row(row)
+                if row.columns().first().is_some_and(|c| c.name() == column) =>
+            {
+                row.get(0).map(str::to_owned)
+            }
+            _ => None,
+        })
+    };
+    let idle = value_of("nexql_idle").is_some_and(|value| value == "t");
+    let read_only =
+        value_of("transaction_read_only").is_some_and(|value| value.eq_ignore_ascii_case("on"));
+    if idle && read_only {
+        return Ok(());
+    }
+    let _ = client.batch_execute("ROLLBACK").await;
+    Err(ConnError::Pool(if idle {
+        "refusing to run a read-mode statement: BEGIN READ ONLY did not take effect".into()
+    } else {
+        "refusing to run a read-mode statement inside an open read-write transaction".into()
+    }))
+}
+
 /// Apply session guards on a checked-out client. Fail closed.
 pub async fn apply_session_guards(client: &Client, opts: &PoolOptions) -> Result<(), ConnError> {
     if opts.read_only {
@@ -167,6 +226,17 @@ mod tests {
     }
 
     fn start_temp_pg() -> Option<TempPg> {
+        let started = start_temp_pg_inner();
+        if started.is_none() && std::env::var("NEXQL_REQUIRE_LIVE_PG").ok().as_deref() == Some("1")
+        {
+            panic!(
+                "NEXQL_REQUIRE_LIVE_PG=1 but initdb/postgres could not start a temporary server"
+            );
+        }
+        started
+    }
+
+    fn start_temp_pg_inner() -> Option<TempPg> {
         let initdb = which("initdb")?;
         let postgres = which("postgres")?;
         let data = TempDir::new().ok()?;
@@ -214,8 +284,16 @@ mod tests {
         let url = format!("postgres://spike@127.0.0.1:{port}/postgres?sslmode=disable");
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                std::thread::sleep(Duration::from_millis(300));
+            // An open port is not enough: the server rejects connections while it
+            // is still starting up. Postgres writes `ready` as the 8th line of
+            // postmaster.pid once it accepts connections.
+            let ready =
+                std::fs::read_to_string(data.path().join("postmaster.pid")).is_ok_and(|pid| {
+                    pid.lines()
+                        .nth(7)
+                        .is_some_and(|line| line.trim() == "ready")
+                });
+            if ready {
                 return Some(TempPg {
                     _data: data,
                     child,

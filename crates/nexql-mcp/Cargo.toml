@@ -38,9 +38,11 @@ tokio = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+nexql-conn = { workspace = true, features = ["isolated-credentials"] }
 tempfile = "3"
 
 [[bin]]

@@ -22,6 +22,9 @@ const MASTER_KEY_LEN: usize = 32;
 
 /// NexQL config directory (`~/.config/nexql-mcp` or parent of `NEXQL_MCP_CONFIG`).
 pub fn nexql_config_dir() -> Result<PathBuf, ConnError> {
+    if let Some(dir) = crate::secret::isolated_credentials_dir() {
+        return Ok(dir.to_path_buf());
+    }
     ConfigFile::default_path()
         .and_then(|p| p.parent().map(|parent| parent.to_path_buf()))
         .ok_or_else(|| ConnError::Config("could not resolve nexql config directory".into()))
@@ -79,21 +82,31 @@ fn resolve_secret_path(config_dir: &Path, password_file: &Path) -> PathBuf {
     }
 }
 
+fn read_master_key(path: &Path) -> Result<[u8; MASTER_KEY_LEN], ConnError> {
+    let bytes = fs::read(path).map_err(|e| {
+        ConnError::Config(format!("could not read master key {}: {e}", path.display()))
+    })?;
+    if bytes.len() != MASTER_KEY_LEN {
+        return Err(ConnError::Config(format!(
+            "master key {} has invalid length (expected {MASTER_KEY_LEN} bytes)",
+            path.display()
+        )));
+    }
+    let mut key = [0u8; MASTER_KEY_LEN];
+    key.copy_from_slice(&bytes);
+    Ok(key)
+}
+
+/// Load the master key, creating it on first use. Two processes (or two
+/// threads) can race here on first run, so the key is written in full to a
+/// private temp file and then hard-linked into place: the link either
+/// publishes a complete key or fails with `AlreadyExists`, in which case the
+/// winner's key is used. Overwriting would orphan secrets already encrypted
+/// with the other key.
 fn load_or_create_master_key(config_dir: &Path) -> Result<[u8; MASTER_KEY_LEN], ConnError> {
     let path = config_dir.join(MASTER_KEY_FILE);
     if path.exists() {
-        let bytes = fs::read(&path).map_err(|e| {
-            ConnError::Config(format!("could not read master key {}: {e}", path.display()))
-        })?;
-        if bytes.len() != MASTER_KEY_LEN {
-            return Err(ConnError::Config(format!(
-                "master key {} has invalid length (expected {MASTER_KEY_LEN} bytes)",
-                path.display()
-            )));
-        }
-        let mut key = [0u8; MASTER_KEY_LEN];
-        key.copy_from_slice(&bytes);
-        return Ok(key);
+        return read_master_key(&path);
     }
 
     fs::create_dir_all(config_dir).map_err(|e| {
@@ -107,28 +120,83 @@ fn load_or_create_master_key(config_dir: &Path) -> Result<[u8; MASTER_KEY_LEN], 
     getrandom::fill(&mut key)
         .map_err(|e| ConnError::Config(format!("could not generate master key entropy: {e}")))?;
 
+    let mut suffix = [0u8; 8];
+    getrandom::fill(&mut suffix)
+        .map_err(|e| ConnError::Config(format!("could not generate temp file name: {e}")))?;
+    let tmp = config_dir.join(format!(
+        "{MASTER_KEY_FILE}.{}.tmp",
+        u64::from_le_bytes(suffix)
+    ));
+    write_new_key_file(&tmp, &key)?;
+    let linked = fs::hard_link(&tmp, &path);
+    let _ = fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Ok(key),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_master_key(&path),
+        // Filesystems without hard links: fall back to exclusive create.
+        Err(_) => match write_new_key_file(&path, &key) {
+            Ok(()) => Ok(key),
+            Err(_) if path.exists() => read_master_key(&path),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// Create `path` exclusively (never overwrite) and write the whole key.
+fn write_new_key_file(path: &Path, key: &[u8; MASTER_KEY_LEN]) -> Result<(), ConnError> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&path)
+        .open(path)
         .map_err(|e| {
             ConnError::Config(format!(
                 "could not create master key {}: {e}",
                 path.display()
             ))
         })?;
-    file.write_all(&key).map_err(|e| {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+    file.write_all(key).map_err(|e| {
         ConnError::Config(format!(
             "could not write master key {}: {e}",
             path.display()
         ))
     })?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    file.sync_all().map_err(|e| {
+        ConnError::Config(format!(
+            "could not flush master key {}: {e}",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(test)]
+mod master_key_race_tests {
+    use super::*;
+
+    /// Many threads creating the key at once must all end up with the same
+    /// key, and none may fail with "file exists".
+    #[test]
+    fn concurrent_first_use_agrees_on_one_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_dir = dir.path().join("nexql-mcp");
+        let keys: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| scope.spawn(|| load_or_create_master_key(&config_dir).unwrap()))
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
+        let leftovers = fs::read_dir(&config_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
     }
-    Ok(key)
 }
 
 fn encrypt_password(key: &[u8; MASTER_KEY_LEN], password: &str) -> Result<Vec<u8>, ConnError> {
