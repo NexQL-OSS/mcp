@@ -6,6 +6,7 @@
 //! Tools return typed results; the protocol layer serializes them.
 //! This crate must NOT depend on `nexql-proto`.
 
+mod add_database;
 pub mod catalog_guard;
 pub mod cell_json;
 pub mod completions;
@@ -17,6 +18,7 @@ pub mod error;
 pub mod exec;
 pub mod export;
 pub mod format;
+pub mod password_page;
 pub mod plan;
 pub mod prompts;
 pub mod registry;
@@ -33,6 +35,7 @@ pub use detect::{ConnectionDetector, DetectedCandidate};
 pub use elicitation::{ConfirmationOutcome, ElicitationRequester};
 pub use error::ToolError;
 pub use exec::{ToolOutcome, ToolRouter};
+pub use password_page::{OpenedPage, PasswordForm, PasswordPage, SubmitPassword};
 pub use prompts::{PromptCatalog, PromptError, PromptGetResult, PromptInfo};
 pub use registry::{ToolName, ToolProfile};
 pub use resources::{

@@ -1,4 +1,4 @@
-Active catalog (54 tools across Schema, Query, Context, Perf, Write, Admin, and Meta):
+Active catalog (55 tools across Schema, Query, Context, Perf, Write, Admin, and Meta):
 
 nexql-mcp is a standalone Postgres MCP server: schema-aware SQL exploration, query
 tuning, index/DDL safety, and live database diagnostics for an LLM agent talking to
@@ -31,7 +31,7 @@ only when a connection's `access_mode` allows them.
 - **Write (Write+):** `execute_sql`, `edit_row`, `import_data`, `check_ddl_safety`
 - **Admin:** `apply_ddl`, `create_index_concurrently`, `run_maintenance`, `terminate_query`
 - **Index maintenance:** `rebuild_index`, `refresh_index`
-- **Connection setup:** `setup_connection`, `save_profile`, `test_profile`, `export_profile`, `import_profile`
+- **Connection setup:** `add_database` (the user types the password on a one-time local page, never in chat), `setup_connection`, `save_profile`, `test_profile`, `export_profile`, `import_profile`
 - **Meta:** `discover_tools` (lazy tool activation for the `meta` tool profile), `run_doctor`
 
 ## Access gating

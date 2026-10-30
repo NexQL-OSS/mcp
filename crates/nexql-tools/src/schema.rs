@@ -272,6 +272,45 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
             input_schema: object_schema(&[]),
         },
         ToolSpec {
+            name: ToolName::AddDatabase,
+            description: "Connect another Postgres database for this session and save it as a read-only profile, without the password passing through the chat. Give the connection details; this opens a one-time page on the user's computer where they check those details and type the password themselves. Never ask the user to paste a password into the chat, and never put one in a shell command or file. Tell the user what the page is for, then call again with setupId to see whether they finished.",
+            input_schema: object_schema(&[
+                (
+                    "name",
+                    "string",
+                    false,
+                    "Name for the new connection, e.g. \"billing\". Must not already be in use.",
+                ),
+                (
+                    "url",
+                    "string",
+                    false,
+                    "postgres:// URL without a password, as an alternative to host/port/dbname/user.",
+                ),
+                ("host", "string", false, "Database server hostname."),
+                (
+                    "port",
+                    "number",
+                    false,
+                    "Database server port (default 5432).",
+                ),
+                ("dbname", "string", false, "Database name."),
+                ("user", "string", false, "Database role to log in as."),
+                (
+                    "sslmode",
+                    "string",
+                    false,
+                    "libpq sslmode, e.g. \"require\" or \"verify-full\".",
+                ),
+                (
+                    "setupId",
+                    "string",
+                    false,
+                    "Check on a setup started by an earlier call instead of starting a new one.",
+                ),
+            ]),
+        },
+        ToolSpec {
             name: ToolName::SetupConnection,
             description: "Automatically detect or configure a database connection. Scans environment variables, workspace files, and local settings, eliciting missing credentials when supported.",
             input_schema: object_schema(&[
@@ -1141,9 +1180,9 @@ mod tests {
     use crate::registry::ToolName;
 
     #[test]
-    fn active_tools_lists_fifty_four() {
+    fn active_tools_lists_fifty_five() {
         let specs = active_tools();
-        assert_eq!(specs.len(), 54);
+        assert_eq!(specs.len(), 55);
         assert_eq!(specs.len(), ToolName::ACTIVE.len());
         for (spec, name) in specs.iter().zip(ToolName::ACTIVE.iter()) {
             assert_eq!(spec.name, *name);
@@ -1214,16 +1253,16 @@ mod tests {
     #[test]
     fn profile_tools_filtering() {
         let query_specs = tools_for_profile(ToolProfile::Query);
-        assert_eq!(query_specs.len(), 21);
+        assert_eq!(query_specs.len(), 22);
 
         let dba_specs = tools_for_profile(ToolProfile::Dba);
-        assert_eq!(dba_specs.len(), 26);
+        assert_eq!(dba_specs.len(), 27);
 
         let meta_specs = tools_for_profile(ToolProfile::Meta);
-        assert_eq!(meta_specs.len(), 13);
+        assert_eq!(meta_specs.len(), 14);
 
         let full_specs = tools_for_profile(ToolProfile::Full);
-        assert_eq!(full_specs.len(), 54);
+        assert_eq!(full_specs.len(), 55);
     }
 
     /// Regression guard for Issue 1: every tool parameter must carry a non-empty

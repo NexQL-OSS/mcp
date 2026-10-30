@@ -95,6 +95,7 @@ pub enum ToolName {
     TestProfile,
     ExportProfile,
     ImportProfile,
+    AddDatabase,
 }
 
 impl ToolName {
@@ -109,6 +110,7 @@ impl ToolName {
         Self::ExplainQuery,
         Self::DiscoverTools,
         Self::RunDoctor,
+        Self::AddDatabase,
         Self::SetupConnection,
         Self::SaveProfile,
         Self::TestProfile,
@@ -184,6 +186,7 @@ impl ToolName {
         Self::ExplainQuery,
         Self::DiscoverTools,
         Self::RunDoctor,
+        Self::AddDatabase,
         Self::SetupConnection,
         Self::SaveProfile,
         Self::TestProfile,
@@ -279,6 +282,7 @@ impl ToolName {
     /// Subset of tools optimized for context-constrained query & schema exploration tasks.
     pub const QUERY_PROFILE: &'static [ToolName] = &[
         Self::ListConnections,
+        Self::AddDatabase,
         Self::ListDatabases,
         Self::ListSchemas,
         Self::ListObjects,
@@ -304,6 +308,7 @@ impl ToolName {
     /// Subset of tools optimized for database administration, performance tuning, and health checks.
     pub const DBA_PROFILE: &'static [ToolName] = &[
         Self::ListConnections,
+        Self::AddDatabase,
         Self::GetCurrentContext,
         Self::TableStats,
         Self::IndexUsage,
@@ -343,6 +348,7 @@ impl ToolName {
         Self::RunSelect,
         Self::DiscoverTools,
         Self::RunDoctor,
+        Self::AddDatabase,
         Self::SetupConnection,
         Self::SaveProfile,
         Self::TestProfile,
@@ -408,6 +414,7 @@ impl ToolName {
             Self::RebuildIndex => "rebuild_index",
             Self::RefreshIndex => "refresh_index",
             Self::RunDoctor => "run_doctor",
+            Self::AddDatabase => "add_database",
             Self::SetupConnection => "setup_connection",
             Self::SaveProfile => "save_profile",
             Self::TestProfile => "test_profile",
@@ -522,6 +529,7 @@ mod tests {
             ("explain_query", true, false),
             ("discover_tools", true, false),
             ("run_doctor", true, false),
+            ("add_database", false, false),
             ("setup_connection", false, false),
             ("save_profile", false, false),
             ("test_profile", true, false),
@@ -588,8 +596,8 @@ mod tests {
     }
 
     #[test]
-    fn active_surface_is_fifty_four_tools() {
-        assert_eq!(ToolName::ACTIVE.len(), 54);
+    fn active_surface_is_fifty_five_tools() {
+        assert_eq!(ToolName::ACTIVE.len(), 55);
     }
 
     #[test]

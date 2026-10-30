@@ -137,7 +137,7 @@ export const GENERIC_SNIPPET = `{
 
 export const LINKS = [
   { name: "Repository", href: "https://github.com/NexQL-OSS/mcp", note: "Rust workspace · 6 crates · GPL-3.0-only" },
-  { name: "Tool reference", href: "https://github.com/NexQL-OSS/mcp/blob/main/docs/REFERENCE.md", note: "All 54 tools, arguments and access modes" },
+  { name: "Tool reference", href: "https://github.com/NexQL-OSS/mcp/blob/main/docs/REFERENCE.md", note: "All 55 tools, arguments and access modes" },
   { name: "Client setup", href: "https://github.com/NexQL-OSS/mcp/tree/main/docs/clients", note: "Config paths and paste blocks per client" },
   { name: "Quickstarts", href: "https://github.com/NexQL-OSS/mcp/tree/main/docs", note: "Developer · DBA · analyst · PM tracks" },
   { name: "MCP registry", href: "https://registry.modelcontextprotocol.io/servers/io.github.NexQL-OSS/nexql-mcp", note: "io.github.NexQL-OSS/nexql-mcp" },

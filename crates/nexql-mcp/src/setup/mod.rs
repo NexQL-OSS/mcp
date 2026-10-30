@@ -181,24 +181,41 @@ fn is_loopback_bind(bind: &str) -> bool {
     matches!(bind, "127.0.0.1" | "localhost" | "::1")
 }
 
-fn open_browser(url: &str) -> std::io::Result<()> {
+/// Open `url` in the user's browser. The opener's output is discarded: under
+/// a stdio MCP server, stdout is the protocol channel.
+pub(crate) fn open_browser(url: &str) -> std::io::Result<()> {
+    use std::process::Stdio;
     #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open").arg(url).spawn()?;
-    }
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
     #[cfg(target_os = "macos")]
-    {
-        Command::new("open").arg(url).spawn()?;
-    }
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    };
     #[cfg(target_os = "windows")]
-    {
-        Command::new("cmd").args(["/C", "start", "", url]).spawn()?;
-    }
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    };
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = url;
+        return Err(std::io::Error::other("no browser opener for this platform"));
     }
-    Ok(())
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    {
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        Ok(())
+    }
 }
 
 fn keyring_available() -> bool {

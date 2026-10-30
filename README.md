@@ -4,7 +4,7 @@ Standalone Postgres MCP server — schema-aware, read-only by default, installab
 
 NexQL Pro ships an in-process MCP server locked to VS Code (`pro/src/mcp/`). This repo extracts that capability into an independent Rust binary any MCP client can spawn: Claude Desktop, Cursor, VS Code Copilot, Zed, etc.
 
-**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer, sessions, rate limit)** + **Phase 9 write/admin tools** landed. 54 tools across Schema, Query, Context, Perf, Write, and Admin. Full OAuth gateway stays pro-only; session-store LRU eviction cap not yet implemented. See [docs/CUTOVER.md](docs/CUTOVER.md).
+**Status:** Phases 0–6 + **Phase 7 extension cutover (stdio spawn)** + **Phase 8 HTTP (bearer, sessions, rate limit)** + **Phase 9 write/admin tools** landed. 55 tools across Schema, Query, Context, Perf, Write, and Admin. Full OAuth gateway stays pro-only; session-store LRU eviction cap not yet implemented. See [docs/CUTOVER.md](docs/CUTOVER.md).
 
 ## Why this exists
 
@@ -309,6 +309,16 @@ nexql-mcp --profile prod doctor
 
 - `nexql-mcp tui` — terminal UI (see [Interactive TUI](#interactive-tui) below)
 - `nexql-mcp setup` — browser UI on loopback (profiles, client wiring, npx/path launch toggle); also `npx -y nexql-mcp@latest setup`
+
+**Add another database from the chat.** Ask your assistant, e.g. *"also connect billing on db.internal:5432 as billing_reader"*. It calls `add_database` with those details, but never a password. nexql-mcp then opens a one-time page on your computer (127.0.0.1, single-use link, expires in 10 minutes). On that page you check the host, database and user, and type the password yourself. nexql-mcp tests the connection, stores the password in your system keychain (or an encrypted file) and adds the database read-only to the running session, with no restart. Your assistant never sees the password, and it can't ask for more than read access. Don't paste passwords into the chat.
+
+If the page can't open (e.g. nexql-mcp runs on another machine), the same thing works from a terminal. When you leave out `--password`, it asks for the password without showing it:
+
+```bash
+nexql-mcp profile add billing --host db.internal --dbname billing --user billing_reader --access-mode read
+```
+
+Set `NEXQL_MCP_OPEN_BROWSER=0` to stop nexql-mcp opening the page itself; your assistant will show you the link instead.
 
 ### Wire a client
 
