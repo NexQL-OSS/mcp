@@ -174,7 +174,9 @@ const BUNDLES = [
   }
   .button {
     display: inline-block;
-    background: var(--accent);
+    background: var(--btn-primary-bg);
+    box-shadow: var(--btn-primary-shadow);
+    transition: box-shadow 0.15s, transform 0.15s;
     color: var(--accent-ink);
     font-weight: 600;
     padding: 0.8rem 1.3rem;
@@ -182,7 +184,12 @@ const BUNDLES = [
   }
   .button:hover {
     text-decoration: none;
-    filter: brightness(1.08);
+    background: var(--btn-primary-bg-hover);
+    box-shadow: var(--btn-primary-shadow-hover);
+  }
+  .button:active {
+    box-shadow: var(--btn-primary-shadow-active);
+    transform: translateY(1px);
   }
   .hint {
     color: var(--muted);

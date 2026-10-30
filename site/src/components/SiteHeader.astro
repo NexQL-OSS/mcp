@@ -22,11 +22,15 @@ const links = [
       <span class="chip">MCP</span>
     </a>
     <div class="theme-switch" role="radiogroup" aria-label="Color theme">
-      <button type="button" role="radio" data-choice="system" aria-checked="true" aria-label="System">
-        <span class="full">System</span><span class="short" aria-hidden="true">Auto</span>
+      <button type="button" role="radio" data-choice="system" aria-checked="true" aria-label="Match system" title="Match system">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 13.75h5M8 11.25v2.5" /></svg>
       </button>
-      <button type="button" role="radio" data-choice="dark" aria-checked="false" tabindex="-1" aria-label="Dark">Dark</button>
-      <button type="button" role="radio" data-choice="light" aria-checked="false" tabindex="-1" aria-label="Light">Light</button>
+      <button type="button" role="radio" data-choice="dark" aria-checked="false" tabindex="-1" aria-label="Dark" title="Dark">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 9.6A5.5 5.5 0 0 1 6.4 2.75a5.5 5.5 0 1 0 6.85 6.85Z" /></svg>
+      </button>
+      <button type="button" role="radio" data-choice="light" aria-checked="false" tabindex="-1" aria-label="Light" title="Light">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.75" /><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.2 3.2l1.06 1.06M11.74 11.74l1.06 1.06M3.2 12.8l1.06-1.06M11.74 4.26l1.06-1.06" /></svg>
+      </button>
     </div>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" hidden>
       <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -123,34 +127,42 @@ const links = [
     align-items: center;
     flex: none;
     padding: 3px;
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--line);
     border-radius: 999px;
-    background: var(--panel);
-    box-shadow: var(--shadow-1);
+    background: var(--well);
+    box-shadow: var(--well-shadow);
   }
   .theme-switch button {
     appearance: none;
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 28px;
     border: 0;
     background: transparent;
     color: var(--muted);
-    font: 600 12.5px/1 var(--font-body);
-    padding: 7px 10px;
     border-radius: 999px;
     cursor: pointer;
-    min-height: 32px;
+    transition: color 0.15s, background 0.15s, box-shadow 0.15s;
   }
-  .theme-switch .short {
-    display: none;
+  .theme-switch svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .theme-switch button[aria-checked="true"] {
-    background: var(--accent);
+    background: var(--btn-primary-bg);
     color: var(--accent-ink);
+    box-shadow: var(--btn-primary-shadow);
   }
   .theme-switch button:hover {
     color: var(--fg);
   }
   .theme-switch button[aria-checked="true"]:hover {
-    background: var(--accent-hover);
     color: var(--accent-ink);
   }
   .nav-link {
@@ -160,11 +172,17 @@ const links = [
     border-radius: 8px;
     white-space: nowrap;
   }
-  .nav-link:hover,
+  .nav-link:hover {
+    color: var(--fg);
+    text-decoration: none;
+    background: var(--hover);
+  }
+  /* The page you're on sits raised, like a pressed-out key. */
   .nav-link[aria-current="page"] {
     color: var(--fg);
     text-decoration: none;
-    background: var(--panel);
+    background: var(--control-bg);
+    box-shadow: var(--control-shadow);
   }
   .ver {
     font: 500 11px/1 var(--font-mono);
@@ -178,15 +196,23 @@ const links = [
     gap: 9px;
     margin-left: 8px;
     padding: 8px 12px;
-    border: 1px solid var(--line-2);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 9px;
-    background: var(--panel);
+    background: var(--control-bg);
     color: var(--fg);
     font: 500 14px/1 var(--font-body);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .menu-btn:hover {
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .menu-btn:active,
+  .menu-btn[aria-expanded="true"] {
+    box-shadow: var(--control-shadow-active);
   }
   .bars {
     position: relative;
@@ -225,7 +251,7 @@ const links = [
 
   /* Narrow screens: every link moves into a menu under the header. Without JS
      the button stays hidden and the short inline nav below is used instead. */
-  @media (max-width: 860px) {
+  @media (max-width: 1040px) {
     .site-header.has-menu .menu-btn {
       display: inline-flex;
     }
@@ -266,28 +292,12 @@ const links = [
       display: none;
     }
   }
-  @media (max-width: 860px) {
+  @media (max-width: 1040px) {
     nav {
       margin-left: 0;
     }
     .theme-switch {
       margin-left: auto;
-    }
-  }
-  @media (max-width: 640px) {
-    .theme-switch .full {
-      display: none;
-    }
-    .theme-switch .short {
-      display: inline;
-    }
-    .theme-switch button {
-      padding: 7px 8px;
-    }
-  }
-  @media (max-width: 520px) {
-    .word {
-      display: none;
     }
   }
   @media (max-width: 480px) {
@@ -326,7 +336,7 @@ const links = [
     document.addEventListener("click", (e) => {
       if (!header.contains(e.target as Node)) set(false);
     });
-    matchMedia("(min-width: 861px)").addEventListener("change", (e) => e.matches && set(false));
+    matchMedia("(min-width: 1041px)").addEventListener("change", (e) => e.matches && set(false));
     const onScroll = () => header.classList.toggle("is-stuck", window.scrollY > 8);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });

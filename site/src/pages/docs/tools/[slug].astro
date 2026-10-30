@@ -185,9 +185,10 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
   .ask {
     margin-top: 32px;
     padding: 18px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
   }
   .label {

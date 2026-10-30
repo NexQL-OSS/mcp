@@ -265,16 +265,6 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     margin-bottom: 72px;
     border-bottom: 1px solid var(--line);
   }
-  .scene::before {
-    content: "";
-    position: absolute;
-    left: -10%;
-    top: -20px;
-    width: min(380px, 75%);
-    height: 160px;
-    background: var(--section-wash);
-    pointer-events: none;
-  }
   .scene:last-child {
     margin-bottom: 0;
   }
@@ -432,9 +422,10 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     flex-direction: column-reverse;
     gap: 6px;
     padding: 14px 16px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--figure-bg);
+    background: var(--surface-raised);
     box-shadow: var(--shadow-2);
   }
   dd {

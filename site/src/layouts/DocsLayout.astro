@@ -168,9 +168,10 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     }
   }
   .menu {
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
   }
   @media (min-width: 960px) {
@@ -311,16 +312,6 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     position: relative;
     min-width: 0;
     padding-bottom: 24px;
-  }
-  .doc::before {
-    content: "";
-    position: absolute;
-    right: -4%;
-    top: -36px;
-    width: min(460px, 70%);
-    height: 220px;
-    background: var(--section-wash);
-    pointer-events: none;
   }
   .edit {
     margin-top: 48px;

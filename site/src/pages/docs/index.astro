@@ -127,9 +127,10 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     flex-direction: column;
     gap: 6px;
     padding: 18px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
     color: var(--fg);
     transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
@@ -140,6 +141,10 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     text-decoration: none;
     box-shadow: var(--shadow-3);
     transform: translateY(-2px);
+  }
+  .guide:active {
+    box-shadow: var(--control-shadow-active);
+    transform: translateY(1px);
   }
   .k,
   .gn {
@@ -197,9 +202,10 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     flex-direction: column;
     gap: 6px;
     padding: 16px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
   }
   .route li span:last-child {
@@ -230,9 +236,10 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
   }
   .line {
     padding: 18px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
     border-top: 3px solid var(--c);
   }

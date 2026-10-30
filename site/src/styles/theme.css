@@ -60,16 +60,17 @@
   --warn-line: rgba(245, 178, 58, 0.35);
   --theme-color: #07080e;
 
-  /* Elevation. Higher steps add a rose/periwinkle glow. Inset highlight is
-     a 1px white hairline so the top edge catches light. Surfaces step up
-     from the page, staying dark enough for the muted text. */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 28px -10px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-3: 0 2px 6px rgba(0, 0, 0, 0.5), 0 20px 44px -16px rgba(0, 0, 0, 0.75), 0 0 32px -8px rgba(108, 76, 214, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --shadow-4: 0 4px 12px rgba(0, 0, 0, 0.55), 0 32px 60px -18px rgba(0, 0, 0, 0.8), 0 0 40px -10px rgba(224, 56, 143, 0.22), 0 0 32px -12px rgba(80, 112, 214, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* Elevation, lit from one source at the top left: shadows fall down and to
+     the right, each step has a bevel (light top-left edge, dark bottom-right
+     edge), and --surface shades a card from lit corner to shadowed corner.
+     Higher steps add a rose/periwinkle glow. */
+  --shadow-1: 1px 2px 3px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.09), inset -1px -1px 0 rgba(0, 0, 0, 0.4);
+  --shadow-2: 1px 2px 4px rgba(0, 0, 0, 0.55), 8px 16px 30px -10px rgba(0, 0, 0, 0.85), inset 1px 1px 0 rgba(255, 255, 255, 0.11), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --shadow-3: 2px 4px 8px rgba(0, 0, 0, 0.55), 14px 28px 50px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(108, 76, 214, 0.28), inset 1px 1px 0 rgba(255, 255, 255, 0.13), inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-4: 3px 8px 16px rgba(0, 0, 0, 0.6), 20px 40px 70px -20px rgba(0, 0, 0, 0.95), 0 0 48px -10px rgba(224, 56, 143, 0.24), 0 0 36px -12px rgba(80, 112, 214, 0.22), inset 1px 1px 0 rgba(255, 255, 255, 0.14), inset -1px -1px 0 rgba(0, 0, 0, 0.5);
   --btn-shadow-hover: var(--shadow-2);
-  --btn-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -8px rgba(224, 164, 204, 0.48);
-  --btn-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 4px 8px rgba(0, 0, 0, 0.4), 0 16px 32px -10px rgba(224, 164, 204, 0.58);
+  --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.5), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 1px 2px 3px rgba(0, 0, 0, 0.55), 6px 12px 26px -10px rgba(224, 164, 204, 0.55);
+  --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.55), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 2px 5px 9px rgba(0, 0, 0, 0.5), 9px 18px 34px -12px rgba(224, 164, 204, 0.65);
   --btn-focus-shadow: 0 0 0 4px rgba(224, 164, 204, 0.24);
   --btn-lift: -1px;
   --shadow-ticket: var(--shadow-4);
@@ -89,7 +90,7 @@
   --code-bg: #10141e;
   --code-shadow: var(--shadow-2);
   --pill-bg: color-mix(in srgb, #151c28 88%, transparent);
-  --ticket-bg: linear-gradient(180deg, #141a26 0%, #0e131c 100%);
+  --ticket-bg: linear-gradient(150deg, #141a26 0%, #0e131c 100%);
   --ticket-edge: 0.78;
   --card-edge: 0.9;
   --selected-shadow: 0 0 0 1px var(--accent) inset, 0 0 24px -4px rgba(224, 164, 204, 0.32), 0 14px 30px -14px rgba(224, 56, 143, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -97,13 +98,25 @@
   --chat-top: color-mix(in srgb, #1a2332 84%, transparent);
   --frost: 14px;
   --rail-active: color-mix(in srgb, #e0a4cc 16%, #12161e);
-  --section-wash: radial-gradient(closest-side, rgba(224, 56, 143, 0.16), rgba(80, 110, 210, 0.08) 46%, transparent 72%);
   --dot-grid: radial-gradient(rgba(214, 206, 230, 0.2) 0.65px, transparent 0.75px);
   --figure-bg: #141a26;
   --block-shadow: var(--shadow-2);
   --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
   --edge: var(--line-2);
   --raised: #141a26;
+  --surface: linear-gradient(150deg, #1f2636 0%, #151a25 44%, #0e1219 100%);
+  --surface-raised: linear-gradient(150deg, #252e40 0%, #18202c 44%, #10151e 100%);
+  --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.12)), var(--accent);
+  --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.1)), var(--accent-hover);
+  --well: #090c12;
+  --well-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.55), inset -1px -1px 0 rgba(255, 255, 255, 0.04);
+  --bevel-border: #4a5870 #2f3848 #222a37 #435069;
+  --control-bg: linear-gradient(150deg, #29334a 0%, #1a2130 52%, #131925 100%);
+  --control-bg-hover: linear-gradient(150deg, #313c55 0%, #1e2637 52%, #151c29 100%);
+  --control-shadow: 1px 2px 3px rgba(0, 0, 0, 0.6), 3px 6px 12px -4px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.14), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --control-shadow-hover: 2px 4px 6px rgba(0, 0, 0, 0.55), 6px 12px 22px -8px rgba(0, 0, 0, 0.7), 0 0 18px -6px rgba(224, 164, 204, 0.35), inset 1px 1px 0 rgba(255, 255, 255, 0.18), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --control-shadow-active: inset 2px 2px 5px rgba(0, 0, 0, 0.6), inset -1px -1px 0 rgba(255, 255, 255, 0.06);
+  --btn-primary-shadow-active: inset 2px 2px 5px rgba(80, 20, 60, 0.45), inset -1px -1px 0 rgba(255, 255, 255, 0.3);
   --grain: 0.07;
   --grain-blend: soft-light;
 
@@ -186,13 +199,13 @@
   --warn-line: rgba(122, 78, 0, 0.45);
   --theme-color: #f4f2f8;
 
-  --shadow-1: 0 1px 1px rgba(72, 36, 88, 0.05), 0 1px 2px rgba(48, 64, 140, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --shadow-2: 0 1px 2px rgba(72, 36, 88, 0.05), 0 8px 18px -8px rgba(120, 52, 110, 0.14), 0 2px 6px -2px rgba(55, 78, 160, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  --shadow-3: 0 2px 4px rgba(72, 36, 88, 0.05), 0 16px 32px -12px rgba(128, 44, 100, 0.16), 0 4px 12px -4px rgba(50, 72, 160, 0.1), inset 0 1px 0 #fff;
-  --shadow-4: 0 2px 8px rgba(72, 36, 88, 0.06), 0 28px 52px -16px rgba(136, 45, 90, 0.18), 0 12px 28px -10px rgba(48, 68, 160, 0.12), inset 0 1px 0 #fff;
+  --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+  --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+  --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+  --shadow-4: 2px 4px 10px rgba(72, 36, 88, 0.07), 16px 34px 60px -20px rgba(136, 45, 90, 0.22), 8px 16px 32px -12px rgba(48, 68, 160, 0.14), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
   --btn-shadow-hover: var(--shadow-2);
-  --btn-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 1px 2px rgba(80, 24, 48, 0.16), 0 10px 18px -8px rgba(136, 45, 90, 0.55);
-  --btn-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 2px 4px rgba(80, 24, 48, 0.12), 0 16px 28px -10px rgba(136, 45, 90, 0.5);
+  --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+  --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
   --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
   --btn-lift: -1px;
   --shadow-ticket: var(--shadow-4);
@@ -216,7 +229,7 @@
   --code-bg: #ebe6f4;
   --code-shadow: var(--shadow-2);
   --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
-  --ticket-bg: linear-gradient(180deg, #ffffff 0%, #fbf8fd 100%);
+  --ticket-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fd 100%);
   --ticket-edge: 0.9;
   --card-edge: 1;
   --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -224,13 +237,25 @@
   --chat-top: color-mix(in srgb, #ffffff 74%, transparent);
   --frost: 14px;
   --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
-  --section-wash: radial-gradient(closest-side, rgba(224, 56, 143, 0.16), rgba(90, 110, 210, 0.06) 42%, transparent 72%);
   --dot-grid: radial-gradient(rgba(90, 64, 120, 0.4) 0.65px, transparent 0.75px);
   --figure-bg: #ffffff;
   --block-shadow: var(--shadow-2);
   --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
   --edge: var(--line);
   --raised: var(--panel);
+  --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+  --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+  --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+  --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
+  --well: #ebe6f2;
+  --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+  --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+  --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+  --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+  --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+  --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+  --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+  --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
 }
 
 @media (prefers-color-scheme: light) {
@@ -275,13 +300,13 @@
     --warn-line: rgba(122, 78, 0, 0.45);
     --theme-color: #f4f2f8;
 
-    --shadow-1: 0 1px 1px rgba(72, 36, 88, 0.05), 0 1px 2px rgba(48, 64, 140, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.85);
-    --shadow-2: 0 1px 2px rgba(72, 36, 88, 0.05), 0 8px 18px -8px rgba(120, 52, 110, 0.14), 0 2px 6px -2px rgba(55, 78, 160, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-    --shadow-3: 0 2px 4px rgba(72, 36, 88, 0.05), 0 16px 32px -12px rgba(128, 44, 100, 0.16), 0 4px 12px -4px rgba(50, 72, 160, 0.1), inset 0 1px 0 #fff;
-    --shadow-4: 0 2px 8px rgba(72, 36, 88, 0.06), 0 28px 52px -16px rgba(136, 45, 90, 0.18), 0 12px 28px -10px rgba(48, 68, 160, 0.12), inset 0 1px 0 #fff;
+    --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+    --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+    --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+    --shadow-4: 2px 4px 10px rgba(72, 36, 88, 0.07), 16px 34px 60px -20px rgba(136, 45, 90, 0.22), 8px 16px 32px -12px rgba(48, 68, 160, 0.14), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
     --btn-shadow-hover: var(--shadow-2);
-    --btn-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 1px 2px rgba(80, 24, 48, 0.16), 0 10px 18px -8px rgba(136, 45, 90, 0.55);
-    --btn-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 2px 4px rgba(80, 24, 48, 0.12), 0 16px 28px -10px rgba(136, 45, 90, 0.5);
+    --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+    --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
     --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
     --btn-lift: -1px;
     --shadow-ticket: var(--shadow-4);
@@ -305,7 +330,7 @@
     --code-bg: #ebe6f4;
     --code-shadow: var(--shadow-2);
     --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
-    --ticket-bg: linear-gradient(180deg, #ffffff 0%, #fbf8fd 100%);
+    --ticket-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fd 100%);
     --ticket-edge: 0.9;
     --card-edge: 1;
     --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -313,13 +338,25 @@
     --chat-top: color-mix(in srgb, #ffffff 74%, transparent);
     --frost: 14px;
     --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
-    --section-wash: radial-gradient(closest-side, rgba(224, 56, 143, 0.16), rgba(90, 110, 210, 0.06) 42%, transparent 72%);
     --dot-grid: radial-gradient(rgba(90, 64, 120, 0.4) 0.65px, transparent 0.75px);
     --figure-bg: #ffffff;
     --block-shadow: var(--shadow-2);
     --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
     --edge: var(--line);
     --raised: var(--panel);
+    --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+    --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+    --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+    --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
+    --well: #ebe6f2;
+    --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+    --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+    --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+    --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+    --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+    --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+    --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+    --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
   }
 }
 
@@ -492,50 +529,45 @@ pre {
   min-height: 44px;
   padding: 10px 18px;
   border-radius: 10px;
-  border: 1px solid var(--line-2);
-  background: var(--panel);
+  border: 1px solid;
+  border-color: var(--bevel-border);
+  background: var(--control-bg);
   color: var(--fg);
   font: 600 15px/1.2 var(--font-body);
   cursor: pointer;
   text-decoration: none;
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--control-shadow);
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 .btn:hover {
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
   text-decoration: none;
-  box-shadow: var(--btn-shadow-hover);
+  box-shadow: var(--control-shadow-hover);
   transform: translateY(var(--btn-lift));
 }
 .btn:active {
+  box-shadow: var(--control-shadow-active);
   transform: translateY(1px);
 }
 .btn:focus-visible {
-  box-shadow: var(--btn-focus-shadow);
+  box-shadow: var(--btn-focus-shadow), var(--control-shadow);
 }
 .btn-primary {
-  background: var(--accent);
+  background: var(--btn-primary-bg);
   border-color: var(--accent);
   color: var(--accent-ink);
   box-shadow: var(--btn-primary-shadow);
 }
 .btn-primary:hover {
-  background: var(--accent-hover);
+  background: var(--btn-primary-bg-hover);
   border-color: var(--accent-hover);
   box-shadow: var(--btn-primary-shadow-hover);
 }
+.btn-primary:active {
+  box-shadow: var(--btn-primary-shadow-active);
+}
 .btn-primary:focus-visible {
   box-shadow: var(--btn-focus-shadow), var(--btn-primary-shadow);
-}
-.btn-ghost {
-  background: transparent;
-  box-shadow: none;
-}
-.btn-ghost:hover {
-  box-shadow: var(--shadow-1);
-}
-.btn-ghost:focus-visible {
-  box-shadow: var(--btn-focus-shadow);
 }
 
 /* Code block with a copy button */
@@ -571,15 +603,22 @@ pre {
   min-height: 32px;
   padding: 4px 10px;
   border-radius: 7px;
-  border: 1px solid var(--line-2);
-  background: var(--panel);
+  border: 1px solid;
+  border-color: var(--bevel-border);
+  background: var(--control-bg);
+  box-shadow: var(--control-shadow);
   color: var(--muted);
   font: 500 12px/1 var(--font-mono);
   cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
 }
 .copy:hover {
   color: var(--fg);
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
+  box-shadow: var(--control-shadow-hover);
+}
+.copy:active {
+  box-shadow: var(--control-shadow-active);
 }
 .copy[data-done] {
   color: var(--ok);

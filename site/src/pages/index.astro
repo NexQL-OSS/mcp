@@ -803,16 +803,6 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     margin-bottom: 80px;
     border-bottom: 1px solid var(--line);
   }
-  .stop::before {
-    content: "";
-    position: absolute;
-    left: -12%;
-    top: -28px;
-    width: min(420px, 80%);
-    height: 180px;
-    background: var(--section-wash);
-    pointer-events: none;
-  }
   .stop-head {
     display: flex;
     align-items: center;
@@ -885,10 +875,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     margin-top: 40px;
     padding: 12px 18px;
     border-radius: 999px;
-    border: 1px solid var(--line-2);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     color: var(--muted);
     font-size: 15px;
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-1);
     transition: border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s;
   }
@@ -901,6 +892,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     color: var(--fg);
     box-shadow: var(--shadow-2);
     transform: translateY(var(--btn-lift));
+  }
+  .next:active {
+    box-shadow: var(--control-shadow-active);
+    transform: translateY(1px);
   }
 
   /* Personalised blocks */
@@ -934,8 +929,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 84px;
     padding: 16px 16px 14px;
     border-radius: var(--radius);
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
     color: var(--fg);
     font: inherit;
     cursor: pointer;
@@ -946,6 +942,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     border-color: var(--line-2);
     box-shadow: var(--shadow-3);
     transform: translateY(-1px);
+  }
+  .app:active {
+    box-shadow: var(--control-shadow-active);
+    transform: translateY(1px);
   }
   .app[aria-checked="true"],
   .app[aria-checked="true"]:hover {
@@ -1078,8 +1078,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 40px;
     padding: 8px 14px;
     border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
     box-shadow: var(--shadow-1);
     color: var(--fg);
     font: 500 14.5px/1 var(--font-body);
@@ -1162,8 +1163,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     width: 100%;
     padding: 8px 10px;
     border-radius: 8px;
-    border: 1px solid var(--line-2);
-    background: var(--bg-deep);
+    border: 1px solid var(--line);
+    background: var(--well);
+    box-shadow: var(--well-shadow);
     color: var(--fg);
     font: 14px/1.2 var(--font-mono);
     text-transform: none;
@@ -1336,15 +1338,22 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 30px;
     padding: 4px 10px;
     border-radius: 7px;
-    border: 1px solid var(--line-2);
-    background: transparent;
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--control-bg);
     color: var(--muted);
     font: 500 12px/1 var(--font-mono);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .replay:hover {
     color: var(--fg);
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .replay:active {
+    box-shadow: var(--control-shadow-active);
   }
   .chat-body {
     padding: 18px;
@@ -1366,8 +1375,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     box-shadow: var(--shadow-1);
   }
   .msg.ai {
-    background: var(--panel);
-    border: 1px solid var(--line);
+    background: var(--surface);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     box-shadow: var(--shadow-1);
   }
   .msg.ai table {
@@ -1479,9 +1489,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     justify-content: space-between;
     gap: 12px;
     padding: 10px 10px 10px 16px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 10px;
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-1);
   }
   .copy-inline {
@@ -1489,15 +1500,22 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 32px;
     padding: 4px 10px;
     border-radius: 7px;
-    border: 1px solid var(--line-2);
-    background: transparent;
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--control-bg);
     color: var(--muted);
     font: 500 12px/1 var(--font-mono);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .copy-inline:hover {
     color: var(--fg);
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .copy-inline:active {
+    box-shadow: var(--control-shadow-active);
   }
   .copy-inline[data-done] {
     color: var(--ok);
@@ -1519,9 +1537,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     }
   }
   .frame {
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 14px;
-    background: var(--panel);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
     padding: 14px;
     display: flex;
@@ -1677,8 +1696,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     gap: 10px;
     padding: 20px;
     border-radius: 14px;
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
     box-shadow: var(--shadow-2);
     overflow: hidden;
   }
