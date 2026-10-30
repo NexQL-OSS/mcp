@@ -159,6 +159,7 @@ const sub = "sub" in mark ? mark.sub : undefined;
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-3);
   }
   figcaption {
     display: flex;
@@ -408,12 +409,13 @@ const sub = "sub" in mark ? mark.sub : undefined;
   .block {
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--bg-deep);
+    background: var(--code-bg);
+    box-shadow: var(--block-shadow);
     overflow: hidden;
   }
   .block.primary {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 7%, transparent);
+    box-shadow: var(--block-primary-shadow);
   }
   .block-head {
     display: flex;
@@ -422,7 +424,9 @@ const sub = "sub" in mark ? mark.sub : undefined;
     gap: 12px;
     padding: 9px 10px 9px 16px;
     border-bottom: 1px solid var(--line);
-    background: var(--panel);
+    background: var(--chat-top);
+    backdrop-filter: blur(var(--frost));
+    -webkit-backdrop-filter: blur(var(--frost));
   }
   .block-head .bl {
     font: 500 11.5px/1.3 var(--font-mono);

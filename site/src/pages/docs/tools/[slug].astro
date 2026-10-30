@@ -188,6 +188,7 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
   }
   .label {
     font: 500 11px/1 var(--font-mono);
@@ -202,6 +203,7 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
     border-radius: 14px 14px 4px 14px;
     background: color-mix(in srgb, var(--accent) 16%, var(--panel-2));
     border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    box-shadow: var(--shadow-1);
     font-size: 16.5px;
   }
   .then {
@@ -246,6 +248,8 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
     margin: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius);
+    background: var(--raised);
+    box-shadow: var(--shadow-2);
     overflow: hidden;
   }
   .param {
@@ -292,7 +296,8 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
     margin: 0;
     padding: 16px 18px;
     border-left: 3px solid var(--c);
-    background: var(--bg-deep);
+    background: var(--code-bg);
+    box-shadow: var(--code-shadow);
     border-radius: 0 10px 10px 0;
     font: 400 13.5px/1.7 var(--font-mono);
     color: var(--prose);
@@ -310,12 +315,17 @@ const params = [...tool.params].sort((a, b) => Number(b.required) - Number(a.req
     padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
+    background: var(--raised);
+    box-shadow: var(--shadow-1);
     color: var(--fg);
     min-width: 0;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   .stop:hover {
     border-color: var(--c);
     text-decoration: none;
+    box-shadow: var(--shadow-3);
+    transform: translateY(var(--btn-lift));
   }
   .stop code {
     overflow-wrap: anywhere;

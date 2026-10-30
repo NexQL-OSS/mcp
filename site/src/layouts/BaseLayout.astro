@@ -55,7 +55,7 @@ const jsonLd = {
 
     <link rel="icon" type="image/png" href="/assets/NexQL.png" />
     <meta name="theme-color" content="#07080e" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#f4f2f8" media="(prefers-color-scheme: light)" />
     <meta id="theme-color-force" name="theme-color" content="#07080e" media="not all" />
     <script is:inline>
       (function () {
@@ -80,7 +80,7 @@ const jsonLd = {
             force.setAttribute("media", "not all");
           } else {
             force.removeAttribute("media");
-            force.setAttribute("content", theme === "light" ? "#eef1f6" : "#07080e");
+            force.setAttribute("content", theme === "light" ? "#f4f2f8" : "#07080e");
           }
         }
         paint(stored);

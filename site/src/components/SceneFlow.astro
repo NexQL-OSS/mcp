@@ -230,6 +230,8 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
   }
   .rail a.active {
     color: var(--fg);
+    background: var(--rail-active);
+    border-radius: 10px;
   }
   .rail a.active .dot {
     border-color: var(--accent);
@@ -258,9 +260,20 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     max-width: 800px;
   }
   .scene {
+    position: relative;
     padding: 8px 0 72px;
     margin-bottom: 72px;
     border-bottom: 1px solid var(--line);
+  }
+  .scene::before {
+    content: "";
+    position: absolute;
+    left: -10%;
+    top: -20px;
+    width: min(380px, 75%);
+    height: 160px;
+    background: var(--section-wash);
+    pointer-events: none;
   }
   .scene:last-child {
     margin-bottom: 0;
@@ -311,6 +324,7 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     border-radius: 16px 16px 4px 16px;
     background: color-mix(in srgb, var(--hue) 14%, var(--panel-2));
     border: 1px solid color-mix(in srgb, var(--hue) 38%, transparent);
+    box-shadow: var(--shadow-2);
     font-size: 18px;
     line-height: 1.5;
   }
@@ -420,7 +434,8 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--bg-deep);
+    background: var(--figure-bg);
+    box-shadow: var(--shadow-2);
   }
   dd {
     margin: 0;

@@ -130,13 +130,15 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
     color: var(--fg);
-    transition: border-color 0.15s, transform 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   .start:hover,
   .guide:hover {
     border-color: var(--accent);
     text-decoration: none;
+    box-shadow: var(--shadow-3);
     transform: translateY(-2px);
   }
   .k,
@@ -198,6 +200,7 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
   }
   .route li span:last-child {
     color: var(--muted);
@@ -230,6 +233,7 @@ import { GUIDES, LINES, TOOLS, toolHref } from "../../data/docs";
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
     border-top: 3px solid var(--c);
   }
   .lh {

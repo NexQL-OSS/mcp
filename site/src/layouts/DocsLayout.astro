@@ -171,11 +171,13 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
   }
   @media (min-width: 960px) {
     .menu {
       border: 0;
       background: none;
+      box-shadow: none;
     }
   }
   .menu-toggle {
@@ -306,8 +308,19 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
 
   .doc {
+    position: relative;
     min-width: 0;
     padding-bottom: 24px;
+  }
+  .doc::before {
+    content: "";
+    position: absolute;
+    right: -4%;
+    top: -36px;
+    width: min(460px, 70%);
+    height: 220px;
+    background: var(--section-wash);
+    pointer-events: none;
   }
   .edit {
     margin-top: 48px;
@@ -403,7 +416,8 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     padding-right: 76px;
     border: 1px solid var(--line);
     border-radius: 10px;
-    background: var(--bg-deep) !important;
+    background: var(--code-bg) !important;
+    box-shadow: var(--code-shadow);
     overflow-x: auto;
     font-size: 13.5px;
     line-height: 1.65;

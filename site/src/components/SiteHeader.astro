@@ -51,10 +51,14 @@ const links = [
     position: sticky;
     top: 0;
     z-index: 50;
-    background: color-mix(in srgb, var(--bg-deep) 84%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--header-bg);
+    backdrop-filter: blur(var(--header-blur));
+    -webkit-backdrop-filter: blur(var(--header-blur));
     border-bottom: 1px solid var(--line);
+  }
+  .site-header.is-stuck {
+    background: var(--header-bg-stuck);
+    box-shadow: var(--header-shadow-stuck);
   }
   .ribbon {
     height: 2px;
@@ -114,6 +118,7 @@ const links = [
     border: 1px solid var(--line-2);
     border-radius: 999px;
     background: var(--panel);
+    box-shadow: var(--shadow-1);
   }
   .theme-switch button {
     appearance: none;
@@ -314,6 +319,9 @@ const links = [
       if (!header.contains(e.target as Node)) set(false);
     });
     matchMedia("(min-width: 861px)").addEventListener("change", (e) => e.matches && set(false));
+    const onScroll = () => header.classList.toggle("is-stuck", window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
   }
 </script>
 

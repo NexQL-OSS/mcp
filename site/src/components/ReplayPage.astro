@@ -89,8 +89,19 @@ const other =
 
 <style>
   .pp-intro {
+    position: relative;
     padding-top: clamp(40px, 7vw, 72px);
     padding-bottom: 28px;
+  }
+  .pp-intro::before {
+    content: "";
+    position: absolute;
+    left: -8%;
+    top: 10px;
+    width: min(520px, 80%);
+    height: 240px;
+    background: var(--section-wash);
+    pointer-events: none;
   }
   .pp-intro > * {
     max-width: 820px;
@@ -133,6 +144,7 @@ const other =
     border-radius: 8px;
     background: var(--panel);
     border: 1px solid var(--line);
+    box-shadow: var(--shadow-1);
   }
 
   .pp-tools {
@@ -165,6 +177,7 @@ const other =
     border-left: 3px solid var(--c);
     border-radius: 10px;
     background: var(--panel);
+    box-shadow: var(--shadow-1);
     color: var(--fg);
   }
   .pp-tools a:hover {
@@ -197,12 +210,14 @@ const other =
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
+    box-shadow: var(--shadow-2);
     color: var(--fg);
-    transition: border-color 0.15s, transform 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   .pp-card:hover {
     border-color: var(--accent);
     text-decoration: none;
+    box-shadow: var(--shadow-3);
     transform: translateY(-2px);
   }
   .k {
