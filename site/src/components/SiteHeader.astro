@@ -51,13 +51,21 @@ const links = [
     position: sticky;
     top: 0;
     z-index: 50;
-    background: var(--header-bg);
-    backdrop-filter: blur(var(--header-blur));
-    -webkit-backdrop-filter: blur(var(--header-blur));
+    /* Opaque unless blur is actually supported, so scrolled text cannot show through. */
+    background: var(--header-bg-solid);
     border-bottom: 1px solid var(--line);
   }
+  @supports (backdrop-filter: blur(1px)) {
+    .site-header {
+      background: var(--header-bg);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+    .site-header.is-stuck {
+      background: var(--header-bg-stuck);
+    }
+  }
   .site-header.is-stuck {
-    background: var(--header-bg-stuck);
     box-shadow: var(--header-shadow-stuck);
   }
   .ribbon {
