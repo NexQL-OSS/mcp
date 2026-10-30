@@ -127,6 +127,9 @@ pub struct ToolRouter {
     embedder: Option<Arc<dyn Embedder>>,
     specs: Vec<ToolSpec>,
     managed_extension: bool,
+    /// Per-connection notes on why access is narrower than configured, shown
+    /// with every result so the model can explain a refused change.
+    access_notices: std::collections::HashMap<String, String>,
 }
 
 impl ToolRouter {
@@ -138,6 +141,7 @@ impl ToolRouter {
             embedder: None,
             specs: active_tools(),
             managed_extension: false,
+            access_notices: std::collections::HashMap::new(),
         }
     }
 
@@ -150,6 +154,7 @@ impl ToolRouter {
             embedder: None,
             specs: active_tools(),
             managed_extension: false,
+            access_notices: std::collections::HashMap::new(),
         }
     }
 
@@ -174,6 +179,12 @@ impl ToolRouter {
     /// cannot run, so a read-only server does not advertise `execute_sql`.
     pub fn with_access_ceiling(mut self, mode: nexql_policy::AccessMode) -> Self {
         self.specs.retain(|s| s.name.runnable_in(mode));
+        self
+    }
+
+    /// Attach `notice` to every result for `connection_id` (as `accessNote`).
+    pub fn with_access_notice(mut self, connection_id: String, notice: String) -> Self {
+        self.access_notices.insert(connection_id, notice);
         self
     }
 
@@ -331,10 +342,16 @@ impl ToolRouter {
             if let Some(ref f) = freshness {
                 obj.insert("freshness".into(), f.clone());
             }
+            if let Some(notice) = self.access_notices.get(&connection_id) {
+                obj.insert("accessNote".into(), json!(notice));
+            }
         }
-        let header = format!(
+        let mut header = format!(
             "[context connectionId={connection_id} database={database} accessMode={access_mode}]\n"
         );
+        if let Some(notice) = self.access_notices.get(&connection_id) {
+            header.push_str(&format!("[access note: {notice}]\n"));
+        }
         if !outcome.text.starts_with("[context ") {
             outcome.text = format!("{header}{}", outcome.text);
         }
@@ -1559,7 +1576,7 @@ impl ToolRouter {
         // Privilege-escalation gate: access_mode is a plain string arg the LLM controls,
         // applied to the live session with zero confirmation otherwise (Issue: found in
         // the second review). Mirrors the existing --i-know-what-im-doing precedent
-        // (nexql_policy::check_superuser_guard) — an explicit second argument, not
+        // (nexql_policy::superuser_write_notice) — an explicit second argument, not
         // elicitation (no protocol plumbing exists for that today).
         if let Some(mode_str) = args.get("access_mode").and_then(|v| v.as_str()) {
             let mode: nexql_policy::AccessMode = mode_str.parse().map_err(|_| {
@@ -5230,6 +5247,28 @@ mod tests {
             structured.get("database").and_then(|v| v.as_str()),
             Some("appdb")
         );
+        assert!(structured.get("accessNote").is_none());
+    }
+
+    #[tokio::test]
+    async fn access_notice_rides_along_only_for_its_connection() {
+        let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
+        let router = ToolRouter::new(session.clone())
+            .with_access_notice("conn-1".into(), "writes are off".into());
+        let out = router.call("list_connections", json!({})).await;
+        assert_eq!(
+            out.structured.as_ref().and_then(|s| s.get("accessNote")),
+            Some(&json!("writes are off"))
+        );
+        assert!(
+            out.text.contains("[access note: writes are off]"),
+            "{}",
+            out.text
+        );
+
+        let other = ToolRouter::new(session).with_access_notice("conn-2".into(), "x".into());
+        let out = other.call("list_connections", json!({})).await;
+        assert!(out.structured.unwrap().get("accessNote").is_none());
     }
 
     #[tokio::test]
@@ -5349,7 +5388,7 @@ mod tests {
     /// Second-review finding: access_mode was a plain string arg applied to
     /// the live session with zero confirmation — a short prompt-injection
     /// hop from read to admin. Requires an explicit confirm_elevated_access
-    /// arg, mirroring nexql_policy::check_superuser_guard's
+    /// arg, mirroring nexql_policy::superuser_write_notice's
     /// --i-know-what-im-doing precedent.
     #[tokio::test]
     async fn save_profile_rejects_elevated_access_without_confirmation() {

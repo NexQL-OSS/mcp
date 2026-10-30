@@ -11,7 +11,7 @@ pub mod lineage;
 pub mod sql;
 
 pub use access::{
-    AccessMode, NEXQL_READONLY_ROLE, check_superuser_guard, readonly_role_sql, superuser_warning,
+    AccessMode, NEXQL_READONLY_ROLE, readonly_role_sql, superuser_warning, superuser_write_notice,
 };
 pub use caps::{
     AGENT_STATEMENT_TIMEOUT_MS, DEFAULT_MAX_RAISED_TIMEOUT_MS, DEFAULT_MAX_RESULT_CHARS,

@@ -44,7 +44,7 @@ All tools appear in `tools/list` regardless of `--access-mode`. At call time:
 | `write` | allowed | allowed | refused |
 | `admin` | allowed | allowed | allowed |
 
-Write/admin tools return an error in read mode. Startup also refuses write/admin against a superuser connection unless `--i-know-what-im-doing` is set.
+Write/admin tools return an error in read mode. Write/admin against a superuser connection runs read-only unless `--i-know-what-im-doing` is set; results then carry an `accessNote` saying why.
 
 ## Write tools
 
