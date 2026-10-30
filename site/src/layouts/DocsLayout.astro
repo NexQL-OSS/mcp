@@ -38,15 +38,15 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
           <span class="here">{title}</span>
         </summary>
         <nav class="map">
-          <a class:list={["map-top", { on: path === "/docs" }]} href="/docs">Overview</a>
-          <a class:list={["map-top", { on: path === "/docs/tools" }]} href="/docs/tools">All {TOOLS.length} tools</a>
+          <a class:list={["map-top", { on: path === "/docs" }]} href="/docs" aria-current={path === "/docs" ? "page" : undefined}>Overview</a>
+          <a class:list={["map-top", { on: path === "/docs/tools" }]} href="/docs/tools" aria-current={path === "/docs/tools" ? "page" : undefined}>All {TOOLS.length} tools</a>
 
           <p class="map-h">Guides</p>
           <ul class="guides">
             {
               GUIDES.map((g) => (
                 <li>
-                  <a class:list={{ on: path === `/docs/${g.slug}` }} href={`/docs/${g.slug}`}>
+                  <a class:list={{ on: path === `/docs/${g.slug}` }} href={`/docs/${g.slug}`} aria-current={path === `/docs/${g.slug}` ? "page" : undefined}>
                     {g.title}
                   </a>
                 </li>
@@ -66,7 +66,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
                 <ul class="stations">
                   {Object.keys(line.tools).map((name) => (
                     <li>
-                      <a class:list={{ on: currentTool?.name === name }} href={toolHref(name)}>
+                      <a class:list={{ on: currentTool?.name === name }} href={toolHref(name)} aria-current={currentTool?.name === name ? "page" : undefined}>
                         {name}
                       </a>
                     </li>
@@ -79,7 +79,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
       </details>
     </aside>
 
-    <main class="doc" id="main">
+    <main class="doc" id="main" tabindex="-1">
       {
         isGuide ? (
           <article class="prose">

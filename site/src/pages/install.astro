@@ -21,7 +21,7 @@ const BUNDLES = [
   canonical="https://nexql-mcp.astrx.dev/install"
 >
   <SiteHeader current="install" />
-  <main class="wrap page">
+  <main id="main" tabindex="-1" class="wrap page">
     <p class="eyebrow">Claude Desktop · one download</p>
     <h1>Ask your Postgres database questions in <span class="serif-em grad-text">Claude Desktop</span></h1>
     <p class="lede">
@@ -143,9 +143,6 @@ const BUNDLES = [
 </script>
 
 <style is:global>
-  :root {
-    --text: var(--fg);
-  }
   .page {
     max-width: 46rem;
     padding-top: 3.5rem;

@@ -29,11 +29,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 >
   <SiteHeader current="tour" />
 
-  <main>
+  <main id="main" tabindex="-1">
     <!-- Start -->
     <section class="hero wrap">
       <div class="hero-copy">
-        <p class="pill"><span class="live-dot"></span>A guided tour · about 5 minutes</p>
+        <p class="pill"><span class="live-dot" aria-hidden="true"></span>A guided tour · about 5 minutes</p>
         <h1>
           Ask your Postgres database{" "}
           <span class="serif-em grad-text">anything</span>, in plain English.
@@ -75,7 +75,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     </section>
 
     <!-- Mobile progress, under the header -->
-    <div class="mbar" aria-hidden="true">
+    <div class="mbar">
       <div class="mbar-fill"></div>
       <span class="mbar-label">Stop 01 of {pad(STOPS.length)} · {STOPS[0].label}</span>
     </div>
@@ -247,7 +247,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 
           <div data-for="bundle">
             <h3 class="sub">Fill in Claude Desktop's dialog</h3>
-            <div class="form-mock" aria-label="Claude Desktop install dialog, as an example">
+            <div class="form-mock" role="group" aria-label="Claude Desktop install dialog, as an example">
               <div class="fm-row">
                 <span class="fm-label">Database URL</span>
                 <span class="fm-field mono">postgres://<span data-fill="user">app_reader</span>:<mark>your-real-password</mark>@<span data-fill="host">localhost</span>:<span data-fill="port">5432</span>/<span data-fill="db">appdb</span><span data-fill="query"></span></span>
@@ -1135,7 +1135,6 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   .builder input:focus,
   .builder select:focus {
-    outline: none;
     border-color: var(--accent);
   }
   .url-out {
@@ -1763,18 +1762,33 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
       history.replaceState(null, "", url);
     }
   }
-  appButtons.forEach((b) => b.addEventListener("click", () => pickApp(b.dataset.app ?? "", true)));
-  appButtons.forEach((b, i) =>
-    b.addEventListener("keydown", (e) => {
-      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-      if (!step) return;
-      e.preventDefault();
-      const next = appButtons[(i + step + appButtons.length) % appButtons.length];
-      next.focus();
-      pickApp(next.dataset.app ?? "", true);
-    }),
-  );
-  pickApp(new URLSearchParams(location.search).get("app") ?? store.get("nexql-tour-app") ?? "claude-desktop", false);
+  // Radiogroups: one tab stop, arrows move the choice. Without JS every button stays in tab order.
+  function roam(buttons: HTMLButtonElement[], pick: (b: HTMLButtonElement) => void) {
+    const sync = () => {
+      const current = buttons.find((b) => b.getAttribute("aria-checked") === "true") ?? buttons[0];
+      buttons.forEach((b) => (b.tabIndex = b === current ? 0 : -1));
+    };
+    buttons.forEach((b, i) => {
+      b.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const next = buttons[(i + step + buttons.length) % buttons.length];
+        pick(next);
+        next.focus();
+      });
+    });
+    return sync;
+  }
+
+  let syncAppTab = () => {};
+  const pickAppAndTab = (id: string, remember: boolean) => {
+    pickApp(id, remember);
+    syncAppTab();
+  };
+  appButtons.forEach((b) => b.addEventListener("click", () => pickAppAndTab(b.dataset.app ?? "", true)));
+  syncAppTab = roam(appButtons, (b) => pickAppAndTab(b.dataset.app ?? "", true));
+  pickAppAndTab(new URLSearchParams(location.search).get("app") ?? store.get("nexql-tour-app") ?? "claude-desktop", false);
 
   // ---- Stop 2: download for this computer ----
   (async () => {
@@ -1824,18 +1838,21 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   builder?.addEventListener("input", renderAddress);
   const platformButtons = [...document.querySelectorAll<HTMLButtonElement>(".platform")];
-  platformButtons.forEach((b) =>
-    b.addEventListener("click", () => {
-      platformButtons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
-      document.querySelectorAll<HTMLElement>("[data-tip]").forEach((t) => (t.hidden = t.dataset.tip !== b.dataset.platform));
-      if (builder) {
-        (builder.elements.namedItem("host") as HTMLInputElement).value = b.dataset.host ?? "";
-        (builder.elements.namedItem("port") as HTMLInputElement).value = b.dataset.port ?? "";
-        (builder.elements.namedItem("ssl") as HTMLSelectElement).value = b.dataset.ssl ?? "";
-        renderAddress();
-      }
-    }),
-  );
+  let syncPlatformTab = () => {};
+  function selectPlatform(b: HTMLButtonElement) {
+    platformButtons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    document.querySelectorAll<HTMLElement>("[data-tip]").forEach((t) => (t.hidden = t.dataset.tip !== b.dataset.platform));
+    if (builder) {
+      (builder.elements.namedItem("host") as HTMLInputElement).value = b.dataset.host ?? "";
+      (builder.elements.namedItem("port") as HTMLInputElement).value = b.dataset.port ?? "";
+      (builder.elements.namedItem("ssl") as HTMLSelectElement).value = b.dataset.ssl ?? "";
+      renderAddress();
+    }
+    syncPlatformTab();
+  }
+  platformButtons.forEach((b) => b.addEventListener("click", () => selectPlatform(b)));
+  syncPlatformTab = roam(platformButtons, selectPlatform);
+  syncPlatformTab();
 
   // ---- Copy buttons ----
   async function copyText(text: string, btn: HTMLElement) {

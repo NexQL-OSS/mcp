@@ -96,6 +96,25 @@ a:hover {
   border-radius: 4px;
 }
 
+.skip {
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  z-index: 80;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  transform: translateY(-150%);
+}
+.skip:focus {
+  transform: none;
+}
+#main:focus {
+  outline: none;
+}
+
 h1,
 h2,
 h3 {

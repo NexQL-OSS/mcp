@@ -35,7 +35,7 @@ const other =
 
 <BaseLayout title={title} description={description} canonical={canonical}>
   <SiteHeader current={current} />
-  <main class="pp">
+  <main id="main" tabindex="-1" class="pp">
     <section class="pp-intro wrap">
       <p class="pp-eyebrow"><span class="live-dot" aria-hidden="true"></span>{eyebrow}</p>
       <h1><slot name="title" /></h1>
