@@ -38,6 +38,11 @@ pub struct PolicyFilter {
     /// `pii_columns` is empty. Set `sensitive_name_heuristics = false` on a
     /// profile to opt out.
     pub sensitive_name_heuristics: bool,
+    /// When true (the default), also redact columns whose names look like
+    /// personal data: email, phone, street address, a person's name, date of
+    /// birth, IP address. Set `personal_data_heuristics = false` on a profile
+    /// to opt out without turning off the secret heuristics above.
+    pub personal_data_heuristics: bool,
 }
 
 impl Default for PolicyFilter {
@@ -48,6 +53,7 @@ impl Default for PolicyFilter {
             deny_tables: Vec::new(),
             pii_columns: Vec::new(),
             sensitive_name_heuristics: true,
+            personal_data_heuristics: true,
         }
     }
 }
@@ -80,6 +86,17 @@ impl PolicyFilter {
         refs.into_iter()
             .filter(|r| self.allows_table(&r.schema, &r.name))
             .collect()
+    }
+
+    /// True when any name heuristic is enabled.
+    pub fn name_heuristics_enabled(&self) -> bool {
+        self.sensitive_name_heuristics || self.personal_data_heuristics
+    }
+
+    /// True when `column` matches an enabled name heuristic.
+    pub fn name_is_sensitive(&self, column: &str) -> bool {
+        (self.sensitive_name_heuristics && is_sensitive_column_name(column))
+            || (self.personal_data_heuristics && is_personal_data_column_name(column))
     }
 
     pub fn require_table(&self, schema: &str, table: &str) -> Result<(), PolicyError> {
@@ -146,12 +163,92 @@ fn secret_segment(name: &str) -> bool {
         || name.contains("_secret_")
 }
 
+/// Personal-data name heuristics. Match is case-insensitive and works on
+/// `_`-separated segments, so flags and counts next to the data
+/// (`email_verified`, `phone_count`) do not match.
+///
+/// - email: `email`, `*_email`, `email_address`, `e_mail`
+/// - phone: `phone`, `*_phone`, `phone_number`, `mobile`, `mobile_number`, `fax`
+/// - address: `address`, `*_address` (`street_address`, `ip_address`),
+///   `address_line*`, `street`
+/// - a person's name: `first_name`, `last_name`, `full_name`, `middle_name`,
+///   `surname`, and `<person>_name` for customer, contact, recipient,
+///   employee, user, member, patient, cardholder (`customer_name`)
+/// - date of birth: `dob`, `date_of_birth`, `birth_date`, `birthdate`, `birthday`
+/// - identifiers: `passport*`, `national_id`, `tax_id`, `card_number`, `iban`
+///
+/// `name` alone, `product_name`, `city` and `postal_code` do not match.
+pub fn is_personal_data_column_name(column: &str) -> bool {
+    let name = column.to_ascii_lowercase();
+    let segments: Vec<&str> = name.split('_').filter(|s| !s.is_empty()).collect();
+    let Some(last) = segments.last().copied() else {
+        return false;
+    };
+    let joined = segments.join("_");
+    if matches!(
+        last,
+        "email" | "phone" | "mobile" | "fax" | "address" | "surname"
+    ) || matches!(
+        last,
+        "emailaddress" | "phonenumber" | "dob" | "birthdate" | "birthday"
+    ) {
+        return true;
+    }
+    if joined.ends_with("e_mail")
+        || joined.ends_with("phone_number")
+        || joined.ends_with("mobile_number")
+        || joined.ends_with("date_of_birth")
+        || joined.ends_with("birth_date")
+        || joined.ends_with("card_number")
+        || joined.ends_with("national_id")
+        || joined.ends_with("tax_id")
+        || joined.ends_with("iban")
+    {
+        return true;
+    }
+    if segments.first() == Some(&"passport") || segments.first() == Some(&"street") {
+        return true;
+    }
+    if segments.len() >= 2 && segments[segments.len() - 2] == "address" && last.starts_with("line")
+    {
+        return true;
+    }
+    if last == "name" && segments.len() >= 2 {
+        const PERSON: &[&str] = &[
+            "first",
+            "last",
+            "full",
+            "middle",
+            "given",
+            "family",
+            "maiden",
+            "customer",
+            "contact",
+            "recipient",
+            "employee",
+            "user",
+            "member",
+            "patient",
+            "cardholder",
+            "holder",
+        ];
+        return PERSON.contains(&segments[segments.len() - 2]);
+    }
+    if matches!(
+        joined.as_str(),
+        "firstname" | "lastname" | "fullname" | "username"
+    ) {
+        return true;
+    }
+    false
+}
+
 /// Configured PII or (when enabled) a sensitive column name.
 pub fn column_should_redact(filter: &PolicyFilter, tables: &[ObjectRef], column: &str) -> bool {
     if column_matches_pii_policy(&filter.pii_columns, tables, column) {
         return true;
     }
-    filter.sensitive_name_heuristics && is_sensitive_column_name(column)
+    filter.name_is_sensitive(column)
 }
 
 /// Configured PII columns (`schema.table.column`) that belong to one relation.
@@ -252,13 +349,17 @@ mod tests {
     #[test]
     fn heuristics_apply_without_configured_pii_and_can_be_disabled() {
         let tables = vec![ObjectRef::new("public", "users")];
-        let on = PolicyFilter::default();
+        let on = PolicyFilter {
+            personal_data_heuristics: false,
+            ..Default::default()
+        };
         assert!(on.sensitive_name_heuristics);
         assert!(column_should_redact(&on, &tables, "password_hash"));
         assert!(!column_should_redact(&on, &tables, "email"));
 
         let off = PolicyFilter {
             sensitive_name_heuristics: false,
+            personal_data_heuristics: false,
             ..Default::default()
         };
         assert!(!column_should_redact(&off, &tables, "password_hash"));
@@ -266,9 +367,79 @@ mod tests {
         let configured = PolicyFilter {
             pii_columns: vec!["public.users.email".into()],
             sensitive_name_heuristics: false,
+            personal_data_heuristics: false,
             ..Default::default()
         };
         assert!(column_should_redact(&configured, &tables, "email"));
+    }
+
+    #[test]
+    fn personal_data_heuristics_match_people_not_things() {
+        let cases = [
+            ("email", true),
+            ("customer_email", true),
+            ("Email", true),
+            ("email_address", true),
+            ("e_mail", true),
+            ("phone", true),
+            ("phone_number", true),
+            ("mobile", true),
+            ("street_address", true),
+            ("address_line1", true),
+            ("ip_address", true),
+            ("first_name", true),
+            ("last_name", true),
+            ("full_name", true),
+            ("customer_name", true),
+            ("firstname", true),
+            ("date_of_birth", true),
+            ("dob", true),
+            ("passport_number", true),
+            ("card_number", true),
+            ("email_verified", false),
+            ("phone_count", false),
+            ("shipping_address_id", false),
+            ("address_type", false),
+            ("name", false),
+            ("product_name", false),
+            ("brand_name", false),
+            ("table_name", false),
+            ("month_name", false),
+            ("city", false),
+            ("postal_code", false),
+            ("card_last_four", false),
+            ("gender", false),
+        ];
+        for (name, expect) in cases {
+            assert_eq!(
+                is_personal_data_column_name(name),
+                expect,
+                "{name} personal-data heuristic mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn personal_data_heuristics_are_on_by_default_and_separate_from_secrets() {
+        let tables = vec![ObjectRef::new("customers", "users")];
+        let on = PolicyFilter::default();
+        assert!(column_should_redact(&on, &tables, "email"));
+        assert!(column_should_redact(&on, &tables, "password_hash"));
+
+        let no_personal = PolicyFilter {
+            personal_data_heuristics: false,
+            ..Default::default()
+        };
+        assert!(!column_should_redact(&no_personal, &tables, "email"));
+        assert!(column_should_redact(&no_personal, &tables, "password_hash"));
+        assert!(no_personal.name_heuristics_enabled());
+
+        let none = PolicyFilter {
+            personal_data_heuristics: false,
+            sensitive_name_heuristics: false,
+            ..Default::default()
+        };
+        assert!(!none.name_heuristics_enabled());
     }
 
     #[test]

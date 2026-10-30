@@ -73,6 +73,9 @@ pub struct SanitizedProfile {
     /// opts out and must survive a wizard save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitive_name_heuristics: Option<bool>,
+    /// Same as above for the personal-data heuristics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_data_heuristics: Option<bool>,
     pub password_stored: bool,
     pub has_inline_password: bool,
 }
@@ -100,6 +103,7 @@ impl From<&ProfileConfig> for SanitizedProfile {
             statement_timeout_ms: p.statement_timeout_ms,
             credential_provider: p.credential_provider.clone(),
             sensitive_name_heuristics: p.sensitive_name_heuristics,
+            personal_data_heuristics: p.personal_data_heuristics,
             password_stored: matches!(
                 p.credential_provider.as_deref(),
                 Some("keyring") | Some("os_keyring") | Some("encrypted_file")
@@ -133,6 +137,7 @@ impl From<SanitizedProfile> for ProfileConfig {
             statement_timeout_ms: s.statement_timeout_ms,
             credential_provider: s.credential_provider,
             sensitive_name_heuristics: s.sensitive_name_heuristics,
+            personal_data_heuristics: s.personal_data_heuristics,
         }
     }
 }

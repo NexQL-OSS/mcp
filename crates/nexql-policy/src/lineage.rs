@@ -20,7 +20,7 @@ use pg_query::protobuf::{
 };
 
 use crate::error::PolicyError;
-use crate::filter::{PolicyFilter, configured_pii_names, is_pii_column, is_sensitive_column_name};
+use crate::filter::{PolicyFilter, configured_pii_names, is_pii_column};
 
 /// A column the caller already knows (from config, a prior catalog lookup,
 /// or `RowDescription` metadata).
@@ -829,6 +829,12 @@ impl Analysis<'_> {
         if func.agg_star {
             return ExprKind::Value;
         }
+        // count(email) says how many rows have an email, not what it is.
+        let builtin = func.funcname.len() == 1
+            || func.funcname.first().and_then(node_str) == Some("pg_catalog");
+        if builtin && func_name(func).is_some_and(|n| n.eq_ignore_ascii_case("count")) {
+            return ExprKind::Value;
+        }
         let mut kinds = Vec::new();
         for arg in func.args.iter().chain(func.agg_order.iter()) {
             kinds.push(self.eval_expr(arg, scope));
@@ -977,7 +983,7 @@ impl Analysis<'_> {
 
     fn resolve_qualified(&self, scope: &[Rel], rel_name: &str, column: &str) -> ExprKind {
         let Some(idx) = find_rel(scope, rel_name) else {
-            if self.filter.sensitive_name_heuristics && is_sensitive_column_name(column) {
+            if self.filter.name_is_sensitive(column) {
                 return ExprKind::Tainted;
             }
             return ExprKind::Value;
@@ -1034,9 +1040,7 @@ impl Analysis<'_> {
                 match self.known_columns(rel) {
                     Some(cols) => {
                         if cols.iter().any(|c| c.eq_ignore_ascii_case(column)) {
-                            if self.filter.sensitive_name_heuristics
-                                && is_sensitive_column_name(column)
-                            {
+                            if self.filter.name_is_sensitive(column) {
                                 ColumnLookup::Sensitive
                             } else {
                                 ColumnLookup::Plain
@@ -1059,7 +1063,7 @@ impl Analysis<'_> {
             return false;
         }
         is_pii_column(&self.filter.pii_columns, &rel.schema, &rel.name, column)
-            || (self.filter.sensitive_name_heuristics && is_sensitive_column_name(column))
+            || self.filter.name_is_sensitive(column)
     }
 
     fn rel_has_known_column(&self, rel: &Rel, column: &str) -> bool {
@@ -1083,8 +1087,7 @@ impl Analysis<'_> {
     }
 
     fn derived_is_sensitive(&self, col: &DerivedCol) -> bool {
-        col.tainted
-            || (self.filter.sensitive_name_heuristics && is_sensitive_column_name(&col.name))
+        col.tainted || self.filter.name_is_sensitive(&col.name)
     }
 
     fn relation_sensitivity(&self, rel: &Rel) -> Sensitivity {
@@ -1116,8 +1119,7 @@ impl Analysis<'_> {
                             .iter()
                             .filter(|c| {
                                 pii.iter().any(|p| p.eq_ignore_ascii_case(c))
-                                    || (self.filter.sensitive_name_heuristics
-                                        && is_sensitive_column_name(c))
+                                    || self.filter.name_is_sensitive(c)
                             })
                             .cloned()
                             .collect();
@@ -1132,7 +1134,7 @@ impl Analysis<'_> {
                             Sensitivity::Names(names)
                         }
                     }
-                    None if self.filter.sensitive_name_heuristics => {
+                    None if self.filter.name_heuristics_enabled() => {
                         Sensitivity::Unresolved { also: pii }
                     }
                     None if !pii.is_empty() => Sensitivity::Names(pii),
@@ -1710,10 +1712,10 @@ mod tests {
     #[test]
     fn unqualified_relations_resolve_through_search_path() {
         let filter = PolicyFilter {
-            pii_columns: vec!["customers.users.email".into()],
+            pii_columns: vec!["customers.users.notes".into()],
             ..Default::default()
         };
-        let sql = "SELECT email AS c FROM users";
+        let sql = "SELECT notes AS c FROM users";
         let first = analyze_output_lineage(sql, &filter, &[]).unwrap();
         assert_eq!(first.unqualified_relations, vec!["users"]);
         assert!(first.redact_names.is_empty(), "{first:?}");
@@ -1768,12 +1770,25 @@ mod tests {
             "SELECT g FROM generate_series(1, 3) g",
             "SELECT g.n FROM generate_series(1, 3) AS g(n)",
             "SELECT id FROM users WHERE email = 'a@b.co'",
+            "SELECT count(DISTINCT email) AS n FROM users",
         ];
         for sql in cases {
             let l = lineage(sql);
             assert!(l.rejections.is_empty(), "{sql}: {l:?}");
             assert!(l.redact_names.is_empty(), "{sql}: {l:?}");
             assert!(l.unresolved_whole_rows.is_empty(), "{sql}: {l:?}");
+        }
+    }
+
+    #[test]
+    fn count_is_clean_but_other_aggregates_and_lookalikes_are_not() {
+        for sql in [
+            "SELECT min(email) AS e FROM users",
+            "SELECT string_agg(email, ',') AS e FROM users",
+            "SELECT public.count(email) AS e FROM users",
+        ] {
+            let l = lineage(sql);
+            assert!(l.redact_names.iter().any(|n| n == "e"), "{sql}: {l:?}");
         }
     }
 

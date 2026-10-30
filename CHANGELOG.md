@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `nexql-mcp init <client> postgres://user:pass@…` no longer writes the password into client config, including unparseable URLs, percent-encoded secrets, and `?password=`. The URL is saved as a keyring (or encrypted-file) profile and the snippet references `--profile`. The first saved profile becomes the default. `init <client> --apply <url>` creates that profile and wires it. The saved TOML is scanned again after write and refused if a password is still present.
 - `doctor`, `profile test`, the setup wizard, and the TUI warn when the connection is a superuser and print `nexql-mcp profile readonly-role` (SQL for a `nexql_readonly` role with `GRANT pg_read_all_data`).
 
+- Personal data is masked by default. Columns named like an email, phone, street or IP address, a person's name, a date of birth, or a passport, card, tax or national ID are redacted in results even when `pii_columns` is empty. Opt out per profile with `personal_data_heuristics = false` or the wizard's "Mask personal data" box. `count(...)` over a masked column is not masked. `doctor` lists the masked columns, and redacted results carry a `piiNote` the model can relay.
+
+### Changed
+- `--tools` defaults to `query` (21 tools, about 15 KB of schemas) instead of `full` (54 tools, about 38 KB). Pass `--tools full` for the DBA and maintenance tools.
+- Write and admin tools are left out of `tools/list` unless a configured connection's `access_mode` can run them.
+- Claude Desktop configs from `init claude-desktop`, `init --apply` and the setup wizard name `nexql-mcp` by absolute path, or use an absolute `npx` with `node` on the entry's `PATH`. Claude Desktop does not inherit the shell `PATH`, so a bare `nexql-mcp` failed with spawn ENOENT.
+- `search_all_databases` searches every database each profile can connect to and indexes ones it has not seen (`indexed_now`). Empty or unreachable databases are reported in `skipped`. Each profile's own policy filter is applied.
+- `database` no longer requires `connectionId`: it means that database on the active connection. `list_databases` and `switch_connection` default to the active connection.
+- One discovery path in the server instructions and tool descriptions: `search_schema` → `describe_object` → `run_select`, with `orient` for broad questions and `search_all_databases` for other databases. `orient` lists only tables, views and materialized views (plus Postgres enum values), writes joins as one string each, and shortens type names. On the dry-run schema it went from 17 KB to 10 KB while covering all 30 tables instead of 40 mostly-function objects. Past 40 tables it lists the rest by name in `more`.
+
 ### Fixed
 - Tool calls that arrive while the startup index build holds the lock wait for that build instead of failing with "another process is building the index". `orient` reports a missing or failed index as an error (`indexStatus`) instead of `tables: []` with `isError: false`.
 - MCP `readOnlyHint` / `destructiveHint` match behaviour: `save_profile`, `import_profile`, and `setup_connection` are not read-only; `discover_tools` and `check_ddl_safety` are. `switch_connection`, `resolve_target`, `rebuild_index`, and `refresh_index` are not read-only.

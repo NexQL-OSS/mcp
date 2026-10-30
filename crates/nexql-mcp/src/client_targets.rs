@@ -32,13 +32,21 @@ impl ConfigShape {
         }
     }
 
-    fn entry(self, command: &str, args: &[String]) -> Value {
+    fn entry(self, command: &str, args: &[String], env: &[(String, String)]) -> Value {
         let args_json = Value::Array(args.iter().map(|a| Value::String(a.clone())).collect());
-        match self {
+        let mut entry = match self {
             Self::Claude => json!({ "command": command, "args": args_json }),
             Self::VsCode => json!({ "type": "stdio", "command": command, "args": args_json }),
             Self::Zed => json!({ "source": "custom", "command": command, "args": args_json }),
+        };
+        if !env.is_empty() {
+            let env: Map<String, Value> = env
+                .iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect();
+            entry["env"] = Value::Object(env);
         }
+        entry
     }
 }
 
@@ -166,6 +174,18 @@ pub fn merge_entry(
     command: &str,
     args: &[String],
 ) -> Result<String, String> {
+    merge_entry_with_env(existing, shape, server_key, command, args, &[])
+}
+
+/// [`merge_entry`] plus an `env` object on the server entry (omitted when empty).
+pub fn merge_entry_with_env(
+    existing: &str,
+    shape: ConfigShape,
+    server_key: &str,
+    command: &str,
+    args: &[String],
+    env: &[(String, String)],
+) -> Result<String, String> {
     let mut root: Value = if existing.trim().is_empty() {
         Value::Object(Map::new())
     } else {
@@ -188,7 +208,7 @@ pub fn merge_entry(
     servers
         .as_object_mut()
         .expect("checked above")
-        .insert(server_key.to_string(), shape.entry(command, args));
+        .insert(server_key.to_string(), shape.entry(command, args, env));
 
     serde_json::to_string_pretty(&root).map_err(|e| e.to_string())
 }

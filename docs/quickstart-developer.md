@@ -42,7 +42,7 @@ If you installed a permanent binary instead (cargo, GitHub Release, Docker, …)
 
 ## 4. Key Tools for Developers
 
-- `orient`: Call this first on an unfamiliar database — one-call schema bootstrap (tables, FK joins, enum-like columns) instead of several manual lookups.
+- `orient`: compact overview of the whole database (tables, FK joins, enum values) for broad questions. For specific questions the model uses `search_schema` → `describe_object` → `run_select`.
 - `search_schema`: Find tables and columns relevant to your feature (`search_schema(query="users and orders")`).
 - `describe_object`: View column types, nullability, constraints, and foreign keys for a table.
 - `run_select`: Execute read-only SQL queries with automatic PII masking and result limit safety.

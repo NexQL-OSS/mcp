@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use nexql_index::{
-    BuildDepth, BuildMode, BuildRequest, CatalogDb, Embedder, GateRole, IndexManifest,
-    IndexQueryService, IndexScope, IndexStore, ObjectEntry, PgCatalogDb, QueryPolicyFilter,
-    RefResolution, SearchOptions, build_index,
+    BuildDepth, BuildMode, BuildRequest, CatalogDb, DbObjectKind, Embedder, GateRole,
+    IndexManifest, IndexQueryService, IndexScope, IndexStore, ObjectEntry, PgCatalogDb,
+    QueryPolicyFilter, RefResolution, SearchOptions, build_index,
 };
 use nexql_policy::{
     AccessMode, ObjectRef, PolicyCaps, PolicyFilter, SqlDecision, column_should_redact,
@@ -167,6 +167,13 @@ impl ToolRouter {
     /// Filter active tools by requested `ToolProfile`.
     pub fn with_profile(mut self, profile: crate::registry::ToolProfile) -> Self {
         self.specs = crate::schema::tools_for_profile(profile);
+        self
+    }
+
+    /// Drop tools that `mode` (the most permissive connection's access mode)
+    /// cannot run, so a read-only server does not advertise `execute_sql`.
+    pub fn with_access_ceiling(mut self, mode: nexql_policy::AccessMode) -> Self {
+        self.specs.retain(|s| s.name.runnable_in(mode));
         self
     }
 
@@ -848,6 +855,8 @@ impl ToolRouter {
     /// caller rarely needs here (full detail is one describe_object away).
     async fn orient(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
         const TABLE_LIMIT: usize = 40;
+        /// Names listed (without columns) past `TABLE_LIMIT`.
+        const MORE_LIMIT: usize = 300;
         /// Enum-heuristic thresholds: a text/varchar column profiled with a
         /// small number of distinct values and captured common_values reads
         /// as an enum-ish status/category column an agent should know the
@@ -889,24 +898,50 @@ impl ToolRouter {
         if let Some(f) = &focus {
             entries.retain(|(ref_, _)| ref_.to_ascii_lowercase().contains(f.as_str()));
         }
+        entries.retain(|(_, entry)| entry.excluded != Some(true));
+
+        // Postgres enum types are vocabulary for filters; functions, domains
+        // and sequences are left to search_schema.
+        let mut enums = serde_json::Map::new();
+        let mut other_objects = 0usize;
+        entries.retain(|(ref_, entry)| match entry.kind {
+            DbObjectKind::Table | DbObjectKind::View | DbObjectKind::Matview => true,
+            DbObjectKind::Enum => {
+                if let Some(values) = &entry.values {
+                    enums.insert(ref_.clone(), json!(values));
+                }
+                false
+            }
+            _ => {
+                other_objects += 1;
+                false
+            }
+        });
 
         let mut notes: Vec<String> = manifest.stats.warnings.clone();
         let total = entries.len();
+        let mut more: Vec<String> = Vec::new();
         if total > TABLE_LIMIT {
             notes.push(format!(
-                "Showing {TABLE_LIMIT} of {total} objects — pass `focus` to narrow the digest."
+                "Columns shown for {TABLE_LIMIT} of {total} tables and views; `more` lists the rest by name. \
+                 Pass `focus` or call describe_object for their columns."
             ));
-            entries.truncate(TABLE_LIMIT);
+            more = entries
+                .drain(TABLE_LIMIT..)
+                .map(|(ref_, _)| ref_)
+                .take(MORE_LIMIT)
+                .collect();
+        }
+        if other_objects > 0 {
+            notes.push(format!(
+                "{other_objects} functions, domains and sequences are not listed; use search_schema to find them."
+            ));
         }
         let shown_refs: std::collections::HashSet<&str> =
             entries.iter().map(|(r, _)| r.as_str()).collect();
 
         let mut tables = Vec::with_capacity(entries.len());
-        let mut enums = serde_json::Map::new();
         for (ref_, entry) in &entries {
-            if entry.excluded == Some(true) {
-                continue;
-            }
             let pk = entry
                 .primary_key
                 .as_ref()
@@ -917,17 +952,22 @@ impl ToolRouter {
                 .iter()
                 .map(|c| {
                     let bang = if c.not_null { "!" } else { "" };
-                    format!("{}:{}{bang}", c.name, c.type_name)
+                    format!("{}:{}{bang}", c.name, short_type_name(&c.type_name))
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            tables.push(json!({
+            let mut table = json!({
                 "ref": ref_,
-                "kind": entry.kind.as_str(),
                 "rows": format!("~{}", entry.row_estimate.round() as i64),
-                "pk": pk,
                 "columns": columns,
-            }));
+            });
+            if entry.kind != DbObjectKind::Table {
+                table["kind"] = json!(entry.kind.as_str());
+            }
+            if let Some(pk) = pk {
+                table["pk"] = json!(pk);
+            }
+            tables.push(table);
 
             for col in &entry.columns {
                 if col.pii == Some(true) {
@@ -951,41 +991,44 @@ impl ToolRouter {
             }
         }
 
-        let mut joins = Vec::new();
+        // One string per edge: "a.b.col -> c.d.id", suffixed when inferred.
+        let mut joins: Vec<String> = Vec::new();
         if let Some(graph) = store.read_join_graph(&base, &manifest)? {
             for edge in &graph.edges {
+                if edge.disabled == Some(true) {
+                    continue;
+                }
                 if focus.is_some()
                     && !(shown_refs.contains(edge.from.as_str())
                         || shown_refs.contains(edge.to.as_str()))
                 {
                     continue;
                 }
-                let edge_str = edge
-                    .cols
-                    .iter()
-                    .map(|(from_col, to_col)| {
-                        format!("{}.{from_col} -> {}.{to_col}", edge.from, edge.to)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                let inferred = edge.inferred == Some(true);
-                joins.push(json!({
-                    "edge": edge_str,
-                    "declared": !inferred,
-                    "detection": if inferred { "join_graph_inferred" } else { "declared_fk" },
-                    "via": edge.via,
-                    "disabled": edge.disabled == Some(true),
-                }));
+                let inferred = if edge.inferred == Some(true) {
+                    " (inferred)"
+                } else {
+                    ""
+                };
+                for (from_col, to_col) in &edge.cols {
+                    joins.push(format!(
+                        "{}.{from_col} -> {}.{to_col}{inferred}",
+                        edge.from, edge.to
+                    ));
+                }
             }
         }
 
-        Ok(ToolOutcome::ok_json(json!({
+        let mut payload = json!({
             "database": database,
             "tables": tables,
             "joins": joins,
             "enums": Value::Object(enums),
             "notes": notes,
-        })))
+        });
+        if !more.is_empty() {
+            payload["more"] = json!(more);
+        }
+        Ok(ToolOutcome::ok_json(payload))
     }
 
     async fn discover_tools(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1986,42 +2029,80 @@ impl ToolRouter {
             .unwrap_or(20)
             .clamp(1, 50);
 
-        let Some(store) = self.index_store() else {
+        if self.index_store().is_none() {
             return Err(ToolError::Execution(NO_INDEX_HINT.into()));
-        };
+        }
 
-        let indexed = store.list_indexed_databases().unwrap_or_default();
-        let connections = self.session.connections();
-        let filter = self.query_filter();
         let mut hits: Vec<Value> = Vec::new();
         let mut searched = 0usize;
+        let mut indexed_now: Vec<Value> = Vec::new();
+        let mut skipped: Vec<Value> = Vec::new();
 
-        for (connection_id, database) in indexed {
-            if searched >= limit_pairs {
-                break;
-            }
-            if !connections.iter().any(|c| c.id == connection_id) {
-                continue;
-            }
-            searched += 1;
-            let svc = IndexQueryService::new(store, &connection_id, &database);
-            if let Ok(results) = svc.search_schema(
-                query,
-                limit_per_db,
-                Some(&filter),
-                SearchOptions {
-                    use_semantic: self.use_semantic,
-                    embedder: self.embedder.as_deref(),
-                },
-            ) {
-                for hit in results {
-                    hits.push(json!({
-                        "connectionId": connection_id,
-                        "database": database,
-                        "ref": hit.ref_,
-                        "score": hit.score,
-                        "kind": hit.kind,
-                    }));
+        'connections: for conn in self.session.connections() {
+            let databases = match self.databases_for(&conn.id).await {
+                Ok(dbs) => dbs,
+                Err(e) => {
+                    skipped.push(json!({ "connectionId": conn.id, "reason": e.to_string() }));
+                    continue;
+                }
+            };
+            let filter = self.query_filter_for(&conn.id);
+            for database in databases {
+                if searched >= limit_pairs {
+                    break 'connections;
+                }
+                let ctx = ScopedContext {
+                    connection_id: conn.id.clone(),
+                    database: database.clone(),
+                };
+                let Some(store) = self.index_store() else {
+                    break 'connections;
+                };
+                let was_indexed = store
+                    .read_manifest(&store.base_dir(&ctx.connection_id, &ctx.database))
+                    .ok()
+                    .flatten()
+                    .is_some();
+                let store = match self.index_service_for(&ctx).await {
+                    Ok((store, _, _)) => store,
+                    Err(e) => {
+                        let reason = e.to_string();
+                        let reason = if reason.contains("No objects found") {
+                            "no tables or views".to_owned()
+                        } else {
+                            reason
+                        };
+                        skipped.push(json!({
+                            "connectionId": conn.id,
+                            "database": database,
+                            "reason": reason,
+                        }));
+                        continue;
+                    }
+                };
+                if !was_indexed {
+                    indexed_now.push(json!({ "connectionId": conn.id, "database": database }));
+                }
+                searched += 1;
+                let svc = IndexQueryService::new(store, &conn.id, &database);
+                if let Ok(results) = svc.search_schema(
+                    query,
+                    limit_per_db,
+                    Some(&filter),
+                    SearchOptions {
+                        use_semantic: self.use_semantic,
+                        embedder: self.embedder.as_deref(),
+                    },
+                ) {
+                    for hit in results {
+                        hits.push(json!({
+                            "connectionId": conn.id,
+                            "database": database,
+                            "ref": hit.ref_,
+                            "score": hit.score,
+                            "kind": hit.kind,
+                        }));
+                    }
                 }
             }
         }
@@ -2032,11 +2113,18 @@ impl ToolRouter {
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        Ok(ToolOutcome::ok_json(json!({
+        let mut payload = json!({
             "query": query,
             "hits": hits,
             "searched_pairs": searched,
-        })))
+        });
+        if !indexed_now.is_empty() {
+            payload["indexed_now"] = json!(indexed_now);
+        }
+        if !skipped.is_empty() {
+            payload["skipped"] = json!(skipped);
+        }
+        Ok(ToolOutcome::ok_json(payload))
     }
 
     async fn describe_object(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -2200,10 +2288,16 @@ impl ToolRouter {
     }
 
     async fn list_databases(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let connection_id = args
-            .get("connectionId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("connectionId is required".into()))?;
+        let connection_id = match args.get("connectionId").and_then(|v| v.as_str()) {
+            Some(id) => id.to_owned(),
+            None => self.session.active_context().await.0,
+        };
+        let names = self.databases_for(&connection_id).await?;
+        Ok(ToolOutcome::ok_json(json!(names)))
+    }
+
+    /// Databases on `connection_id` that the role may connect to.
+    async fn databases_for(&self, connection_id: &str) -> Result<Vec<String>, ToolError> {
         let conn = self
             .session
             .connections()
@@ -2227,12 +2321,14 @@ impl ToolRouter {
         };
         let rows = client
             .query(
-                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+                "SELECT datname FROM pg_database \
+                 WHERE NOT datistemplate AND datallowconn \
+                   AND has_database_privilege(datname, 'CONNECT') \
+                 ORDER BY datname",
                 &[],
             )
             .await?;
-        let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
-        Ok(ToolOutcome::ok_json(json!(names)))
+        Ok(rows.iter().map(|r| r.get(0)).collect())
     }
 
     async fn list_schemas(&self) -> Result<ToolOutcome, ToolError> {
@@ -2380,15 +2476,20 @@ impl ToolRouter {
     }
 
     async fn switch_connection(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let connection_id = args
-            .get("connectionId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("connectionId is required".into()))?;
         let database = args
             .get("database")
             .and_then(|v| v.as_str())
             .map(str::to_owned);
-        self.session.switch(connection_id, database).await?;
+        let connection_id = match args.get("connectionId").and_then(|v| v.as_str()) {
+            Some(id) => id.to_owned(),
+            None if database.is_some() => self.session.active_context().await.0,
+            None => {
+                return Err(ToolError::InvalidArgs(
+                    "pass connectionId, database, or both".into(),
+                ));
+            }
+        };
+        self.session.switch(&connection_id, database).await?;
         let _ = self.ensure_index_warm().await;
         self.get_current_context().await
     }
@@ -3793,9 +3894,22 @@ impl ToolRouter {
             && let Some(obj) = payload.as_object_mut()
         {
             obj.insert("piiRedactedColumns".into(), json!(cols));
+            obj.insert("piiNote".into(), json!(PII_NOTE));
         }
         Ok(payload)
     }
+}
+
+/// Shorter spellings for the commonest long type names, to keep `orient` small.
+fn short_type_name(type_name: &str) -> String {
+    type_name
+        .replace("character varying", "varchar")
+        .replace("timestamp with time zone", "timestamptz")
+        .replace("timestamp without time zone", "timestamp")
+        .replace("time with time zone", "timetz")
+        .replace("time without time zone", "time")
+        .replace("double precision", "float8")
+        .replace("character", "char")
 }
 
 fn orient_index_status(database: &str, status: &str, message: impl Into<String>) -> ToolOutcome {
@@ -3910,6 +4024,12 @@ fn fuzzy_score(hint: &str, candidate: &str) -> f64 {
     }
     (overlap as f64 / h_tokens.len().max(c_tokens.len()) as f64) * 60.0
 }
+
+/// Tells the model why values are masked so it can explain instead of retrying.
+const PII_NOTE: &str = "These columns were masked because they look like personal data or \
+secrets. Tell the user; the database owner can unmask personal data with \
+`personal_data_heuristics = false` (or list exact columns in `pii_columns`) in the \
+nexql-mcp profile. Counts such as count(DISTINCT email) are not masked.";
 
 fn policy_to_query_filter(filter: &PolicyFilter) -> QueryPolicyFilter {
     QueryPolicyFilter {
@@ -4070,6 +4190,7 @@ mod tests {
             deny_tables: vec!["auth.*".into()],
             pii_columns: vec!["public.users.ssn".into()],
             sensitive_name_heuristics: true,
+            personal_data_heuristics: true,
         };
         let q = policy_to_query_filter(&f);
         assert_eq!(q.allow_schemas, f.allow_schemas);
@@ -4795,9 +4916,12 @@ mod tests {
 
         let joins = structured["joins"].as_array().unwrap();
         assert_eq!(joins.len(), 2);
-        assert!(joins.iter().any(|j| j["edge"]
-            == "public.order_items.order_id -> public.orders.id"
-            && j["declared"] == true));
+        assert!(
+            joins
+                .iter()
+                .any(|j| j == "public.order_items.order_id -> public.orders.id"),
+            "{joins:?}"
+        );
     }
 
     #[tokio::test]
@@ -4812,12 +4936,7 @@ mod tests {
         // The orders->customers edge touches a focused table, so it stays.
         let joins = structured["joins"].as_array().unwrap();
         assert_eq!(joins.len(), 1);
-        assert!(
-            joins[0]["edge"]
-                .as_str()
-                .unwrap()
-                .contains("public.customers")
-        );
+        assert!(joins[0].as_str().unwrap().contains("public.customers"));
     }
 
     #[tokio::test]

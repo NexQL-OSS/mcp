@@ -316,10 +316,12 @@ Per-client paste blocks: [docs/clients/README.md](docs/clients/README.md).
 
 `--tools query|dba|meta|full` (env: `NEXQL_MCP_TOOLS`) restricts which tools are *advertised* to the client — a context-window budgeting knob, not a security boundary. It's purely advisory: `nexql-policy`'s `access_mode` (`read`/`write`/`admin`, set via `--access-mode` or a profile's `access_mode`) is what actually gates what a call can do. Pick a narrower profile only to reduce how much tool-schema JSON gets loaded into your agent's context window:
 
-- `query` — core query/discovery tools (schema search, `run_select`, `explain_query`, …)
+- `query` (default) — core query/discovery tools (schema search, `run_select`, `explain_query`, …)
 - `dba` — monitoring/admin tools (health checks, index suggestions, locks, …)
 - `meta` — the smallest initial surface, plus `discover_tools` for lazy on-demand activation of the rest (see [docs/tools/README.md](docs/tools/README.md#start-here))
-- `full` (default) — every active tool
+- `full` — every active tool
+
+Write and admin tools (`execute_sql`, `edit_row`, `apply_ddl`, …) are left out of `tools/list` unless at least one configured connection's `access_mode` can run them, whatever `--tools` says. Restart the client after raising a profile to `write` or `admin`.
 
 Exact membership per profile: `nexql-tools/src/registry.rs`'s `QUERY_PROFILE`/`DBA_PROFILE`/`META_PROFILE`/`ACTIVE` constants.
 

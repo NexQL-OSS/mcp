@@ -201,3 +201,72 @@ async fn switch_connection_uses_target_database() {
         .unwrap();
     assert_eq!(row.get::<_, String>(0), "postgres");
 }
+
+#[tokio::test]
+async fn search_all_databases_indexes_other_databases_on_first_use() {
+    let Some(pg) = start_temp_pg() else {
+        eprintln!("skip: initdb/postgres unavailable");
+        return;
+    };
+    {
+        let (client, conn) = tokio_postgres::connect(&pg.url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(conn);
+        for db in ["nexql_analytics", "nexql_empty"] {
+            client
+                .batch_execute(&format!("CREATE DATABASE {db}"))
+                .await
+                .unwrap();
+        }
+        let other = pg.url.replacen("/postgres", "/nexql_analytics", 1);
+        let (client, conn) = tokio_postgres::connect(&other, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(conn);
+        client
+            .batch_execute(
+                "CREATE SCHEMA dw; \
+                 CREATE TABLE dw.fact_web_traffic (day date, visits int); \
+                 INSERT INTO dw.fact_web_traffic VALUES ('2026-10-01', 7)",
+            )
+            .await
+            .unwrap();
+    }
+
+    let session = session_for(&pg.url).await;
+    let index_dir = TempDir::new().unwrap();
+    let router = nexql_tools::ToolRouter::with_index_store(
+        session,
+        Some(nexql_index::IndexStore::new(index_dir.path())),
+    );
+
+    let out = router
+        .call(
+            "search_all_databases",
+            serde_json::json!({ "query": "web traffic" }),
+        )
+        .await;
+    assert!(!out.is_error, "{}", out.text);
+    let body = serde_json::to_string(&out.structured).unwrap();
+    assert!(body.contains("dw.fact_web_traffic"), "{body}");
+    assert!(body.contains("indexed_now"), "{body}");
+    assert!(body.contains("no tables or views"), "{body}");
+
+    // `database` alone targets the active connection.
+    let out = router
+        .call(
+            "run_select",
+            serde_json::json!({
+                "sql": "SELECT sum(visits) AS v FROM dw.fact_web_traffic",
+                "database": "nexql_analytics",
+            }),
+        )
+        .await;
+    assert!(!out.is_error, "{}", out.text);
+    assert!(out.text.contains('7'), "{}", out.text);
+
+    let out = router.call("list_databases", serde_json::json!({})).await;
+    assert!(!out.is_error, "{}", out.text);
+    assert!(out.text.contains("nexql_analytics"), "{}", out.text);
+}

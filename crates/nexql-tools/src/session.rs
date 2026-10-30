@@ -94,6 +94,7 @@ fn filter_from_profile(profile: &ProfileConfig) -> PolicyFilter {
         deny_tables: profile.deny_tables.clone(),
         pii_columns: profile.pii_columns.clone(),
         sensitive_name_heuristics: profile.sensitive_heuristics_enabled(),
+        personal_data_heuristics: profile.personal_data_heuristics_enabled(),
     }
 }
 
@@ -479,15 +480,11 @@ impl ToolSession {
                 database: target_db,
             })
         } else {
-            if database.is_some() {
-                return Err(ToolError::InvalidArgs(
-                    "database requires connectionId when overriding the active session".into(),
-                ));
-            }
+            // A bare `database` means that database on the active connection.
             let (id, db) = self.active_context().await;
             Ok(ScopedContext {
                 connection_id: id,
-                database: db,
+                database: database.map(str::to_owned).unwrap_or(db),
             })
         }
     }

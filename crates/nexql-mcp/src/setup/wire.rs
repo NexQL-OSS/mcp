@@ -184,8 +184,23 @@ pub fn preview_wire(
             continue;
         };
         let old_content = std::fs::read_to_string(&path).unwrap_or_default();
-        match client_targets::merge_entry(&old_content, target.shape, "nexql-mcp", &command, &args)
-        {
+        let launch = if crate::launch::needs_absolute_command(target.key) {
+            crate::launch::absolute_launch(&command, &args)
+        } else {
+            crate::launch::Launch {
+                command: command.clone(),
+                args: args.clone(),
+                env: Vec::new(),
+            }
+        };
+        match client_targets::merge_entry_with_env(
+            &old_content,
+            target.shape,
+            "nexql-mcp",
+            &launch.command,
+            &launch.args,
+            &launch.env,
+        ) {
             Ok(new_content) => {
                 let diff = TextDiff::from_lines(&old_content, &new_content);
                 let unified_diff = diff.unified_diff().context_radius(2).to_string();
