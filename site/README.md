@@ -1,53 +1,34 @@
 # NexQL MCP site
 
-Astro + Preact static site for [NexQL MCP](https://github.com/NexQL-OSS/mcp), deployed at `nexql-mcp.astrx.dev`.
+Astro static site for [NexQL MCP](https://github.com/NexQL-OSS/mcp), deployed at `nexql-mcp.astrx.dev`.
 
-Two interactive pages, same narrative player:
+No client islands. The tour, the docs, and the replay pages are server-rendered HTML; small inline scripts handle the theme, the tour's choices, copy buttons, and scroll progress.
 
-| Route | Island | What it shows |
-|-------|--------|---------------|
-| `/` | `StoryDemo` | A replayed agent conversation — one production incident end to end (noticed → narrowed → explained → fixed → recovered) |
-| `/setup` | `SetupDemo` | Install and setup walkthrough — wizard → profile → wire client → doctor → first question |
+| Route | Source | What it shows |
+|-------|--------|----------------|
+| `/` | `src/pages/index.astro` | Guided tour: pick an app, install, connect, ask |
+| `/install` | `src/pages/install.astro` | Claude Desktop download |
+| `/story` | `src/pages/story.astro` | Replayed session (`ReplayPage` + `SceneFlow`) |
+| `/setup` | `src/pages/setup.astro` | Agent prompts, same replay shell |
+| `/docs` | `src/pages/docs/` | Guides and one page per tool |
 
-Both share `NarrativePlayer` + `story-shared.ts`. The use-case story was ported from the Claude Design source `NexQL MCP Story.dc.html`.
+`src/styles/theme.css` holds the palette. The header toggle follows the system theme until a visitor picks Dark or Light; the choice is stored in `localStorage` and applied before paint. `src/data/site.ts` holds `SITE_URL`, `SITE_VERSION`, `REPO_URL`, and `FACTS` for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
 
-## Stack
-
-- **Astro 7** — static SSG, SEO-friendly HTML
-- **Preact island** (`client:load`) — the scene player, autoplay clock, and install modal
-- **@astrojs/sitemap** — auto sitemap for crawlers
-
-## Structure
-
-| Route | Source |
-|-------|--------|
-| `/` | `src/pages/index.astro` → `StoryDemo` |
-| `/setup` | `src/pages/setup.astro` → `SetupDemo` |
-
-Scene scripts live in `StoryDemo.tsx` (seven scenes) and `SetupDemo.tsx` (five steps).
-Install-modal data (`LINKS`, `NPX_CLIENTS`, snippets) lives in `story-shared.ts`.
-
-`src/data/site.ts` holds the handful of constants (`SITE_URL`, `REPO_URL`,
-`FACTS`, …) used for SEO meta and JSON-LD in `src/layouts/BaseLayout.astro`.
+Tool pages are generated from `src/data/tools.json`. Regenerate that file with `scripts/sync-tools.mjs` when the server's tool list changes, and keep the plain-language notes in `src/data/docs.ts` in step with it (the build throws if they disagree).
 
 ## Develop
 
 ```bash
-cd mcp/site
-npm install
+cd site
+npm ci
 npm run dev
 ```
 
-## Build & deploy
+## Build
 
 ```bash
-npm run build   # output: dist/
+npm run build        # output: dist/
+npx astro check
 ```
 
-Vercel: root `mcp/site`, framework Astro, output `dist`. `vercel.json` included.
-
-## Sync with repo
-
-When the MCP interface changes (tool count, install commands, doc links),
-update `LINKS`/`NPX_CLIENTS` in `src/islands/story-shared.ts`, setup scenes in
-`SetupDemo.tsx`, and `FACTS`/`SITE_VERSION` in `src/data/site.ts`.
+Vercel: root `site`, framework Astro, output `dist`. `vercel.json` included.

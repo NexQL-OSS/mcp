@@ -21,6 +21,17 @@ const links = [
       <span class="word">NexQL</span>
       <span class="chip">MCP</span>
     </a>
+    <div class="theme-switch" role="radiogroup" aria-label="Color theme">
+      <button type="button" role="radio" data-choice="system" aria-checked="true" aria-label="Match system" title="Match system">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 13.75h5M8 11.25v2.5" /></svg>
+      </button>
+      <button type="button" role="radio" data-choice="dark" aria-checked="false" tabindex="-1" aria-label="Dark" title="Dark">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 9.6A5.5 5.5 0 0 1 6.4 2.75a5.5 5.5 0 1 0 6.85 6.85Z" /></svg>
+      </button>
+      <button type="button" role="radio" data-choice="light" aria-checked="false" tabindex="-1" aria-label="Light" title="Light">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.75" /><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.2 3.2l1.06 1.06M11.74 11.74l1.06 1.06M3.2 12.8l1.06-1.06M11.74 4.26l1.06-1.06" /></svg>
+      </button>
+    </div>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" hidden>
       <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
       <span class="menu-label">Menu</span>
@@ -44,10 +55,22 @@ const links = [
     position: sticky;
     top: 0;
     z-index: 50;
-    background: color-mix(in srgb, var(--bg-deep) 84%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    /* Opaque unless blur is actually supported, so scrolled text cannot show through. */
+    background: var(--header-bg-solid);
     border-bottom: 1px solid var(--line);
+  }
+  @supports (backdrop-filter: blur(1px)) {
+    .site-header {
+      background: var(--header-bg);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+    .site-header.is-stuck {
+      background: var(--header-bg-stuck);
+    }
+  }
+  .site-header.is-stuck {
+    box-shadow: var(--header-shadow-stuck);
   }
   .ribbon {
     height: 2px;
@@ -61,8 +84,8 @@ const links = [
   .bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    justify-content: flex-start;
+    gap: 12px;
     height: var(--header-h);
   }
   .brand {
@@ -80,7 +103,7 @@ const links = [
     height: 22px;
     border-radius: 6px;
     background: var(--nex-grad);
-    box-shadow: 0 0 18px rgba(224, 56, 143, 0.35);
+    box-shadow: var(--mark-glow);
   }
   .chip {
     font: 600 11px/1 var(--font-mono);
@@ -95,6 +118,52 @@ const links = [
     align-items: center;
     gap: 4px;
     min-width: 0;
+    margin-left: auto;
+    order: 1;
+  }
+  .theme-switch {
+    order: 2;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--well);
+    box-shadow: var(--well-shadow);
+  }
+  .theme-switch button {
+    appearance: none;
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 28px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .theme-switch svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .theme-switch button[aria-checked="true"] {
+    background: var(--btn-primary-bg);
+    color: var(--accent-ink);
+    box-shadow: var(--btn-primary-shadow);
+  }
+  .theme-switch button:hover {
+    color: var(--fg);
+  }
+  .theme-switch button[aria-checked="true"]:hover {
+    color: var(--accent-ink);
   }
   .nav-link {
     color: var(--muted);
@@ -103,11 +172,17 @@ const links = [
     border-radius: 8px;
     white-space: nowrap;
   }
-  .nav-link:hover,
+  .nav-link:hover {
+    color: var(--fg);
+    text-decoration: none;
+    background: var(--hover);
+  }
+  /* The page you're on sits raised, like a pressed-out key. */
   .nav-link[aria-current="page"] {
     color: var(--fg);
     text-decoration: none;
-    background: var(--panel);
+    background: var(--control-bg);
+    box-shadow: var(--control-shadow);
   }
   .ver {
     font: 500 11px/1 var(--font-mono);
@@ -117,18 +192,27 @@ const links = [
   .menu-btn {
     display: none;
     align-items: center;
+    order: 3;
     gap: 9px;
-    margin-left: auto;
+    margin-left: 8px;
     padding: 8px 12px;
-    border: 1px solid var(--line-2);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 9px;
-    background: var(--panel);
+    background: var(--control-bg);
     color: var(--fg);
     font: 500 14px/1 var(--font-body);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .menu-btn:hover {
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .menu-btn:active,
+  .menu-btn[aria-expanded="true"] {
+    box-shadow: var(--control-shadow-active);
   }
   .bars {
     position: relative;
@@ -167,7 +251,7 @@ const links = [
 
   /* Narrow screens: every link moves into a menu under the header. Without JS
      the button stays hidden and the short inline nav below is used instead. */
-  @media (max-width: 860px) {
+  @media (max-width: 1040px) {
     .site-header.has-menu .menu-btn {
       display: inline-flex;
     }
@@ -183,7 +267,7 @@ const links = [
       padding: 10px 16px 18px;
       background: var(--bg-deep);
       border-bottom: 1px solid var(--line);
-      box-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.6);
+      box-shadow: var(--menu-shadow);
       max-height: calc(100dvh - var(--header-h));
       overflow-y: auto;
     }
@@ -206,6 +290,14 @@ const links = [
     .site-header:not(.has-menu) .secondary,
     .site-header:not(.has-menu) .ver {
       display: none;
+    }
+  }
+  @media (max-width: 1040px) {
+    nav {
+      margin-left: 0;
+    }
+    .theme-switch {
+      margin-left: auto;
     }
   }
   @media (max-width: 480px) {
@@ -244,6 +336,47 @@ const links = [
     document.addEventListener("click", (e) => {
       if (!header.contains(e.target as Node)) set(false);
     });
-    matchMedia("(min-width: 861px)").addEventListener("change", (e) => e.matches && set(false));
+    matchMedia("(min-width: 1041px)").addEventListener("change", (e) => e.matches && set(false));
+    const onScroll = () => header.classList.toggle("is-stuck", window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
   }
+</script>
+
+<script is:inline>
+  (function () {
+    var group = document.querySelector(".theme-switch");
+    if (!group) return;
+    var buttons = [].slice.call(group.querySelectorAll("[data-choice]"));
+    function current() {
+      return document.documentElement.getAttribute("data-theme-choice") || "system";
+    }
+    function sync(focus) {
+      var choice = current();
+      buttons.forEach(function (b) {
+        var on = b.getAttribute("data-choice") === choice;
+        b.setAttribute("aria-checked", on ? "true" : "false");
+        b.tabIndex = on ? 0 : -1;
+        if (on && focus) b.focus();
+      });
+    }
+    function setTheme(choice, focus) {
+      var apply = window.__nexqlSetTheme;
+      if (typeof apply === "function") apply(choice);
+      sync(focus);
+    }
+    buttons.forEach(function (b, i) {
+      b.addEventListener("click", function () {
+        setTheme(b.getAttribute("data-choice"), false);
+      });
+      b.addEventListener("keydown", function (e) {
+        var step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var next = buttons[(i + step + buttons.length) % buttons.length];
+        setTheme(next.getAttribute("data-choice"), true);
+      });
+    });
+    sync(false);
+  })();
 </script>

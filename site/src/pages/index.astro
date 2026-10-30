@@ -29,11 +29,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 >
   <SiteHeader current="tour" />
 
-  <main>
+  <main id="main" tabindex="-1">
     <!-- Start -->
     <section class="hero wrap">
       <div class="hero-copy">
-        <p class="pill"><span class="live-dot"></span>A guided tour · about 5 minutes</p>
+        <p class="pill"><span class="live-dot" aria-hidden="true"></span>A guided tour · about 5 minutes</p>
         <h1>
           Ask your Postgres database{" "}
           <span class="serif-em grad-text">anything</span>, in plain English.
@@ -75,7 +75,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     </section>
 
     <!-- Mobile progress, under the header -->
-    <div class="mbar" aria-hidden="true">
+    <div class="mbar">
       <div class="mbar-fill"></div>
       <span class="mbar-label">Stop 01 of {pad(STOPS.length)} · {STOPS[0].label}</span>
     </div>
@@ -247,7 +247,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 
           <div data-for="bundle">
             <h3 class="sub">Fill in Claude Desktop's dialog</h3>
-            <div class="form-mock" aria-label="Claude Desktop install dialog, as an example">
+            <div class="form-mock" role="group" aria-label="Claude Desktop install dialog, as an example">
               <div class="fm-row">
                 <span class="fm-label">Database URL</span>
                 <span class="fm-field mono">postgres://<span data-fill="user">app_reader</span>:<mark>your-real-password</mark>@<span data-fill="host">localhost</span>:<span data-fill="port">5432</span>/<span data-fill="db">appdb</span><span data-fill="query"></span></span>
@@ -525,11 +525,22 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 <style>
   /* ---------- Hero ---------- */
   .hero {
+    position: relative;
     display: grid;
     gap: 40px;
     padding-top: 56px;
     padding-bottom: 72px;
     align-items: center;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -48px -8% -20px;
+    background-image: var(--dot-grid);
+    background-size: 22px 22px;
+    mask-image: radial-gradient(ellipse at 22% 35%, #000 0%, transparent 68%);
+    -webkit-mask-image: radial-gradient(ellipse at 22% 35%, #000 0%, transparent 68%);
+    pointer-events: none;
   }
   @media (min-width: 960px) {
     .hero {
@@ -567,13 +578,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   /* Ticket: the route, as a boarding pass */
   .ticket {
     position: relative;
-    background: linear-gradient(180deg, var(--panel-2), var(--panel));
-    border: 1px solid var(--line-2);
+    background: var(--ticket-bg);
+    border: 1px solid var(--edge);
     border-radius: 18px;
     padding: 22px 22px 18px;
-    box-shadow:
-      0 30px 80px -30px rgba(108, 76, 214, 0.45),
-      0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    box-shadow: var(--shadow-ticket);
   }
   .ticket::before {
     content: "";
@@ -585,7 +594,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    opacity: 0.55;
+    opacity: var(--ticket-edge);
     pointer-events: none;
   }
   .ticket-head,
@@ -629,7 +638,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   .route a:hover {
     text-decoration: none;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--hover);
   }
   .route-dot {
     width: 17px;
@@ -749,11 +758,13 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   .rail a.active {
     color: var(--fg);
+    background: var(--rail-active);
+    border-radius: 10px;
   }
   .rail a.active .dot {
     border-color: var(--accent);
     background: var(--bg);
-    box-shadow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+    box-shadow: var(--accent-glow);
   }
   .rail-text {
     display: flex;
@@ -787,6 +798,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-width: 0;
   }
   .stop {
+    position: relative;
     padding: 8px 0 80px;
     margin-bottom: 80px;
     border-bottom: 1px solid var(--line);
@@ -863,11 +875,13 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     margin-top: 40px;
     padding: 12px 18px;
     border-radius: 999px;
-    border: 1px solid var(--line-2);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     color: var(--muted);
     font-size: 15px;
-    background: var(--panel);
-    transition: border-color 0.15s, color 0.15s;
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   .next b {
     color: var(--fg);
@@ -876,6 +890,12 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     text-decoration: none;
     border-color: var(--accent);
     color: var(--fg);
+    box-shadow: var(--shadow-2);
+    transform: translateY(var(--btn-lift));
+  }
+  .next:active {
+    box-shadow: var(--control-shadow-active);
+    transform: translateY(1px);
   }
 
   /* Personalised blocks */
@@ -909,21 +929,35 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 84px;
     padding: 16px 16px 14px;
     border-radius: var(--radius);
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
     color: var(--fg);
     font: inherit;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    box-shadow: var(--shadow-2);
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   .app:hover {
     border-color: var(--line-2);
+    box-shadow: var(--shadow-3);
     transform: translateY(-1px);
   }
-  .app[aria-checked="true"] {
+  .app:active {
+    box-shadow: var(--control-shadow-active);
+    transform: translateY(1px);
+  }
+  .app[aria-checked="true"],
+  .app[aria-checked="true"]:hover {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 9%, var(--panel));
-    box-shadow: 0 0 0 1px var(--accent) inset;
+    box-shadow: var(--selected-shadow);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app:hover,
+    .next:hover {
+      transform: none;
+    }
   }
   .app-name {
     font-weight: 600;
@@ -945,7 +979,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     text-transform: uppercase;
     padding: 5px 7px;
     border-radius: 6px;
-    color: var(--accent-ink);
+    color: var(--on-grad);
     background: var(--nex-grad);
   }
   .picked {
@@ -972,7 +1006,8 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     padding: 22px;
     border-radius: var(--radius);
     background: var(--nex-grad-soft), var(--panel);
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--edge);
+    box-shadow: var(--shadow-2);
   }
   .dl {
     font-size: 16px;
@@ -1043,8 +1078,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 40px;
     padding: 8px 14px;
     border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
     color: var(--fg);
     font: 500 14.5px/1 var(--font-body);
     cursor: pointer;
@@ -1126,8 +1163,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     width: 100%;
     padding: 8px 10px;
     border-radius: 8px;
-    border: 1px solid var(--line-2);
-    background: var(--bg-deep);
+    border: 1px solid var(--line);
+    background: var(--well);
+    box-shadow: var(--well-shadow);
     color: var(--fg);
     font: 14px/1.2 var(--font-mono);
     text-transform: none;
@@ -1135,7 +1173,6 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   .builder input:focus,
   .builder select:focus {
-    outline: none;
     border-color: var(--accent);
   }
   .url-out {
@@ -1201,7 +1238,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     color: var(--faint);
   }
   .fm-field mark {
-    background: rgba(255, 165, 136, 0.16);
+    background: var(--str-wash);
     color: var(--str);
     border-radius: 3px;
     padding: 0 2px;
@@ -1270,11 +1307,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     }
   }
   .chat {
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--edge);
     border-radius: 16px;
-    background: var(--bg-deep);
+    background: var(--chat-bg);
     overflow: hidden;
-    box-shadow: 0 30px 70px -40px rgba(224, 56, 143, 0.5);
+    box-shadow: var(--shadow-chat);
   }
   .chat-top {
     display: flex;
@@ -1282,7 +1319,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     gap: 12px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--line);
-    background: var(--panel);
+    background: var(--chat-top);
+    backdrop-filter: blur(var(--frost));
+    -webkit-backdrop-filter: blur(var(--frost));
   }
   .dots {
     display: inline-flex;
@@ -1299,15 +1338,22 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     min-height: 30px;
     padding: 4px 10px;
     border-radius: 7px;
-    border: 1px solid var(--line-2);
-    background: transparent;
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--control-bg);
     color: var(--muted);
     font: 500 12px/1 var(--font-mono);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .replay:hover {
     color: var(--fg);
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .replay:active {
+    box-shadow: var(--control-shadow-active);
   }
   .chat-body {
     padding: 18px;
@@ -1326,10 +1372,13 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     justify-self: end;
     background: color-mix(in srgb, var(--accent) 16%, var(--panel));
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    box-shadow: var(--shadow-1);
   }
   .msg.ai {
-    background: var(--panel);
-    border: 1px solid var(--line);
+    background: var(--surface);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    box-shadow: var(--shadow-1);
   }
   .msg.ai table {
     width: 100%;
@@ -1423,7 +1472,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     display: grid;
     place-items: center;
     font: 500 13px/1 var(--font-mono);
-    color: var(--accent-ink);
+    color: var(--on-grad);
     background: var(--nex-grad);
   }
   .prompts {
@@ -1440,24 +1489,33 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     justify-content: space-between;
     gap: 12px;
     padding: 10px 10px 10px 16px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 10px;
-    background: var(--panel);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
   }
   .copy-inline {
     flex: none;
     min-height: 32px;
     padding: 4px 10px;
     border-radius: 7px;
-    border: 1px solid var(--line-2);
-    background: transparent;
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--control-bg);
     color: var(--muted);
     font: 500 12px/1 var(--font-mono);
     cursor: pointer;
+    box-shadow: var(--control-shadow);
+    transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
   }
   .copy-inline:hover {
     color: var(--fg);
-    border-color: var(--accent);
+    background: var(--control-bg-hover);
+    box-shadow: var(--control-shadow-hover);
+  }
+  .copy-inline:active {
+    box-shadow: var(--control-shadow-active);
   }
   .copy-inline[data-done] {
     color: var(--ok);
@@ -1479,9 +1537,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     }
   }
   .frame {
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: 14px;
-    background: var(--panel);
+    background: var(--surface);
+    box-shadow: var(--shadow-2);
     padding: 14px;
     display: flex;
     flex-direction: column;
@@ -1503,30 +1563,30 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     max-width: 100%;
   }
   .browser {
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--chrome-line);
     border-radius: 10px;
     overflow: hidden;
-    background: #f5f5f4;
-    color: #1c1917;
+    background: var(--chrome-bg);
+    color: var(--chrome-fg);
   }
   .b-bar {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 7px 10px;
-    background: #e7e5e4;
+    background: var(--chrome-bar);
   }
   .b-bar .dots i {
-    background: #c8c4c0;
+    background: var(--chrome-dot);
   }
   .b-url {
     flex: 1;
     min-width: 0;
-    background: #fff;
+    background: var(--chrome-url-bg);
     border-radius: 6px;
     padding: 3px 8px;
     font: 12px/1.4 var(--font-mono);
-    color: #57534e;
+    color: var(--chrome-url-fg);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1545,12 +1605,12 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     gap: 3px 12px;
     margin: 0;
     padding: 9px 11px;
-    border: 1px solid #e7e5e4;
+    border: 1px solid var(--chrome-line);
     border-radius: 8px;
     font-size: 13px;
   }
   .b-page dt {
-    color: #78716c;
+    color: var(--chrome-muted);
   }
   .b-page dd {
     margin: 0;
@@ -1558,10 +1618,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     font-size: 12.5px;
   }
   .b-pw {
-    border: 1px solid #d6d3d1;
+    border: 1px solid var(--chrome-field-line);
     border-radius: 8px;
     padding: 7px 10px;
-    background: #fff;
+    background: var(--chrome-field-bg);
     font-family: var(--font-mono);
     letter-spacing: 2px;
     min-height: 34px;
@@ -1571,7 +1631,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     overflow: hidden;
     white-space: nowrap;
     vertical-align: bottom;
-    border-right: 2px solid #b4532a;
+    border-right: 2px solid var(--chrome-caret);
   }
   :global(.js) .board.play .typed {
     animation: type 2.4s steps(12) 0.4s both;
@@ -1588,8 +1648,8 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     text-align: center;
     padding: 8px;
     border-radius: 8px;
-    background: #b4532a;
-    color: #fff;
+    background: var(--chrome-btn);
+    color: var(--chrome-btn-fg);
     font-weight: 600;
     font-size: 14px;
   }
@@ -1610,8 +1670,8 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     margin-top: 20px;
     padding: 12px 16px;
     border-radius: 10px;
-    background: rgba(245, 178, 58, 0.08);
-    border: 1px solid rgba(245, 178, 58, 0.35);
+    background: var(--warn-wash);
+    border: 1px solid var(--warn-line);
     color: var(--muted);
     font-size: 15px;
   }
@@ -1636,8 +1696,10 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     gap: 10px;
     padding: 20px;
     border-radius: 14px;
-    border: 1px solid var(--line);
-    background: var(--panel);
+    border: 1px solid;
+    border-color: var(--bevel-border);
+    background: var(--surface);
+    box-shadow: var(--shadow-2);
     overflow: hidden;
   }
   .card::before {
@@ -1648,7 +1710,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     top: 0;
     height: 2px;
     background: var(--nex-grad);
-    opacity: 0.7;
+    opacity: var(--card-edge);
   }
   .card h3 {
     font-size: 17px;
@@ -1674,8 +1736,9 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
     position: relative;
     padding: 40px 28px 36px;
     border-radius: 20px;
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--edge);
     background: var(--nex-grad-soft), var(--panel);
+    box-shadow: var(--shadow-3);
     overflow: hidden;
   }
   .arrived > .ribbon {
@@ -1763,18 +1826,33 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
       history.replaceState(null, "", url);
     }
   }
-  appButtons.forEach((b) => b.addEventListener("click", () => pickApp(b.dataset.app ?? "", true)));
-  appButtons.forEach((b, i) =>
-    b.addEventListener("keydown", (e) => {
-      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-      if (!step) return;
-      e.preventDefault();
-      const next = appButtons[(i + step + appButtons.length) % appButtons.length];
-      next.focus();
-      pickApp(next.dataset.app ?? "", true);
-    }),
-  );
-  pickApp(new URLSearchParams(location.search).get("app") ?? store.get("nexql-tour-app") ?? "claude-desktop", false);
+  // Radiogroups: one tab stop, arrows move the choice. Without JS every button stays in tab order.
+  function roam(buttons: HTMLButtonElement[], pick: (b: HTMLButtonElement) => void) {
+    const sync = () => {
+      const current = buttons.find((b) => b.getAttribute("aria-checked") === "true") ?? buttons[0];
+      buttons.forEach((b) => (b.tabIndex = b === current ? 0 : -1));
+    };
+    buttons.forEach((b, i) => {
+      b.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const next = buttons[(i + step + buttons.length) % buttons.length];
+        pick(next);
+        next.focus();
+      });
+    });
+    return sync;
+  }
+
+  let syncAppTab = () => {};
+  const pickAppAndTab = (id: string, remember: boolean) => {
+    pickApp(id, remember);
+    syncAppTab();
+  };
+  appButtons.forEach((b) => b.addEventListener("click", () => pickAppAndTab(b.dataset.app ?? "", true)));
+  syncAppTab = roam(appButtons, (b) => pickAppAndTab(b.dataset.app ?? "", true));
+  pickAppAndTab(new URLSearchParams(location.search).get("app") ?? store.get("nexql-tour-app") ?? "claude-desktop", false);
 
   // ---- Stop 2: download for this computer ----
   (async () => {
@@ -1824,18 +1902,21 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   }
   builder?.addEventListener("input", renderAddress);
   const platformButtons = [...document.querySelectorAll<HTMLButtonElement>(".platform")];
-  platformButtons.forEach((b) =>
-    b.addEventListener("click", () => {
-      platformButtons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
-      document.querySelectorAll<HTMLElement>("[data-tip]").forEach((t) => (t.hidden = t.dataset.tip !== b.dataset.platform));
-      if (builder) {
-        (builder.elements.namedItem("host") as HTMLInputElement).value = b.dataset.host ?? "";
-        (builder.elements.namedItem("port") as HTMLInputElement).value = b.dataset.port ?? "";
-        (builder.elements.namedItem("ssl") as HTMLSelectElement).value = b.dataset.ssl ?? "";
-        renderAddress();
-      }
-    }),
-  );
+  let syncPlatformTab = () => {};
+  function selectPlatform(b: HTMLButtonElement) {
+    platformButtons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    document.querySelectorAll<HTMLElement>("[data-tip]").forEach((t) => (t.hidden = t.dataset.tip !== b.dataset.platform));
+    if (builder) {
+      (builder.elements.namedItem("host") as HTMLInputElement).value = b.dataset.host ?? "";
+      (builder.elements.namedItem("port") as HTMLInputElement).value = b.dataset.port ?? "";
+      (builder.elements.namedItem("ssl") as HTMLSelectElement).value = b.dataset.ssl ?? "";
+      renderAddress();
+    }
+    syncPlatformTab();
+  }
+  platformButtons.forEach((b) => b.addEventListener("click", () => selectPlatform(b)));
+  syncPlatformTab = roam(platformButtons, selectPlatform);
+  syncPlatformTab();
 
   // ---- Copy buttons ----
   async function copyText(text: string, btn: HTMLElement) {

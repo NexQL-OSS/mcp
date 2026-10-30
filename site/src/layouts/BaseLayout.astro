@@ -54,7 +54,50 @@ const jsonLd = {
     <meta name="twitter:image" content={ogImage} />
 
     <link rel="icon" type="image/png" href="/assets/NexQL.png" />
-    <meta name="theme-color" content="#07080E" />
+    <meta name="theme-color" content="#07080e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f2f8" media="(prefers-color-scheme: light)" />
+    <meta id="theme-color-force" name="theme-color" content="#07080e" media="not all" />
+    <script is:inline>
+      (function () {
+        var KEY = "nexql-theme";
+        var stored = null;
+        try {
+          stored = localStorage.getItem(KEY);
+        } catch (e) {
+          stored = null;
+        }
+        if (stored !== "light" && stored !== "dark" && stored !== "system") stored = "system";
+        var mq = window.matchMedia("(prefers-color-scheme: light)");
+        function paint(choice) {
+          var root = document.documentElement;
+          root.setAttribute("data-theme-choice", choice);
+          if (choice === "system") root.removeAttribute("data-theme");
+          else root.setAttribute("data-theme", choice);
+          var theme = choice === "system" ? (mq.matches ? "light" : "dark") : choice;
+          var force = document.getElementById("theme-color-force");
+          if (!force) return;
+          if (choice === "system") {
+            force.setAttribute("media", "not all");
+          } else {
+            force.removeAttribute("media");
+            force.setAttribute("content", theme === "light" ? "#f4f2f8" : "#07080e");
+          }
+        }
+        paint(stored);
+        mq.addEventListener("change", function () {
+          if (document.documentElement.getAttribute("data-theme-choice") === "system") paint("system");
+        });
+        window.__nexqlSetTheme = function (choice) {
+          if (choice !== "light" && choice !== "dark" && choice !== "system") return;
+          try {
+            localStorage.setItem(KEY, choice);
+          } catch (e) {
+            /* private mode: the choice lasts for this page only */
+          }
+          paint(choice);
+        };
+      })();
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -74,6 +117,7 @@ const jsonLd = {
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body>
+    <a class="skip" href="#main">Skip to content</a>
     <slot />
   </body>
 </html>

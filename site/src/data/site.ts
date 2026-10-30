@@ -1,6 +1,6 @@
 import catalog from "./tools.json";
 
-export const SITE_VERSION = "0.4.2";
+export const SITE_VERSION = "0.5.0";
 export const SITE_URL = "https://nexql-mcp.astrx.dev";
 
 /** Sibling NexQL properties, cross-linked from the header, footer and hero. */

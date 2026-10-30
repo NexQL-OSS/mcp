@@ -38,15 +38,15 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
           <span class="here">{title}</span>
         </summary>
         <nav class="map">
-          <a class:list={["map-top", { on: path === "/docs" }]} href="/docs">Overview</a>
-          <a class:list={["map-top", { on: path === "/docs/tools" }]} href="/docs/tools">All {TOOLS.length} tools</a>
+          <a class:list={["map-top", { on: path === "/docs" }]} href="/docs" aria-current={path === "/docs" ? "page" : undefined}>Overview</a>
+          <a class:list={["map-top", { on: path === "/docs/tools" }]} href="/docs/tools" aria-current={path === "/docs/tools" ? "page" : undefined}>All {TOOLS.length} tools</a>
 
           <p class="map-h">Guides</p>
           <ul class="guides">
             {
               GUIDES.map((g) => (
                 <li>
-                  <a class:list={{ on: path === `/docs/${g.slug}` }} href={`/docs/${g.slug}`}>
+                  <a class:list={{ on: path === `/docs/${g.slug}` }} href={`/docs/${g.slug}`} aria-current={path === `/docs/${g.slug}` ? "page" : undefined}>
                     {g.title}
                   </a>
                 </li>
@@ -66,7 +66,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
                 <ul class="stations">
                   {Object.keys(line.tools).map((name) => (
                     <li>
-                      <a class:list={{ on: currentTool?.name === name }} href={toolHref(name)}>
+                      <a class:list={{ on: currentTool?.name === name }} href={toolHref(name)} aria-current={currentTool?.name === name ? "page" : undefined}>
                         {name}
                       </a>
                     </li>
@@ -79,7 +79,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
       </details>
     </aside>
 
-    <main class="doc" id="main">
+    <main class="doc" id="main" tabindex="-1">
       {
         isGuide ? (
           <article class="prose">
@@ -168,14 +168,17 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     }
   }
   .menu {
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: var(--surface);
+    box-shadow: var(--shadow-2);
   }
   @media (min-width: 960px) {
     .menu {
       border: 0;
       background: none;
+      box-shadow: none;
     }
   }
   .menu-toggle {
@@ -306,6 +309,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
 
   .doc {
+    position: relative;
     min-width: 0;
     padding-bottom: 24px;
   }
@@ -352,7 +356,7 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
   .prose p,
   .prose li {
-    color: #c9d1d9;
+    color: var(--prose);
   }
   .prose ul,
   .prose ol {
@@ -403,7 +407,8 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
     padding-right: 76px;
     border: 1px solid var(--line);
     border-radius: 10px;
-    background: var(--bg-deep) !important;
+    background: var(--code-bg) !important;
+    box-shadow: var(--code-shadow);
     overflow-x: auto;
     font-size: 13.5px;
     line-height: 1.65;
@@ -415,20 +420,5 @@ const editUrl = fm?.slug ? `${REPO_URL}/edit/main/site/src/pages/docs/${fm.slug}
   }
   .prose a code {
     color: var(--accent);
-  }
-
-  /* Shiki "css-variables" theme, mapped onto the site's syntax tones. */
-  :root {
-    --astro-code-foreground: #e6edf3;
-    --astro-code-background: #07080e;
-    --astro-code-token-keyword: #8a9ad0;
-    --astro-code-token-function: #c4a4b8;
-    --astro-code-token-string: #ffa588;
-    --astro-code-token-string-expression: #ffa588;
-    --astro-code-token-constant: #7ee8a8;
-    --astro-code-token-parameter: #e89870;
-    --astro-code-token-comment: #6b7a88;
-    --astro-code-token-punctuation: #a0a8b3;
-    --astro-code-token-link: #e0a4cc;
   }
 </style>

@@ -25,7 +25,7 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
   document.documentElement.classList.add("js");
 </script>
 
-<div class="mbar" aria-hidden="true">
+<div class="mbar">
   <div class="mbar-fill"></div>
   <span class="mbar-label">{unit} 01 of {pad(scenes.length)} · {scenes[0].label}</span>
 </div>
@@ -230,11 +230,13 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
   }
   .rail a.active {
     color: var(--fg);
+    background: var(--rail-active);
+    border-radius: 10px;
   }
   .rail a.active .dot {
     border-color: var(--accent);
     background: var(--bg);
-    box-shadow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+    box-shadow: var(--accent-glow);
   }
   .rail-text {
     display: flex;
@@ -258,6 +260,7 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     max-width: 800px;
   }
   .scene {
+    position: relative;
     padding: 8px 0 72px;
     margin-bottom: 72px;
     border-bottom: 1px solid var(--line);
@@ -311,6 +314,7 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     border-radius: 16px 16px 4px 16px;
     background: color-mix(in srgb, var(--hue) 14%, var(--panel-2));
     border: 1px solid color-mix(in srgb, var(--hue) 38%, transparent);
+    box-shadow: var(--shadow-2);
     font-size: 18px;
     line-height: 1.5;
   }
@@ -418,9 +422,11 @@ const toolOf = (name: string) => TOOLS.find((t) => t.name === name);
     flex-direction: column-reverse;
     gap: 6px;
     padding: 14px 16px;
-    border: 1px solid var(--line);
+    border: 1px solid;
+    border-color: var(--bevel-border);
     border-radius: var(--radius);
-    background: var(--bg-deep);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-2);
   }
   dd {
     margin: 0;

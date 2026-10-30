@@ -1,37 +1,151 @@
-/* NexQL MCP site theme: nexql.astrx.dev's default "Mute Dark" surfaces plus
-   its fixed brand ribbon. Shared by every page through BaseLayout. */
+/* NexQL MCP site theme. Dark is nexql.astrx.dev's "Mute Dark": the same
+   night palette, with depth from near-black shadows, a rose/periwinkle glow
+   on the higher steps, and a calm wash behind the hero. Light is lilac paper
+   with the same token names. The ribbon (--nex-grad) stays the bright brand
+   gradient in both. Keep the two light blocks identical. */
 
 :root {
+  color-scheme: dark;
   --bg: #0b0e14;
   --bg-deep: #07080e;
   --panel: #11151d;
   --panel-2: #161b25;
-  --line: #21262d;
-  --line-2: #30363d;
+  --line: #3e4a5c;
+  --line-2: #526078;
   --fg: #e6edf3;
+  --prose: #c9d1d9;
   --muted: #a0a8b3;
   --faint: #7d8590;
   --accent: #e0a4cc;
   --accent-ink: #0b0e14;
+  --accent-hover: #ebbcdb;
+  /* Text that sits on the bright ribbon. Stays dark in both themes. */
+  --on-grad: #140c12;
 
-  /* Syntax tones from the same theme. */
   --kw: #8a9ad0;
   --fn: #c4a4b8;
   --str: #ffa588;
   --num: #7ee8a8;
   --prop: #e89870;
-  --comment: #6b7a88;
+  --comment: #84909c;
   --ok: #7ee8a8;
   --warn: #f5b23a;
 
-  /* Brand ribbon (fixed across themes on nexql.astrx.dev). */
   --nex-blue: #3d6fe0;
   --nex-indigo: #6c4cd6;
   --nex-magenta: #e0388f;
   --nex-amber: #f26b3a;
   --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
   --nex-grad-v: linear-gradient(180deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
+  --nex-grad-text: var(--nex-grad);
   --nex-grad-soft: linear-gradient(110deg, rgba(61, 111, 224, 0.16), rgba(108, 76, 214, 0.14), rgba(224, 56, 143, 0.14), rgba(242, 107, 58, 0.16));
+
+  /* Same hues as the ribbon, used as text and as line colours. */
+  --hue-accent: #e0a4cc;
+  --hue-blue: #3d6fe0;
+  --hue-indigo: #6c4cd6;
+  --hue-purple: #a23bc9;
+  --hue-magenta: #e0388f;
+  --hue-orange: #f26b3a;
+  --hue-amber: #f5b23a;
+  --hue-ok: #4ade80;
+  --hue-hot: #f26b3a;
+
+  --selection: rgba(224, 164, 204, 0.3);
+  --hover: rgba(255, 255, 255, 0.03);
+  --accent-glow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+  --mark-glow: 0 0 18px rgba(224, 56, 143, 0.35);
+  --str-wash: rgba(255, 165, 136, 0.16);
+  --warn-wash: rgba(245, 178, 58, 0.08);
+  --warn-line: rgba(245, 178, 58, 0.35);
+  --theme-color: #07080e;
+
+  /* Elevation, lit from one source at the top left: shadows fall down and to
+     the right, each step has a bevel (light top-left edge, dark bottom-right
+     edge), and --surface shades a card from lit corner to shadowed corner.
+     Higher steps add a rose/periwinkle glow. */
+  --shadow-1: 1px 2px 3px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.09), inset -1px -1px 0 rgba(0, 0, 0, 0.4);
+  --shadow-2: 1px 2px 4px rgba(0, 0, 0, 0.55), 8px 16px 30px -10px rgba(0, 0, 0, 0.85), inset 1px 1px 0 rgba(255, 255, 255, 0.11), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --shadow-3: 2px 4px 8px rgba(0, 0, 0, 0.55), 14px 28px 50px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(108, 76, 214, 0.28), inset 1px 1px 0 rgba(255, 255, 255, 0.13), inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-4: 3px 8px 16px rgba(0, 0, 0, 0.6), 20px 40px 70px -20px rgba(0, 0, 0, 0.95), 0 0 48px -10px rgba(224, 56, 143, 0.24), 0 0 36px -12px rgba(80, 112, 214, 0.22), inset 1px 1px 0 rgba(255, 255, 255, 0.14), inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+  --btn-shadow-hover: var(--shadow-2);
+  --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.5), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 1px 2px 3px rgba(0, 0, 0, 0.55), 6px 12px 26px -10px rgba(224, 164, 204, 0.55);
+  --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.55), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 2px 5px 9px rgba(0, 0, 0, 0.5), 9px 18px 34px -12px rgba(224, 164, 204, 0.65);
+  --btn-focus-shadow: 0 0 0 4px rgba(224, 164, 204, 0.24);
+  --btn-lift: -1px;
+  --shadow-ticket: var(--shadow-4);
+  --shadow-chat: var(--shadow-3);
+  --menu-shadow: var(--shadow-4);
+  --page-bg:
+    radial-gradient(880px 480px at 8% -10%, rgba(224, 56, 143, 0.11), transparent 60%),
+    radial-gradient(800px 440px at 96% -8%, rgba(80, 112, 214, 0.12), transparent 58%),
+    radial-gradient(600px 380px at 74% 40%, rgba(162, 59, 201, 0.05), transparent 62%),
+    radial-gradient(500px 300px at 8% 76%, rgba(224, 56, 143, 0.045), transparent 64%),
+    #0b0e14;
+  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 46%), #0e131c;
+  --header-bg-stuck: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 50%), #0c1018;
+  --header-bg-solid: #0c1018;
+  --header-blur: 16px;
+  --header-shadow-stuck: 0 12px 28px -14px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --code-bg: #10141e;
+  --code-shadow: var(--shadow-2);
+  --pill-bg: color-mix(in srgb, #151c28 88%, transparent);
+  --ticket-bg: linear-gradient(150deg, #141a26 0%, #0e131c 100%);
+  --ticket-edge: 0.78;
+  --card-edge: 0.9;
+  --selected-shadow: 0 0 0 1px var(--accent) inset, 0 0 24px -4px rgba(224, 164, 204, 0.32), 0 14px 30px -14px rgba(224, 56, 143, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --chat-bg: #10141e;
+  --chat-top: color-mix(in srgb, #1a2332 84%, transparent);
+  --frost: 14px;
+  --rail-active: color-mix(in srgb, #e0a4cc 16%, #12161e);
+  --dot-grid: radial-gradient(rgba(214, 206, 230, 0.2) 0.65px, transparent 0.75px);
+  --figure-bg: #141a26;
+  --block-shadow: var(--shadow-2);
+  --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+  --edge: var(--line-2);
+  --raised: #141a26;
+  --surface: linear-gradient(150deg, #1f2636 0%, #151a25 44%, #0e1219 100%);
+  --surface-raised: linear-gradient(150deg, #252e40 0%, #18202c 44%, #10151e 100%);
+  --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.12)), var(--accent);
+  --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.1)), var(--accent-hover);
+  --well: #090c12;
+  --well-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.55), inset -1px -1px 0 rgba(255, 255, 255, 0.04);
+  --bevel-border: #4a5870 #2f3848 #222a37 #435069;
+  --control-bg: linear-gradient(150deg, #29334a 0%, #1a2130 52%, #131925 100%);
+  --control-bg-hover: linear-gradient(150deg, #313c55 0%, #1e2637 52%, #151c29 100%);
+  --control-shadow: 1px 2px 3px rgba(0, 0, 0, 0.6), 3px 6px 12px -4px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.14), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --control-shadow-hover: 2px 4px 6px rgba(0, 0, 0, 0.55), 6px 12px 22px -8px rgba(0, 0, 0, 0.7), 0 0 18px -6px rgba(224, 164, 204, 0.35), inset 1px 1px 0 rgba(255, 255, 255, 0.18), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+  --control-shadow-active: inset 2px 2px 5px rgba(0, 0, 0, 0.6), inset -1px -1px 0 rgba(255, 255, 255, 0.06);
+  --btn-primary-shadow-active: inset 2px 2px 5px rgba(80, 20, 60, 0.45), inset -1px -1px 0 rgba(255, 255, 255, 0.3);
+  --grain: 0.07;
+  --grain-blend: soft-light;
+
+  /* Local password page, drawn as its own light window in either site theme. */
+  --chrome-bg: #f5f5f4;
+  --chrome-fg: #1c1917;
+  --chrome-bar: #e7e5e4;
+  --chrome-dot: #c8c4c0;
+  --chrome-url-bg: #fff;
+  --chrome-url-fg: #57534e;
+  --chrome-line: #e7e5e4;
+  --chrome-muted: #78716c;
+  --chrome-field-line: #d6d3d1;
+  --chrome-field-bg: #fff;
+  --chrome-caret: #b4532a;
+  --chrome-btn: #b4532a;
+  --chrome-btn-fg: #fff;
+
+  --astro-code-foreground: var(--fg);
+  --astro-code-background: var(--code-bg);
+  --astro-code-token-keyword: var(--kw);
+  --astro-code-token-function: var(--fn);
+  --astro-code-token-string: var(--str);
+  --astro-code-token-string-expression: var(--str);
+  --astro-code-token-constant: var(--num);
+  --astro-code-token-parameter: var(--prop);
+  --astro-code-token-comment: var(--comment);
+  --astro-code-token-punctuation: var(--muted);
+  --astro-code-token-link: var(--accent);
 
   --font-body: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -39,7 +153,218 @@
 
   --radius: 12px;
   --header-h: 60px;
-  color-scheme: dark;
+}
+
+/* Daylight. Lilac paper, white cards, rose and periwinkle in the air.
+   Shadows are layered and tinted, never flat black. Text hues stay deep
+   enough for WCAG AA. The ribbon is the same bright brand gradient. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f2f8;
+  --bg-deep: #e8e4f1;
+  --panel: #fffcfe;
+  --panel-2: #ffffff;
+  --line: #e4dce8;
+  --line-2: #74829b;
+  --fg: #161d2b;
+  --prose: #1e2838;
+  --muted: #3c4b60;
+  --faint: #4e5e74;
+  --accent: #882d5a;
+  --accent-ink: #f8f9fc;
+  --accent-hover: #9a3468;
+  --kw: #2f3f86;
+  --fn: #7a3d58;
+  --str: #9a3412;
+  --num: #0a6234;
+  --prop: #9a3f12;
+  --comment: #4a5868;
+  --ok: #0a6234;
+  --warn: #7a4e00;
+  --nex-amber: #b53c0a;
+  --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+  --hue-accent: #882d5a;
+  --hue-blue: #1e40af;
+  --hue-indigo: #5b21b6;
+  --hue-purple: #7e22ce;
+  --hue-magenta: #9d174d;
+  --hue-orange: #9a3412;
+  --hue-amber: #7a4e00;
+  --hue-ok: #0a6234;
+  --hue-hot: #b53c0a;
+  --selection: rgba(136, 45, 90, 0.18);
+  --hover: rgba(136, 45, 90, 0.06);
+  --str-wash: rgba(154, 52, 18, 0.12);
+  --warn-wash: rgba(122, 78, 0, 0.1);
+  --warn-line: rgba(122, 78, 0, 0.45);
+  --theme-color: #f4f2f8;
+
+  --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+  --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+  --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+  --shadow-4: 2px 4px 10px rgba(72, 36, 88, 0.07), 16px 34px 60px -20px rgba(136, 45, 90, 0.22), 8px 16px 32px -12px rgba(48, 68, 160, 0.14), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+  --btn-shadow-hover: var(--shadow-2);
+  --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+  --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
+  --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
+  --btn-lift: -1px;
+  --shadow-ticket: var(--shadow-4);
+  --shadow-chat: var(--shadow-3);
+  --accent-glow: 0 0 0 5px rgba(136, 45, 90, 0.12), 0 8px 18px -6px rgba(136, 45, 90, 0.4);
+  --mark-glow: 0 8px 16px -6px rgba(224, 56, 143, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  --menu-shadow: var(--shadow-4);
+  --page-bg:
+    radial-gradient(920px 520px at 6% -8%, rgba(224, 56, 143, 0.14), transparent 62%),
+    radial-gradient(840px 480px at 96% -6%, rgba(80, 112, 214, 0.16), transparent 60%),
+    radial-gradient(640px 420px at 78% 36%, rgba(162, 59, 201, 0.07), transparent 62%),
+    radial-gradient(560px 360px at 4% 72%, rgba(224, 56, 143, 0.06), transparent 64%),
+    #f4f2f8;
+  --header-bg: linear-gradient(180deg, #ffffff, #f6f4fa);
+  --header-bg-stuck: #fbfafe;
+  --header-bg-solid: #f6f4fa;
+  --grain: 0.045;
+  --grain-blend: multiply;
+  --header-blur: 18px;
+  --header-shadow-stuck: var(--shadow-2);
+  --code-bg: #ebe6f4;
+  --code-shadow: var(--shadow-2);
+  --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
+  --ticket-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fd 100%);
+  --ticket-edge: 0.9;
+  --card-edge: 1;
+  --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --chat-bg: #efeaf6;
+  --chat-top: color-mix(in srgb, #ffffff 74%, transparent);
+  --frost: 14px;
+  --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
+  --dot-grid: radial-gradient(rgba(90, 64, 120, 0.4) 0.65px, transparent 0.75px);
+  --figure-bg: #ffffff;
+  --block-shadow: var(--shadow-2);
+  --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  --edge: var(--line);
+  --raised: var(--panel);
+  --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+  --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+  --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+  --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
+  --well: #ebe6f2;
+  --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+  --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+  --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+  --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+  --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+  --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+  --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+  --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f4f2f8;
+    --bg-deep: #e8e4f1;
+    --panel: #fffcfe;
+    --panel-2: #ffffff;
+    --line: #e4dce8;
+    --line-2: #74829b;
+    --fg: #161d2b;
+    --prose: #1e2838;
+    --muted: #3c4b60;
+    --faint: #4e5e74;
+    --accent: #882d5a;
+    --accent-ink: #f8f9fc;
+    --accent-hover: #9a3468;
+    --kw: #2f3f86;
+    --fn: #7a3d58;
+    --str: #9a3412;
+    --num: #0a6234;
+    --prop: #9a3f12;
+    --comment: #4a5868;
+    --ok: #0a6234;
+    --warn: #7a4e00;
+    --nex-amber: #b53c0a;
+    --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+    --hue-accent: #882d5a;
+    --hue-blue: #1e40af;
+    --hue-indigo: #5b21b6;
+    --hue-purple: #7e22ce;
+    --hue-magenta: #9d174d;
+    --hue-orange: #9a3412;
+    --hue-amber: #7a4e00;
+    --hue-ok: #0a6234;
+    --hue-hot: #b53c0a;
+    --selection: rgba(136, 45, 90, 0.18);
+    --hover: rgba(136, 45, 90, 0.06);
+    --str-wash: rgba(154, 52, 18, 0.12);
+    --warn-wash: rgba(122, 78, 0, 0.1);
+    --warn-line: rgba(122, 78, 0, 0.45);
+    --theme-color: #f4f2f8;
+
+    --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+    --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+    --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+    --shadow-4: 2px 4px 10px rgba(72, 36, 88, 0.07), 16px 34px 60px -20px rgba(136, 45, 90, 0.22), 8px 16px 32px -12px rgba(48, 68, 160, 0.14), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+    --btn-shadow-hover: var(--shadow-2);
+    --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+    --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
+    --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
+    --btn-lift: -1px;
+    --shadow-ticket: var(--shadow-4);
+    --shadow-chat: var(--shadow-3);
+    --accent-glow: 0 0 0 5px rgba(136, 45, 90, 0.12), 0 8px 18px -6px rgba(136, 45, 90, 0.4);
+    --mark-glow: 0 8px 16px -6px rgba(224, 56, 143, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+    --menu-shadow: var(--shadow-4);
+    --page-bg:
+      radial-gradient(920px 520px at 6% -8%, rgba(224, 56, 143, 0.14), transparent 62%),
+      radial-gradient(840px 480px at 96% -6%, rgba(80, 112, 214, 0.16), transparent 60%),
+      radial-gradient(640px 420px at 78% 36%, rgba(162, 59, 201, 0.07), transparent 62%),
+      radial-gradient(560px 360px at 4% 72%, rgba(224, 56, 143, 0.06), transparent 64%),
+      #f4f2f8;
+    --header-bg: linear-gradient(180deg, #ffffff, #f6f4fa);
+    --header-bg-stuck: #fbfafe;
+    --header-bg-solid: #f6f4fa;
+    --grain: 0.045;
+    --grain-blend: multiply;
+    --header-blur: 18px;
+    --header-shadow-stuck: var(--shadow-2);
+    --code-bg: #ebe6f4;
+    --code-shadow: var(--shadow-2);
+    --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
+    --ticket-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fd 100%);
+    --ticket-edge: 0.9;
+    --card-edge: 1;
+    --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    --chat-bg: #efeaf6;
+    --chat-top: color-mix(in srgb, #ffffff 74%, transparent);
+    --frost: 14px;
+    --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
+    --dot-grid: radial-gradient(rgba(90, 64, 120, 0.4) 0.65px, transparent 0.75px);
+    --figure-bg: #ffffff;
+    --block-shadow: var(--shadow-2);
+    --block-primary-shadow: var(--shadow-3), 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+    --edge: var(--line);
+    --raised: var(--panel);
+    --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+    --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+    --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+    --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
+    --well: #ebe6f2;
+    --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+    --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+    --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+    --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+    --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+    --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+    --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+    --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  :root[data-theme="light"] {
+    --btn-lift: 0px;
+  }
 }
 
 *,
@@ -69,7 +394,7 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--page-bg);
   color: var(--fg);
   font-family: var(--font-body);
   font-size: 16px;
@@ -78,8 +403,28 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .site-header,
+  .site-footer {
+    transition: background 180ms ease, color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  }
+}
+
+/* Grain sits under the sticky header (z-index 50) and the mobile progress bar (40). */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: var(--grain);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
 ::selection {
-  background: rgba(224, 164, 204, 0.3);
+  background: var(--selection);
 }
 
 a {
@@ -94,6 +439,25 @@ a:hover {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  z-index: 80;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  transform: translateY(-150%);
+}
+.skip:focus {
+  transform: none;
+}
+#main:focus {
+  outline: none;
 }
 
 h1,
@@ -131,7 +495,7 @@ pre {
 }
 
 .grad-text {
-  background: var(--nex-grad);
+  background: var(--nex-grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -165,41 +529,55 @@ pre {
   min-height: 44px;
   padding: 10px 18px;
   border-radius: 10px;
-  border: 1px solid var(--line-2);
-  background: var(--panel);
+  border: 1px solid;
+  border-color: var(--bevel-border);
+  background: var(--control-bg);
   color: var(--fg);
   font: 600 15px/1.2 var(--font-body);
   cursor: pointer;
   text-decoration: none;
-  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  box-shadow: var(--control-shadow);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 .btn:hover {
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
   text-decoration: none;
+  box-shadow: var(--control-shadow-hover);
+  transform: translateY(var(--btn-lift));
 }
 .btn:active {
+  box-shadow: var(--control-shadow-active);
   transform: translateY(1px);
 }
+.btn:focus-visible {
+  box-shadow: var(--btn-focus-shadow), var(--control-shadow);
+}
 .btn-primary {
-  background: var(--accent);
+  background: var(--btn-primary-bg);
   border-color: var(--accent);
   color: var(--accent-ink);
+  box-shadow: var(--btn-primary-shadow);
 }
 .btn-primary:hover {
-  background: #ebbcdb;
-  border-color: #ebbcdb;
+  background: var(--btn-primary-bg-hover);
+  border-color: var(--accent-hover);
+  box-shadow: var(--btn-primary-shadow-hover);
 }
-.btn-ghost {
-  background: transparent;
+.btn-primary:active {
+  box-shadow: var(--btn-primary-shadow-active);
+}
+.btn-primary:focus-visible {
+  box-shadow: var(--btn-focus-shadow), var(--btn-primary-shadow);
 }
 
 /* Code block with a copy button */
 .code {
   position: relative;
-  background: var(--bg-deep);
+  background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: 10px;
   margin: 0;
+  box-shadow: var(--code-shadow);
 }
 .code pre {
   margin: 0;
@@ -225,15 +603,22 @@ pre {
   min-height: 32px;
   padding: 4px 10px;
   border-radius: 7px;
-  border: 1px solid var(--line-2);
-  background: var(--panel);
+  border: 1px solid;
+  border-color: var(--bevel-border);
+  background: var(--control-bg);
+  box-shadow: var(--control-shadow);
   color: var(--muted);
   font: 500 12px/1 var(--font-mono);
   cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
 }
 .copy:hover {
   color: var(--fg);
-  border-color: var(--accent);
+  background: var(--control-bg-hover);
+  box-shadow: var(--control-shadow-hover);
+}
+.copy:active {
+  box-shadow: var(--control-shadow-active);
 }
 .copy[data-done] {
   color: var(--ok);
@@ -252,7 +637,10 @@ pre {
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  background: var(--pill-bg);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(var(--frost));
+  -webkit-backdrop-filter: blur(var(--frost));
   border-radius: 999px;
   padding: 5px 12px;
   font: 500 12.5px/1.3 var(--font-mono);

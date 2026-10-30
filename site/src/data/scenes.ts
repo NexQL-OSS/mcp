@@ -81,13 +81,13 @@ export interface Replay {
   roleHue: (role: string) => string;
 }
 
-/** Brand hues from nexql.astrx.dev, as used on the docs' tool lines. */
+/** Brand hues. Values live in theme.css so light mode can darken them. */
 export const HUE = {
-  accent: "#e0a4cc",
-  blue: "#3d6fe0",
-  indigo: "#6c4cd6",
-  hot: "#f26b3a",
-  ok: "#4ade80",
+  accent: "var(--hue-accent)",
+  blue: "var(--hue-blue)",
+  indigo: "var(--hue-indigo)",
+  hot: "var(--hue-hot)",
+  ok: "var(--hue-ok)",
 };
 
 /** Polyline points for a 600×140 chart. */

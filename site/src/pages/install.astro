@@ -21,7 +21,7 @@ const BUNDLES = [
   canonical="https://nexql-mcp.astrx.dev/install"
 >
   <SiteHeader current="install" />
-  <main class="wrap page">
+  <main id="main" tabindex="-1" class="wrap page">
     <p class="eyebrow">Claude Desktop · one download</p>
     <h1>Ask your Postgres database questions in <span class="serif-em grad-text">Claude Desktop</span></h1>
     <p class="lede">
@@ -143,9 +143,6 @@ const BUNDLES = [
 </script>
 
 <style is:global>
-  :root {
-    --text: var(--fg);
-  }
   .page {
     max-width: 46rem;
     padding-top: 3.5rem;
@@ -177,7 +174,9 @@ const BUNDLES = [
   }
   .button {
     display: inline-block;
-    background: var(--accent);
+    background: var(--btn-primary-bg);
+    box-shadow: var(--btn-primary-shadow);
+    transition: box-shadow 0.15s, transform 0.15s;
     color: var(--accent-ink);
     font-weight: 600;
     padding: 0.8rem 1.3rem;
@@ -185,7 +184,12 @@ const BUNDLES = [
   }
   .button:hover {
     text-decoration: none;
-    filter: brightness(1.08);
+    background: var(--btn-primary-bg-hover);
+    box-shadow: var(--btn-primary-shadow-hover);
+  }
+  .button:active {
+    box-shadow: var(--btn-primary-shadow-active);
+    transform: translateY(1px);
   }
   .hint {
     color: var(--muted);
