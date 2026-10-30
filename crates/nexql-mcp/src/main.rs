@@ -23,7 +23,7 @@ use nexql_index::{
     BuildDepth, BuildMode, BuildRequest, CatalogDb, IndexScope, IndexStore, PgCatalogDb,
     build_index,
 };
-use nexql_policy::{AccessMode, PolicyCaps, check_superuser_guard};
+use nexql_policy::{AccessMode, PolicyCaps, superuser_write_notice};
 use nexql_proto::{
     ClientRequester, CompletionBackend, HttpAuth, HttpServer, McpHandler, PromptBackend,
     ResourceBackend, RpcFailure, StdioServer, ToolAnnotations, ToolBackend, ToolCallResult,
@@ -966,7 +966,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
     }
 
     let active_id = active_resolved.and_then(|r| r.profile_name.clone());
-    let connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
+    let mut connections: Vec<nexql_tools::ConnectionInfo> = resolved_list
         .iter()
         .map(|r| {
             let id = r.profile_name.clone().unwrap_or_else(|| "default".into());
@@ -991,6 +991,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
         })
         .collect();
 
+    let mut access_notice = None;
     if let Some(resolved) = active_resolved {
         let client = connect_once(&resolved.params).await?;
         let row = client
@@ -998,11 +999,17 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
             .await?;
         let is_super: String = row.get(0);
         let is_superuser = is_super.eq_ignore_ascii_case("on");
-        let mode = connections
-            .first()
-            .map(|c| c.policy.access_mode)
-            .unwrap_or(cli_mode);
-        check_superuser_guard(mode, is_superuser, cli.access.i_know_what_im_doing)?;
+        if let Some(active) = connections.first_mut()
+            && let Some(notice) = superuser_write_notice(
+                active.policy.access_mode,
+                is_superuser,
+                cli.access.i_know_what_im_doing,
+            )
+        {
+            eprintln!("warning: {notice} (--i-know-what-im-doing overrides this)");
+            active.policy.access_mode = AccessMode::Read;
+            access_notice = Some((active.id.clone(), notice));
+        }
     }
 
     let access_ceiling = access_ceiling(cli_mode, &connections);
@@ -1068,6 +1075,9 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
         .with_semantic(cli.embeddings.is_local(), embedder);
     if cli.access.managed_extension {
         router = router.with_managed_extension(true);
+    }
+    if let Some((connection_id, notice)) = access_notice {
+        router = router.with_access_notice(connection_id, notice);
     }
 
     let tools = Arc::new(RouterBackend { router });
@@ -1893,7 +1903,15 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let is_super: String = row.get(0);
     let is_superuser = is_super.eq_ignore_ascii_case("on");
-    check_superuser_guard(mode, is_superuser, cli.access.i_know_what_im_doing)?;
+    let notice = superuser_write_notice(mode, is_superuser, cli.access.i_know_what_im_doing);
+    if let Some(notice) = &notice {
+        eprintln!("warning: {notice} (--i-know-what-im-doing overrides this)");
+    }
+    let mode = if notice.is_some() {
+        AccessMode::Read
+    } else {
+        mode
+    };
     if is_superuser {
         eprintln!("{}", nexql_policy::superuser_warning());
         eprintln!("{}", nexql_policy::readonly_role_sql());

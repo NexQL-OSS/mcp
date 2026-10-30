@@ -66,19 +66,22 @@ pub fn superuser_warning() -> String {
     )
 }
 
-/// Refuse write/admin against a superuser unless override is set.
-pub fn check_superuser_guard(
+/// Why writes are off for a connection, when they are: write/admin against a
+/// superuser needs the explicit override. Callers run such a connection
+/// read-only instead of refusing to start, because a one-click install that
+/// ticked "allow changes" has no way to pass a flag or read stderr. The text
+/// is shown to the model so it can tell the user.
+pub fn superuser_write_notice(
     mode: AccessMode,
     is_superuser: bool,
     override_flag: bool,
-) -> Result<(), PolicyError> {
-    if is_superuser && mode.allows_writes() && !override_flag {
-        return Err(PolicyError::Denied(
-            "refusing write/admin mode against a superuser — pass --i-know-what-im-doing to override"
-                .into(),
-        ));
-    }
-    Ok(())
+) -> Option<String> {
+    (is_superuser && mode.allows_writes() && !override_flag).then(|| {
+        "Changes to data are switched off: this connection logs in as a database superuser, \
+and nexql-mcp only allows writes through a role that is not one. Tell the user. To allow \
+changes, connect as a role that is not a superuser and has the write privileges it needs."
+            .to_owned()
+    })
 }
 
 #[cfg(test)]
@@ -94,11 +97,12 @@ mod tests {
     }
 
     #[test]
-    fn superuser_guard() {
-        assert!(check_superuser_guard(AccessMode::Read, true, false).is_ok());
-        assert!(check_superuser_guard(AccessMode::Write, true, false).is_err());
-        assert!(check_superuser_guard(AccessMode::Write, true, true).is_ok());
-        assert!(check_superuser_guard(AccessMode::Write, false, false).is_ok());
+    fn superuser_write_notice_only_without_override() {
+        assert!(superuser_write_notice(AccessMode::Read, true, false).is_none());
+        assert!(superuser_write_notice(AccessMode::Write, true, false).is_some());
+        assert!(superuser_write_notice(AccessMode::Admin, true, false).is_some());
+        assert!(superuser_write_notice(AccessMode::Write, true, true).is_none());
+        assert!(superuser_write_notice(AccessMode::Write, false, false).is_none());
     }
 
     #[test]
