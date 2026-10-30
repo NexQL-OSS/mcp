@@ -166,7 +166,7 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: ToolName::RunSelect,
-            description: "Run a read-only SELECT or WITH query. DML/DDL are rejected. Supports parameterized execution via `params` ($1, $2, …). Results default to 50 rows with total_count and has_more pagination metadata.",
+            description: "Run a read-only SELECT or WITH query. DML/DDL are rejected. Supports parameterized execution via `params` ($1, $2, …). Returns up to 50 rows by default; has_more says whether more exist, and total_count is included when the whole result fits (or with count: true).",
             input_schema: object_schema(&[
                 (
                     "sql",
@@ -185,6 +185,12 @@ pub fn phase2_catalog_tools() -> Vec<ToolSpec> {
                     "number",
                     false,
                     "Maximum rows to return. Defaults to 50; capped by profile max_rows.",
+                ),
+                (
+                    "count",
+                    "boolean",
+                    false,
+                    "When true and has_more is true, also return total_count. Runs the query a second time, so only ask when the total matters.",
                 ),
                 (
                     "format",
@@ -537,10 +543,10 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             description: "Get structural details of a specific database object (table, view, or materialized view) including columns, data types, constraints, and indexes.",
             input_schema: object_schema(&[
                 (
-                    "ref",
+                    "table",
                     "string",
                     true,
-                    "Object reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
+                    "Table, view, or materialized view as \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
                 ),
                 (
                     "resolve_refs",
@@ -573,16 +579,16 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             description: "Find the shortest path of join relationships and foreign keys between two database tables.",
             input_schema: object_schema(&[
                 (
-                    "a",
+                    "from",
                     "string",
                     true,
-                    "Source table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                    "Start table as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
                 ),
                 (
-                    "b",
+                    "to",
                     "string",
                     true,
-                    "Target table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
+                    "End table as \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous.",
                 ),
             ]),
         },
@@ -591,16 +597,16 @@ pub fn phase3_index_tools() -> Vec<ToolSpec> {
             description: "Retrieve a list of sample values from a specific table column to inspect its contents. Only works on read-only SELECT queries.",
             input_schema: object_schema(&[
                 (
-                    "ref",
+                    "table",
                     "string",
                     true,
-                    "Table/view reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                    "Table or view as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
                 ),
                 (
-                    "col",
+                    "column",
                     "string",
                     true,
-                    "Column name within `ref` to sample values from.",
+                    "Column of `table` to sample values from.",
                 ),
             ]),
         },
@@ -630,10 +636,10 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
             description: "Get the DDL / definition of a database object. Views, materialized views, functions, and indexes return their CREATE statement; tables return structured DDL (columns, constraints, indexes).",
             input_schema: object_schema(&[
                 (
-                    "ref",
+                    "object",
                     "string",
                     true,
-                    "Object reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                    "Object as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
                 ),
                 (
                     "kind",
@@ -660,10 +666,10 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
             description: "Get size, row-count, activity (scans, inserts/updates/deletes, dead tuples, vacuum/analyze times) and per-column statistics for a specific table.",
             input_schema: object_schema(&[
                 (
-                    "ref",
+                    "table",
                     "string",
                     true,
-                    "Table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                    "Table as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
                 ),
                 (
                     "connectionId",
@@ -683,10 +689,10 @@ pub fn phase4_tools() -> Vec<ToolSpec> {
             name: ToolName::IndexUsage,
             description: "Get index usage statistics (scan counts, size, definition, type) for a specific table's indexes. Useful for finding unused or missing indexes.",
             input_schema: object_schema(&[(
-                "ref",
+                "table",
                 "string",
                 true,
-                "Table reference. Prefer schema-qualified form \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous.",
+                "Table as \"schema.name\" (e.g. \"public.orders\").",
             )]),
         },
         ToolSpec {
@@ -1245,6 +1251,21 @@ mod tests {
                         prop_name
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn tools_use_consistent_argument_names() {
+        // `ref`, `col`, `a` and `b` are accepted as aliases but never advertised.
+        for tool in active_tools() {
+            let props = tool.input_schema["properties"].as_object().unwrap();
+            for old in ["ref", "col", "a", "b"] {
+                assert!(
+                    !props.contains_key(old),
+                    "{} advertises legacy argument {old}",
+                    tool.name.as_str()
+                );
             }
         }
     }

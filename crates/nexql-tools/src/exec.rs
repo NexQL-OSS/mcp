@@ -20,7 +20,7 @@ use crate::catalog_guard::enforce_routine_guards;
 use crate::cell_json::{
     columnarize_read_payload, columnarize_row_arrays, ensure_redaction_names_present,
     heuristic_output_names, metadata_sensitive_output_names, redact_named_columns_in_payload,
-    rows_to_json_array, rows_to_json_array_with_total, sensitive_output_names,
+    rows_to_json_array, sensitive_output_names,
 };
 use crate::critique;
 use crate::error::ToolError;
@@ -43,8 +43,8 @@ const SEARCH_SCHEMA_LIMIT: usize = 10;
 /// Default row cap for `run_select` when `limit` is omitted (agent-friendly).
 const RUN_SELECT_DEFAULT_LIMIT: u32 = 50;
 
-/// Internal column injected for COUNT(*) OVER() pagination; stripped from results.
-const NEXQL_TOTAL_COUNT_COL: &str = "nexql_total_count";
+/// Most distinct values a string column may have to be listed as an enum.
+const ENUM_LIKE_MAX_DISTINCT: f64 = 20.0;
 
 const NO_INDEX_HINT: &str =
     "No schema index configured — call the 'rebuild_index' tool to build an index.";
@@ -304,16 +304,14 @@ impl ToolRouter {
         if let Some(store) = self.session.index_store.as_ref() {
             let base = store.base_dir(&connection_id, &database);
             if let Ok(Some(manifest)) = store.read_manifest(&base) {
-                let stale = self.session.is_index_stale(&connection_id, &database);
-                let mut freshness_obj = json!({
-                    "indexedAt": manifest.indexed_at,
-                    "schemaFingerprint": manifest.schema_fingerprint,
-                    "stale": stale,
-                });
-                if stale {
-                    freshness_obj["reason"] = json!("schema_changed");
+                // Only worth the tokens when the model should act on it.
+                if self.session.is_index_stale(&connection_id, &database) {
+                    freshness = Some(json!({
+                        "indexedAt": manifest.indexed_at,
+                        "stale": true,
+                        "reason": "schema_changed",
+                    }));
                 }
-                freshness = Some(freshness_obj);
             } else {
                 freshness = Some(json!({ "stale": true, "reason": "no_index" }));
             }
@@ -761,7 +759,7 @@ impl ToolRouter {
                                 "connectionId": c.connection_id,
                                 "connectionName": conn.name,
                                 "database": c.database,
-                                "score": score,
+                                "score": round_score(*score),
                                 "evidence": evidence,
                             })
                         })
@@ -806,7 +804,7 @@ impl ToolRouter {
                         .map(|h| {
                             json!({
                                 "ref": h.ref_,
-                                "score": h.score,
+                                "score": round_score(h.score),
                                 "kind": h.kind,
                                 "connectionId": winner_candidate.connection_id,
                                 "database": winner_candidate.database,
@@ -861,7 +859,7 @@ impl ToolRouter {
         /// small number of distinct values and captured common_values reads
         /// as an enum-ish status/category column an agent should know the
         /// vocabulary of before writing an equality filter (see Issue 6).
-        const ENUM_MAX_DISTINCT: f64 = 20.0;
+        const ENUM_MAX_DISTINCT: f64 = ENUM_LIKE_MAX_DISTINCT;
 
         let focus = args
             .get("focus")
@@ -899,6 +897,13 @@ impl ToolRouter {
             entries.retain(|(ref_, _)| ref_.to_ascii_lowercase().contains(f.as_str()));
         }
         entries.retain(|(_, entry)| entry.excluded != Some(true));
+        // The connection's schema and table policy hides objects here too,
+        // not only in queries: `enums` below carries real column values.
+        let filter = self.session.filter_for(&connection_id);
+        entries.retain(|(ref_, _)| {
+            let (schema, name) = ref_.split_once('.').unwrap_or(("", ref_.as_str()));
+            filter.allows_table(schema, name)
+        });
 
         // Postgres enum types are vocabulary for filters; functions, domains
         // and sequences are left to search_schema.
@@ -969,8 +974,11 @@ impl ToolRouter {
             }
             tables.push(table);
 
+            let (schema, name) = ref_.split_once('.').unwrap_or(("", ref_.as_str()));
             for col in &entry.columns {
-                if col.pii == Some(true) {
+                if col.pii == Some(true)
+                    || column_should_redact(&filter, &[ObjectRef::new(schema, name)], &col.name)
+                {
                     continue;
                 }
                 let is_textish = col.type_name.contains("char") || col.type_name.contains("text");
@@ -991,6 +999,12 @@ impl ToolRouter {
             }
         }
 
+        // The index stores no value profiles at the default depth; planner
+        // statistics give the same vocabulary for free.
+        for (column, values) in self.enum_like_columns(&entries, &filter).await {
+            enums.entry(column).or_insert(json!(values));
+        }
+
         // One string per edge: "a.b.col -> c.d.id", suffixed when inferred.
         let mut joins: Vec<String> = Vec::new();
         if let Some(graph) = store.read_join_graph(&base, &manifest)? {
@@ -1002,6 +1016,13 @@ impl ToolRouter {
                     && !(shown_refs.contains(edge.from.as_str())
                         || shown_refs.contains(edge.to.as_str()))
                 {
+                    continue;
+                }
+                let allowed = |r: &str| {
+                    let (schema, name) = r.split_once('.').unwrap_or(("", r));
+                    filter.allows_table(schema, name)
+                };
+                if !allowed(&edge.from) || !allowed(&edge.to) {
                     continue;
                 }
                 let inferred = if edge.inferred == Some(true) {
@@ -1029,6 +1050,75 @@ impl ToolRouter {
             payload["more"] = json!(more);
         }
         Ok(ToolOutcome::ok_json(payload))
+    }
+
+    /// `schema.table.column` → values for string columns with few distinct
+    /// values that cover (almost) every row: status and category columns
+    /// whose vocabulary the model needs before writing `WHERE status = '…'`.
+    /// Read from `pg_stats`, skipping masked columns. Best-effort: tables
+    /// that were never analyzed simply have no entry.
+    async fn enum_like_columns(
+        &self,
+        entries: &[(String, ObjectEntry)],
+        filter: &PolicyFilter,
+    ) -> Vec<(String, Vec<String>)> {
+        const MIN_COVERAGE: f64 = 0.95;
+        const MAX_VALUE_LEN: usize = 64;
+        let row_estimates: std::collections::HashMap<&str, f64> = entries
+            .iter()
+            .map(|(r, e)| (r.as_str(), e.row_estimate))
+            .collect();
+        let schemas: Vec<String> = entries
+            .iter()
+            .filter_map(|(r, _)| r.split_once('.').map(|(s, _)| s.to_owned()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if schemas.is_empty() {
+            return Vec::new();
+        }
+        let Ok(client) = self.session.checkout().await else {
+            return Vec::new();
+        };
+        let Ok(rows) = client.query(sql::string_column_stats(), &[&schemas]).await else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for row in rows {
+            let (schema, table, column): (String, String, String) =
+                (row.get(0), row.get(1), row.get(2));
+            let table_ref = format!("{schema}.{table}");
+            let Some(&row_estimate) = row_estimates.get(table_ref.as_str()) else {
+                continue;
+            };
+            if is_free_text_column_name(&column)
+                || column_should_redact(filter, &[ObjectRef::new(&schema, &table)], &column)
+            {
+                continue;
+            }
+            let n_distinct: f64 = row.get(3);
+            let null_frac: f64 = row.get(4);
+            let values: Vec<String> = row.get(5);
+            let freqs: Vec<f64> = row.get(6);
+            // Negative n_distinct is a fraction of the row count.
+            let distinct = if n_distinct < 0.0 {
+                -n_distinct * row_estimate
+            } else {
+                n_distinct
+            };
+            let coverage = null_frac + freqs.iter().sum::<f64>();
+            // One value is a constant, not a vocabulary.
+            if values.len() < 2
+                || !(2.0..=ENUM_LIKE_MAX_DISTINCT).contains(&distinct)
+                || coverage < MIN_COVERAGE
+                || values.iter().any(|v| v.len() > MAX_VALUE_LEN)
+            {
+                continue;
+            }
+            out.push((format!("{table_ref}.{column}"), values));
+        }
+        out.sort();
+        out
     }
 
     async fn discover_tools(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
@@ -1926,7 +2016,7 @@ impl ToolRouter {
             .map(|h| {
                 json!({
                     "ref": h.ref_,
-                    "score": h.score,
+                    "score": round_score(h.score),
                     "kind": h.kind,
                 })
             })
@@ -1972,7 +2062,7 @@ impl ToolRouter {
             let entry = svc.describe_object(&hit.ref_, Some(&filter))?;
             let mut obj = json!({
                 "ref": hit.ref_,
-                "score": hit.score,
+                "score": round_score(hit.score),
                 "kind": hit.kind,
                 "row_estimate": entry.row_estimate.round() as i64,
                 "primary_key": entry.primary_key,
@@ -2099,7 +2189,7 @@ impl ToolRouter {
                             "connectionId": conn.id,
                             "database": database,
                             "ref": hit.ref_,
-                            "score": hit.score,
+                            "score": round_score(hit.score),
                             "kind": hit.kind,
                         }));
                     }
@@ -2128,10 +2218,7 @@ impl ToolRouter {
     }
 
     async fn describe_object(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let ref_ = args
-            .get("ref")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let ref_ = required_str(args, "table", &["ref"])?;
         let scope = self.execution_scope_from_args(args).await?;
         let resolve_refs = args
             .get("resolve_refs")
@@ -2173,14 +2260,8 @@ impl ToolRouter {
     }
 
     async fn get_join_path(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let a = args
-            .get("a")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("a is required".into()))?;
-        let b = args
-            .get("b")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("b is required".into()))?;
+        let a = required_str(args, "from", &["a"])?;
+        let b = required_str(args, "to", &["b"])?;
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
         // Resolve both endpoints before pathfinding — an unresolved literal here
@@ -2200,14 +2281,8 @@ impl ToolRouter {
     }
 
     async fn sample_values(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let ref_ = args
-            .get("ref")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
-        let col = args
-            .get("col")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("col is required".into()))?;
+        let ref_ = required_str(args, "table", &["ref"])?;
+        let col = required_str(args, "column", &["col"])?;
         let (store, connection_id, database) = self.index_service().await?;
         let svc = IndexQueryService::new(store, &connection_id, &database);
         let resolved = Self::resolve_indexed_ref_soft(&svc, ref_)?;
@@ -2534,6 +2609,7 @@ impl ToolRouter {
             .get("resolve_fks")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let count_total = args.get("count").and_then(|v| v.as_bool()).unwrap_or(false);
         let columnar = matches!(format, RunSelectFormat::Compact);
         let outcome = if trimmed.starts_with("explain") {
             self.run_select_internal(
@@ -2560,7 +2636,52 @@ impl ToolRouter {
             )
             .await?
         };
+        let outcome = if count_total {
+            self.attach_total_count(sql, &params, &scope, timeout_ms, outcome)
+                .await?
+        } else {
+            outcome
+        };
         Ok(self.attach_critique(sql, outcome).await)
+    }
+
+    /// `count: true`: when the page is not the whole result, count the rows
+    /// with a second query rather than paying for it on every call.
+    async fn attach_total_count(
+        &self,
+        sql: &str,
+        params: &[Value],
+        scope: &ExecutionScope,
+        timeout_ms: u32,
+        mut outcome: ToolOutcome,
+    ) -> Result<ToolOutcome, ToolError> {
+        let Some(obj) = outcome.structured.as_mut().and_then(|v| v.as_object_mut()) else {
+            return Ok(outcome);
+        };
+        if obj.get("has_more").and_then(Value::as_bool) != Some(true) {
+            return Ok(outcome);
+        }
+        let (client, _) = self
+            .session
+            .checkout_for(CheckoutTarget::Scoped(&scope.ctx))
+            .await?;
+        ToolSession::set_statement_timeout(&client, timeout_ms).await?;
+        let pg_params = sql_param_boxes(params)?;
+        let pg_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = pg_params
+            .iter()
+            .map(|p| p.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+        let count_sql = format!(
+            "SELECT count(*) FROM ({}) AS sub",
+            strip_trailing_semicolons(sql)
+        );
+        let rows = self
+            .query_with_hints(&client, &count_sql, &pg_param_refs, timeout_ms)
+            .await?;
+        if let Some(total) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
+            obj.insert("total_count".into(), json!(total));
+        }
+        Ok(outcome)
     }
 
     /// Issue 6: attach a `critique` array to the response when a cheap
@@ -2808,10 +2929,7 @@ impl ToolRouter {
     }
 
     async fn get_ddl(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let ref_ = args
-            .get("ref")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let ref_ = required_str(args, "object", &["ref", "table"])?;
         let scope = self.execution_scope_from_args(args).await?;
         let resolved = self.resolve_ref_best_effort(ref_).await?;
         let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
@@ -2893,10 +3011,7 @@ impl ToolRouter {
     }
 
     async fn table_stats(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let ref_ = args
-            .get("ref")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let ref_ = required_str(args, "table", &["ref"])?;
         let scope = self.execution_scope_from_args(args).await?;
         let resolved = self.resolve_ref_best_effort(ref_).await?;
         let (schema, name) = parse_ref(&resolved).map_err(ToolError::InvalidArgs)?;
@@ -2932,10 +3047,7 @@ impl ToolRouter {
     }
 
     async fn index_usage(&self, args: &Value) -> Result<ToolOutcome, ToolError> {
-        let ref_ = args
-            .get("ref")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("ref is required".into()))?;
+        let ref_ = required_str(args, "table", &["ref"])?;
         let (schema, name) = parse_ref(ref_).map_err(ToolError::InvalidArgs)?;
         let client = self.session.checkout().await?;
         let rows = client.query(&sql::index_usage(&schema, &name), &[]).await?;
@@ -3439,7 +3551,7 @@ impl ToolRouter {
         let rows = rows_val.as_array().cloned().unwrap_or_default();
         let columns = columns_from_rows(&rows);
         let truncated = structured
-            .get("truncated")
+            .get("has_more")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
@@ -3772,45 +3884,37 @@ impl ToolRouter {
                 .await;
         };
 
-        let cleaned = sql.trim().trim_end_matches(';').trim();
+        // One extra row says whether more exist. `COUNT(*) OVER()` would make
+        // Postgres compute the whole result just to report a total; that is
+        // opt-in through `count` (see `run_select`).
+        let cleaned = strip_trailing_semicolons(sql);
         let wrapped = format!(
-            "SELECT sub.*, COUNT(*) OVER() AS {NEXQL_TOTAL_COUNT_COL} FROM ({cleaned}) AS sub LIMIT {}",
+            "SELECT sub.* FROM ({cleaned}) AS sub LIMIT {}",
             max_rows + 1
         );
         let rows = self
             .query_with_hints(&client, &wrapped, &pg_param_refs, timeout_ms)
             .await?;
-        let truncated = rows.len() as u32 > max_rows;
-        let keep_len = if truncated {
+        let has_more = rows.len() as u32 > max_rows;
+        let keep_len = if has_more {
             max_rows as usize
         } else {
             rows.len()
         };
-        let (total_count, values) =
-            rows_to_json_array_with_total(&rows[..keep_len], NEXQL_TOTAL_COUNT_COL);
-        let returned = keep_len;
         let mut payload = self
             .apply_pii_redaction_for(
                 &client,
                 sql,
                 &rows[..keep_len],
-                ensure_structured_object(values),
+                ensure_structured_object(rows_to_json(&rows[..keep_len])),
                 &scope.filter,
             )
             .await?;
         if let Some(obj) = payload.as_object_mut() {
             obj.insert("limit".into(), json!(max_rows));
-            if let Some(total) = total_count {
-                obj.insert("total_count".into(), json!(total));
-                obj.insert("has_more".into(), json!(total > max_rows as i64));
-            } else if truncated {
-                obj.insert("has_more".into(), json!(true));
-            } else {
-                obj.insert("has_more".into(), json!(false));
-                obj.insert("total_count".into(), json!(returned));
-            }
-            if truncated {
-                obj.insert("truncated".into(), json!(true));
+            obj.insert("has_more".into(), json!(has_more));
+            if !has_more {
+                obj.insert("total_count".into(), json!(keep_len));
             }
         }
         self.finalize_run_select_payload(
@@ -4059,6 +4163,52 @@ fn require_select_or_with(filter: &PolicyFilter, sql: &str) -> Result<(), ToolEr
     Ok(())
 }
 
+/// A required string argument under its name or an older alias. `ref`,
+/// `col`, `a` and `b` predate `table`, `column`, `from` and `to`; clients
+/// and saved prompts that still send them keep working.
+fn required_str<'a>(args: &'a Value, name: &str, aliases: &[&str]) -> Result<&'a str, ToolError> {
+    std::iter::once(name)
+        .chain(aliases.iter().copied())
+        .find_map(|key| args.get(key).and_then(Value::as_str))
+        .ok_or_else(|| ToolError::InvalidArgs(format!("{name} is required")))
+}
+
+/// Columns that hold prose or who did something (`notes`, `title`,
+/// `created_by`). A small test table can make them look like enums, but on
+/// real data their common values are sentences or people's names.
+fn is_free_text_column_name(column: &str) -> bool {
+    const WORDS: &[&str] = &[
+        "body",
+        "comment",
+        "comments",
+        "content",
+        "description",
+        "desc",
+        "message",
+        "note",
+        "notes",
+        "remark",
+        "remarks",
+        "subject",
+        "summary",
+        "text",
+        "title",
+    ];
+    let lower = column.to_ascii_lowercase();
+    lower == "by"
+        || lower.ends_with("_by")
+        || lower.split('_').any(|segment| WORDS.contains(&segment))
+}
+
+/// Two decimals are enough to rank by; full f64 noise costs tokens per hit.
+fn round_score(score: f64) -> f64 {
+    (score * 100.0).round() / 100.0
+}
+
+fn strip_trailing_semicolons(sql: &str) -> &str {
+    sql.trim().trim_end_matches(';').trim()
+}
+
 fn rows_to_json(rows: &[tokio_postgres::Row]) -> Value {
     rows_to_json_array(rows)
 }
@@ -4147,6 +4297,41 @@ mod tests {
     use crate::plan::build_explain_sql;
     use nexql_policy::PolicyFilter;
     use serde_json::json;
+
+    #[test]
+    fn free_text_columns_are_not_enum_candidates() {
+        for name in [
+            "notes",
+            "performed_by",
+            "created_by",
+            "title",
+            "review_text",
+            "Description",
+        ] {
+            assert!(is_free_text_column_name(name), "{name}");
+        }
+        for name in [
+            "status",
+            "movement_type",
+            "loyalty_tier",
+            "currency",
+            "byte_count",
+        ] {
+            assert!(!is_free_text_column_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn required_str_accepts_legacy_aliases() {
+        let args = json!({ "ref": "public.orders", "column": "status" });
+        assert_eq!(
+            required_str(&args, "table", &["ref"]).unwrap(),
+            "public.orders"
+        );
+        assert_eq!(required_str(&args, "column", &["col"]).unwrap(), "status");
+        let err = required_str(&args, "from", &["a"]).unwrap_err();
+        assert!(err.to_string().contains("from is required"), "{err}");
+    }
 
     use crate::session::{ConnectionInfo, ConnectionPolicy, ToolSession};
     use nexql_policy::{AccessMode, PolicyCaps};
@@ -4813,7 +4998,7 @@ mod tests {
         let out = router
             .call(
                 "get_join_path",
-                json!({ "a": "order_items", "b": "orders" }),
+                json!({ "from": "order_items", "to": "orders" }),
             )
             .await;
         assert!(!out.is_error, "{}", out.text);
@@ -4829,7 +5014,7 @@ mod tests {
         let out = router
             .call(
                 "get_join_path",
-                json!({ "a": "public.order_items", "b": "public.customers" }),
+                json!({ "from": "public.order_items", "to": "public.customers" }),
             )
             .await;
         assert!(!out.is_error, "{}", out.text);
@@ -4940,6 +5125,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn orient_hides_tables_the_policy_denies() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = IndexStore::new(tmp.path());
+        write_join_path_fixture(&store);
+        let mut conn = test_conn();
+        conn.policy.filter.deny_tables = vec!["public.customers".into()];
+        let session = ToolSession::for_tests(
+            vec![conn],
+            PolicyFilter::default(),
+            Some(IndexStore::new(store.root())),
+        );
+        let router = ToolRouter::with_index_store(session, Some(store));
+        let out = router.call("orient", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        let body = out.structured.unwrap();
+        let text = body.to_string();
+        assert!(!text.contains("public.customers"), "{text}");
+        assert!(text.contains("public.orders"), "{text}");
+    }
+
+    #[tokio::test]
     async fn orient_no_index_returns_notes_not_error() {
         let session = ToolSession::for_tests(vec![test_conn()], PolicyFilter::default(), None);
         let router = ToolRouter::with_index_store(session, None);
@@ -5000,7 +5206,7 @@ mod tests {
         );
         let router = ToolRouter::with_index_store(session, Some(store));
         let out = router
-            .call("describe_object", json!({ "ref": "public.users" }))
+            .call("describe_object", json!({ "table": "public.users" }))
             .await;
         assert!(out.is_error, "{}", out.text);
         assert!(

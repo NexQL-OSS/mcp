@@ -211,16 +211,16 @@ const PROMPTS: &[PromptDef] = &[
         name: "optimize-table",
         description: "Analyze a table's indexes, bloat signals, and access patterns; propose improvements.",
         arguments: &[ArgDef {
-            name: "ref",
-            description: "Table ref as schema.name, e.g. \"public.orders\".",
+            name: "table",
+            description: "Table as schema.name, e.g. \"public.orders\".",
             required: true,
         }],
         build: |args| {
-            let ref_ = args.get("ref").map(String::as_str).unwrap_or("");
+            let table = args.get("table").map(String::as_str).unwrap_or("");
             [
-                format!("Optimize table {ref_}:"),
-                "1. Run describe_object on the ref to get columns, keys, and indexes.".into(),
-                "2. Run table_stats and index_usage for the same ref.".into(),
+                format!("Optimize table {table}:"),
+                "1. Run describe_object on the table to get columns, keys, and indexes.".into(),
+                "2. Run table_stats and index_usage for the same table.".into(),
                 "3. Cross-check with slow_queries / deep_plan_analysis for statements that hit this table.".into(),
                 "Deliver: unused or redundant indexes, missing indexes (with CREATE INDEX CONCURRENTLY), and VACUUM/ANALYZE advice with evidence.".into(),
             ]

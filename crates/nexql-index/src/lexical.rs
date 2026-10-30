@@ -24,6 +24,44 @@ const MAX_PAREN_SYNONYM_LEN: usize = 25;
 /// Max words inside a mined parenthetical synonym phrase.
 const MAX_PAREN_SYNONYM_WORDS: usize = 2;
 
+/// Query term found in the object's own name (`orders` → `orders.orders`).
+const NAME_MATCH_BONUS: f64 = 2.0;
+
+/// Synonym of a query term found in the object's name (`revenue` → `mv_daily_sales_summary`).
+const NAME_SYNONYM_BONUS: f64 = 1.0;
+
+/// Query term found in the object's schema (`orders` → `orders.mv_daily_sales_summary`).
+const SCHEMA_MATCH_BONUS: f64 = 1.0;
+
+/// Every word of the object's name appears in the query.
+const FULL_NAME_BONUS: f64 = 1.0;
+
+/// Query words that never help find a table.
+const QUERY_STOPWORDS: &[&str] = &[
+    "all", "and", "are", "by", "each", "every", "find", "for", "from", "get", "how", "in", "is",
+    "list", "many", "me", "much", "my", "of", "on", "or", "our", "per", "show", "the", "their",
+    "to", "what", "which", "who", "with",
+];
+
+/// Time grains. Any timestamp column can be grouped by month, so a column
+/// such as `exp_month` is not evidence; these only count when they appear in
+/// an object's name (`mv_monthly_revenue`).
+const TIME_GRAIN_WORDS: &[&str] = &[
+    "annual",
+    "day",
+    "daily",
+    "hour",
+    "hourly",
+    "month",
+    "monthly",
+    "quarter",
+    "quarterly",
+    "week",
+    "weekly",
+    "year",
+    "yearly",
+];
+
 /// Subset of manifest counts needed for IDF (TS `{ tables: number }`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TableCounts {
@@ -54,7 +92,8 @@ pub fn builtin_synonyms(token: &str) -> Option<&'static [&'static str]> {
         "user" => &["customer", "client", "member", "account"],
         "order" => &["purchase", "transaction", "sale", "deal"],
         "purchase" => &["order", "transaction", "sale"],
-        "revenue" => &["amount", "price", "sales", "payment", "income"],
+        // Not "payment": it pulled `payment_methods` to the top of revenue questions.
+        "revenue" => &["amount", "price", "sales", "income"],
         "payment" => &["revenue", "charge", "invoice"],
         "product" => &["item", "goods", "sku"],
         "item" => &["product", "goods"],
@@ -66,8 +105,12 @@ pub fn builtin_synonyms(token: &str) -> Option<&'static [&'static str]> {
 
 /// Tokenize by camelCase / digit / non-alnum splits, expand abbreviations, stem.
 ///
-/// Matches TS `tokenize`.
+/// Matches TS `tokenize` apart from the stemmer (see [`stem_word`]).
 pub fn tokenize(text: &str) -> Vec<String> {
+    tokenize_with(text, stem_word)
+}
+
+fn tokenize_with(text: &str, stem: fn(&str) -> String) -> Vec<String> {
     if text.is_empty() {
         return Vec::new();
     }
@@ -95,11 +138,40 @@ pub fn tokenize(text: &str) -> Vec<String> {
         }
     }
 
-    expanded.into_iter().map(|w| stem_word(&w)).collect()
+    expanded.into_iter().map(|w| stem(&w)).collect()
 }
 
-/// Basic English plural stemmer for DB identifiers (TS `stemWord`).
+/// Plural stemmer for DB identifiers.
+///
+/// **Divergence:** TS `stemWord` stripped "-es" from everything except
+/// sibilant endings, so `warehouses` became `warehous` and `addresses`
+/// became `addresse`, and neither matched a query for "warehouse" or
+/// "address". Here only sibilant endings lose "-es".
 pub fn stem_word(word: &str) -> String {
+    if let Some(stem) = word.strip_suffix("ies") {
+        return format!("{stem}y");
+    }
+    let sibilant = ["sses", "shes", "ches", "xes"]
+        .iter()
+        .any(|s| word.ends_with(s))
+        || (word.ends_with("uses") && !word.ends_with("ouses") && !word.ends_with("auses"));
+    if sibilant {
+        return word[..word.len() - 2].to_owned();
+    }
+    if word.ends_with('s')
+        && !word.ends_with("ss")
+        && !word.ends_with("us")
+        && !word.ends_with("as")
+        && !word.ends_with("is")
+    {
+        return word[..word.len() - 1].to_owned();
+    }
+    word.to_owned()
+}
+
+/// TS `stemWord`, which built indexes written before [`stem_word`] changed.
+/// Queries also look up these stems so older indexes keep matching.
+fn legacy_stem_word(word: &str) -> String {
     if let Some(stem) = word.strip_suffix("ies") {
         return format!("{stem}y");
     }
@@ -165,23 +237,27 @@ pub fn score_object(
         counts.tables as f64
     };
 
+    let idf = |token: &str| {
+        let df = token_index.df.get(token).copied().unwrap_or(1.0);
+        (1.0 + n / df).ln()
+    };
+
     for token in query_tokens {
+        let token_idf = idf(token);
         if let Some(postings) = token_index.postings.get(token)
             && let Some((_, weight)) = postings.iter().find(|(r, _)| r == object_ref)
         {
-            let df = token_index.df.get(token).copied().unwrap_or(1.0);
-            let idf = (1.0 + n / df).ln();
-            score += weight * idf;
+            score += weight * token_idf;
         }
 
         for syn in resolve_synonyms(token, token_index) {
             if let Some(syn_postings) = token_index.postings.get(&syn)
                 && let Some((_, weight)) = syn_postings.iter().find(|(r, _)| r == object_ref)
             {
+                // A rare synonym must not outweigh the word the user typed:
+                // "order" should not rank `transactions` above `orders`.
                 let weight = weight * SYNONYM_WEIGHT_PENALTY;
-                let df = token_index.df.get(&syn).copied().unwrap_or(1.0);
-                let idf = (1.0 + n / df).ln();
-                score += weight * idf;
+                score += weight * idf(&syn).min(token_idf);
             }
         }
     }
@@ -195,6 +271,74 @@ pub fn score_object(
     }
 
     score.max(0.0)
+}
+
+/// A search query split into the terms used for scoring.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryTerms {
+    /// Terms looked up in the postings: no stopwords or time grains, plus
+    /// legacy stems for indexes built before [`stem_word`] changed.
+    pub scoring: Vec<String>,
+    /// Terms compared with object and schema names (time grains included).
+    pub name: Vec<String>,
+}
+
+/// Split a natural-language query into [`QueryTerms`].
+pub fn query_terms(query: &str) -> QueryTerms {
+    let current = tokenize(query);
+    let legacy = tokenize_with(query, legacy_stem_word);
+    let mut scoring = Vec::new();
+    let mut name = Vec::new();
+    for (term, legacy_term) in current.into_iter().zip(legacy) {
+        if QUERY_STOPWORDS.contains(&term.as_str()) {
+            continue;
+        }
+        if !TIME_GRAIN_WORDS.contains(&term.as_str()) {
+            if legacy_term != term && !scoring.contains(&legacy_term) {
+                scoring.push(legacy_term);
+            }
+            if !scoring.contains(&term) {
+                scoring.push(term.clone());
+            }
+        }
+        if !name.contains(&term) {
+            name.push(term);
+        }
+    }
+    if scoring.is_empty() {
+        scoring = name.clone();
+    }
+    QueryTerms { scoring, name }
+}
+
+/// Bonus for query terms that name the object or its schema. TF-IDF alone
+/// scores `orders.orders` low for "orders" because many tables have an
+/// `order_id` column, which makes the word common.
+pub fn name_match_bonus(object_ref: &str, name_terms: &[String], token_index: &TokenIndex) -> f64 {
+    let (schema, name) = object_ref.split_once('.').unwrap_or(("", object_ref));
+    let name_tokens = tokenize(name);
+    let schema_tokens = tokenize(schema);
+    let mut bonus = 0.0;
+    let mut covered = 0;
+    for term in name_terms {
+        if name_tokens.contains(term) {
+            bonus += NAME_MATCH_BONUS;
+            covered += 1;
+        } else if resolve_synonyms(term, token_index)
+            .iter()
+            .any(|syn| name_tokens.contains(syn))
+        {
+            bonus += NAME_SYNONYM_BONUS;
+        }
+        if schema_tokens.contains(term) {
+            bonus += SCHEMA_MATCH_BONUS;
+        }
+    }
+    let distinct_name_tokens: HashSet<&String> = name_tokens.iter().collect();
+    if !distinct_name_tokens.is_empty() && covered >= distinct_name_tokens.len() {
+        bonus += FULL_NAME_BONUS;
+    }
+    bonus
 }
 
 /// Mine synonyms from object comments (TS `extractSynonymsFromComment`).
@@ -226,8 +370,9 @@ pub fn extract_synonyms_from_comment(comment: &str) -> Vec<String> {
 fn resolve_synonyms(token: &str, token_index: &TokenIndex) -> Vec<String> {
     let mut syns: HashSet<String> = HashSet::new();
     if let Some(builtin) = builtin_synonyms(token) {
+        // Postings hold stemmed tokens, so "sales" must be looked up as "sale".
         for s in builtin {
-            syns.insert((*s).to_owned());
+            syns.insert(stem_word(s));
         }
     }
     if let Some(mined) = token_index.synonyms.get(token) {
@@ -412,10 +557,10 @@ mod tests {
             ("col2Name", &["col", "2", "name"]),
             ("a", &[]),    // single letter dropped
             ("1", &["1"]), // single digit kept
-            // TS stem quirks (not ideal English): sses blocks -es, then -s still strips.
-            ("classes", &["classe"]),
-            ("addresses", &["addresse"]),
+            ("classes", &["class"]),
+            ("addresses", &["address"]),
             ("companies", &["company"]),
+            ("warehouses", &["warehouse"]),
         ];
 
         for (input, expected) in cases {
@@ -432,18 +577,84 @@ mod tests {
     fn stem_word_table_driven() {
         let cases: &[(&str, &str)] = &[
             ("companies", "company"),
-            ("addresses", "addresse"), // sses blocks -es; -s still applies
+            ("addresses", "address"),
             ("buses", "bus"),
+            ("statuses", "status"),
             ("users", "user"),
             ("class", "class"),
-            ("classes", "classe"), // same sses/-s interaction as TS
+            ("classes", "class"),
             ("status", "status"),
             ("atlas", "atlas"),
-            ("ashes", "ashe"), // shes blocks -es; -s still applies
+            ("analysis", "analysis"),
+            ("ashes", "ash"),
+            ("boxes", "box"),
+            ("matches", "match"),
+            ("warehouses", "warehouse"),
+            ("houses", "house"),
+            ("invoices", "invoice"),
+            ("sales", "sale"),
+            ("sizes", "size"),
         ];
         for (input, expected) in cases {
             assert_eq!(stem_word(input), *expected, "stem({input})");
         }
+    }
+
+    #[test]
+    fn legacy_stems_match_indexes_built_by_ts() {
+        assert_eq!(legacy_stem_word("addresses"), "addresse");
+        assert_eq!(legacy_stem_word("warehouses"), "warehous");
+        assert_eq!(legacy_stem_word("invoices"), "invoic");
+    }
+
+    #[test]
+    fn query_terms_drop_filler_and_keep_time_grains_for_names() {
+        let terms = query_terms("Monthly revenue from orders");
+        assert_eq!(terms.scoring, vec!["revenue", "order"]);
+        assert_eq!(terms.name, vec!["monthly", "revenue", "order"]);
+
+        // Older indexes stored "warehous"; look that up too.
+        let terms = query_terms("stock by warehouses");
+        assert_eq!(terms.scoring, vec!["stock", "warehous", "warehouse"]);
+
+        // A query of only time grains still searches.
+        assert_eq!(query_terms("monthly").scoring, vec!["monthly"]);
+    }
+
+    #[test]
+    fn name_match_bonus_prefers_the_named_table() {
+        let index = empty_index();
+        let terms = query_terms("cancelled orders").name;
+        let orders = name_match_bonus("orders.orders", &terms, &index);
+        let items = name_match_bonus("orders.order_items", &terms, &index);
+        let other = name_match_bonus("billing.transactions", &terms, &index);
+        // name + schema + whole name covered
+        assert_eq!(
+            orders,
+            NAME_MATCH_BONUS + SCHEMA_MATCH_BONUS + FULL_NAME_BONUS
+        );
+        assert_eq!(items, NAME_MATCH_BONUS + SCHEMA_MATCH_BONUS);
+        // "transaction" is a built-in synonym of "order"
+        assert_eq!(other, NAME_SYNONYM_BONUS);
+    }
+
+    #[test]
+    fn rare_synonym_does_not_outscore_the_typed_word() {
+        let mut index = empty_index();
+        index.df.insert("order".into(), 8.0);
+        index.df.insert("transaction".into(), 1.0);
+        index
+            .postings
+            .insert("order".into(), vec![("orders.orders".into(), 3.0)]);
+        index.postings.insert(
+            "transaction".into(),
+            vec![("billing.transactions".into(), 3.0)],
+        );
+        let tokens = vec!["order".to_owned()];
+        let counts = TableCounts { tables: 20 };
+        let direct = score_object("orders.orders", &tokens, &index, counts);
+        let via_syn = score_object("billing.transactions", &tokens, &index, counts);
+        assert!(direct > via_syn, "{direct} <= {via_syn}");
     }
 
     #[test]

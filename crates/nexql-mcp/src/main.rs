@@ -174,8 +174,19 @@ struct TransportArgs {
 
 #[derive(clap::Args, Default)]
 struct AccessArgs {
-    #[arg(long, default_value = "read")]
+    /// read (default), write or admin. Env: `NEXQL_MCP_ACCESS_MODE`.
+    #[arg(long, default_value = "read", env = "NEXQL_MCP_ACCESS_MODE")]
     access_mode: String,
+
+    /// Same as `--access-mode write`, for installers that only offer an
+    /// on/off switch (the Claude Desktop bundle). Env: `NEXQL_MCP_ALLOW_WRITES`.
+    #[arg(long = "allow-writes")]
+    allow_writes: bool,
+
+    /// Only expose these schemas (comma-separated) on connections whose
+    /// profile sets no `schemas`. Env: `NEXQL_MCP_SCHEMAS`.
+    #[arg(long, value_delimiter = ',', env = "NEXQL_MCP_SCHEMAS")]
+    schemas: Vec<String>,
 
     #[arg(long = "i-know-what-im-doing")]
     i_know_what_im_doing: bool,
@@ -900,16 +911,54 @@ fn access_ceiling(cli_mode: AccessMode, connections: &[nexql_tools::ConnectionIn
     }
 }
 
+/// Access mode from `--access-mode`, `--allow-writes` and `--managed-extension`.
+fn cli_access_mode(access: &AccessArgs) -> Result<AccessMode, Box<dyn std::error::Error>> {
+    if access.managed_extension {
+        return Ok(AccessMode::Read);
+    }
+    let mode: AccessMode = access.access_mode.parse()?;
+    let allow_writes = access.allow_writes || env_flag("NEXQL_MCP_ALLOW_WRITES");
+    Ok(if allow_writes && mode == AccessMode::Read {
+        AccessMode::Write
+    } else {
+        mode
+    })
+}
+
+/// Read by hand rather than through clap: an installer sends "true", "false"
+/// or an empty string, and clap rejects an empty value for a switch.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| is_truthy(&v))
+}
+
+fn is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// `--schemas` for a connection whose profile does not choose its own.
+fn apply_cli_schemas(access: &AccessArgs, policy: &mut nexql_tools::ConnectionPolicy) {
+    // An installer that leaves an optional field unset may pass its
+    // placeholder through verbatim; never let that hide every schema.
+    let schemas: Vec<String> = access
+        .schemas
+        .iter()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty() && !s.contains("${"))
+        .collect();
+    if !schemas.is_empty() && policy.filter.allow_schemas.is_empty() {
+        policy.filter.allow_schemas = schemas;
+    }
+}
+
 async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::Error>> {
     migrate_legacy_secrets(cli);
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
     let active_resolved = resolved_list.first();
 
-    let cli_mode: AccessMode = if cli.access.managed_extension {
-        AccessMode::Read
-    } else {
-        cli.access.access_mode.parse()?
-    };
+    let cli_mode = cli_access_mode(&cli.access)?;
 
     let mut default_caps = PolicyCaps::default();
     if let Some(n) = cli.access.max_rows {
@@ -926,6 +975,7 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
             if cli.access.managed_extension {
                 policy.access_mode = AccessMode::Read;
             }
+            apply_cli_schemas(&cli.access, &mut policy);
             if let Some(n) = cli.access.max_rows {
                 policy.caps = policy.caps.with_max_rows(n);
             }
@@ -1824,7 +1874,7 @@ fn masked_columns_summary(filter: &nexql_policy::PolicyFilter, cols: &[String]) 
 }
 
 async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let mode: AccessMode = cli.access.access_mode.parse()?;
+    let mode = cli_access_mode(&cli.access)?;
     let resolved = resolve(&resolve_inputs(cli))?;
     println!(
         "resolved source={:?} profile={:?}",
@@ -1874,7 +1924,8 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Columns the name heuristics will mask (non-fatal).
-    let policy = policy_from_profile(resolved.profile.as_ref(), mode, PolicyCaps::default());
+    let mut policy = policy_from_profile(resolved.profile.as_ref(), mode, PolicyCaps::default());
+    apply_cli_schemas(&cli.access, &mut policy);
     match client.query(USER_COLUMNS_SQL, &[]).await {
         Ok(rows) => {
             let cols = masked_columns(
@@ -1943,11 +1994,7 @@ async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error::Error>> {
     migrate_legacy_secrets(cli);
-    let cli_mode: AccessMode = if cli.access.managed_extension {
-        AccessMode::Read
-    } else {
-        cli.access.access_mode.parse()?
-    };
+    let cli_mode = cli_access_mode(&cli.access)?;
     let resolved_list = nexql_conn::resolve_all(&resolve_inputs(cli))?;
     let mut default_caps = PolicyCaps::default();
     if let Some(n) = cli.access.max_rows {
@@ -1964,6 +2011,7 @@ async fn build_session(cli: &Cli) -> Result<Arc<ToolSession>, Box<dyn std::error
             if cli.access.managed_extension {
                 policy.access_mode = AccessMode::Read;
             }
+            apply_cli_schemas(&cli.access, &mut policy);
             nexql_tools::ConnectionInfo {
                 id: id.clone(),
                 name: id,
@@ -2151,6 +2199,55 @@ fn print_ascii_table(rows: &[Value]) {
 mod main_cli_tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn installer_booleans_parse() {
+        for v in ["true", "TRUE", "1", "yes", " on "] {
+            assert!(is_truthy(v), "{v}");
+        }
+        for v in ["false", "", "0", "no", "${user_config.allow_writes}"] {
+            assert!(!is_truthy(v), "{v}");
+        }
+    }
+
+    #[test]
+    fn allow_writes_upgrades_read_but_not_managed_mode() {
+        let mut access = AccessArgs {
+            access_mode: "read".into(),
+            allow_writes: true,
+            ..Default::default()
+        };
+        assert_eq!(cli_access_mode(&access).unwrap(), AccessMode::Write);
+        access.access_mode = "admin".into();
+        assert_eq!(cli_access_mode(&access).unwrap(), AccessMode::Admin);
+        access.managed_extension = true;
+        assert_eq!(cli_access_mode(&access).unwrap(), AccessMode::Read);
+    }
+
+    #[test]
+    fn cli_schemas_apply_only_without_profile_schemas() {
+        let access = AccessArgs {
+            schemas: vec![" sales ".into(), "".into(), "crm".into()],
+            ..Default::default()
+        };
+        let mut policy = policy_from_profile(None, AccessMode::Read, PolicyCaps::default());
+        apply_cli_schemas(&access, &mut policy);
+        assert_eq!(policy.filter.allow_schemas, ["sales", "crm"]);
+
+        let mut own = policy_from_profile(None, AccessMode::Read, PolicyCaps::default());
+        own.filter.allow_schemas = vec!["public".into()];
+        apply_cli_schemas(&access, &mut own);
+        assert_eq!(own.filter.allow_schemas, ["public"]);
+
+        // An unsubstituted installer placeholder is ignored.
+        let placeholder = AccessArgs {
+            schemas: vec!["${user_config.schemas}".into()],
+            ..Default::default()
+        };
+        let mut policy = policy_from_profile(None, AccessMode::Read, PolicyCaps::default());
+        apply_cli_schemas(&placeholder, &mut policy);
+        assert!(policy.filter.allow_schemas.is_empty());
+    }
 
     #[test]
     fn doctor_lists_masked_columns_and_respects_policy() {

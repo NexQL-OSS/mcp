@@ -117,6 +117,21 @@ fn rust_query_service_searches_pre_cutover_fixture() {
 }
 
 #[test]
+fn plural_queries_find_ts_stemmed_tokens() {
+    // The fixture's tokens.json came from the TS stemmer: "purchases" → "purchas".
+    // (query.rs covers an index holding only the TS stem.)
+    let store = IndexStore::new(pre_cutover_root());
+    let qs = IndexQueryService::new(&store, "golden-conn", "postgres");
+    let hits = qs
+        .search_schema("purchases", 10, None, SearchOptions::default())
+        .expect("search_schema");
+    assert!(
+        hits.iter().any(|h| h.ref_ == "public.orders"),
+        "expected public.orders in hits: {hits:?}"
+    );
+}
+
+#[test]
 fn ts_golden_matches_expected_byte_for_byte() {
     // `ts/` is the committed stand-in for TS IndexBuilder output (same formatVersion=1
     // artifacts as `expected/`). When a live TS harness lands, regenerate `ts/` from

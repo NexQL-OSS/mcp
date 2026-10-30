@@ -270,3 +270,56 @@ async fn search_all_databases_indexes_other_databases_on_first_use() {
     assert!(!out.is_error, "{}", out.text);
     assert!(out.text.contains("nexql_analytics"), "{}", out.text);
 }
+
+#[tokio::test]
+async fn orient_lists_enum_like_columns_from_planner_stats() {
+    let Some(pg) = start_temp_pg() else {
+        eprintln!("skip: initdb/postgres unavailable");
+        return;
+    };
+    {
+        let (client, conn) = tokio_postgres::connect(&pg.url, tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(conn);
+        client
+            .batch_execute(
+                "CREATE TABLE public.tickets (id int PRIMARY KEY, status text, \
+                     contact_email text, notes text, created_by text); \
+                 INSERT INTO public.tickets \
+                     SELECT g, (ARRAY['OPEN','CLOSED','PENDING'])[1 + g % 3], \
+                            (ARRAY['a@example.com','b@example.com'])[1 + g % 2], \
+                            (ARRAY['Called back','Left voicemail'])[1 + g % 2], \
+                            (ARRAY['ana','raj'])[1 + g % 2] \
+                     FROM generate_series(1, 300) AS g; \
+                 ANALYZE public.tickets;",
+            )
+            .await
+            .unwrap();
+    }
+
+    let session = session_for(&pg.url).await;
+    let index_dir = TempDir::new().unwrap();
+    let router = nexql_tools::ToolRouter::with_index_store(
+        session,
+        Some(nexql_index::IndexStore::new(index_dir.path())),
+    );
+    let out = router.call("orient", serde_json::json!({})).await;
+    assert!(!out.is_error, "{}", out.text);
+    let enums = &out.structured.unwrap()["enums"];
+    let mut status: Vec<&str> = enums["public.tickets.status"]
+        .as_array()
+        .unwrap_or_else(|| panic!("status missing: {enums}"))
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    status.sort();
+    assert_eq!(status, ["CLOSED", "OPEN", "PENDING"]);
+    // Masked, free-text and actor columns are never listed.
+    for column in ["contact_email", "notes", "created_by"] {
+        assert!(
+            enums.get(format!("public.tickets.{column}")).is_none(),
+            "{column} listed: {enums}"
+        );
+    }
+}
