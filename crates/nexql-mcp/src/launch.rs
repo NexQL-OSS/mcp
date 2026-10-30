@@ -71,9 +71,17 @@ fn absolute_launch_with(
 }
 
 /// `npx` is a `#!/usr/bin/env node` script, so the client also needs `node`
-/// on its `PATH`. Node installs put both in the same directory.
+/// on its `PATH`. Node installs put both in the same directory. Windows apps
+/// inherit the user's `PATH`, so only the program is made absolute there.
 fn npx_launch(args: &[String], path_var: &std::ffi::OsStr) -> Option<Launch> {
     let npx = find_on_path("npx", path_var)?;
+    if cfg!(windows) {
+        return Some(Launch {
+            command: npx.display().to_string(),
+            args: args.to_vec(),
+            env: Vec::new(),
+        });
+    }
     let dir = npx.parent()?;
     let mut dirs = vec![dir.to_path_buf()];
     dirs.extend(
@@ -164,9 +172,18 @@ mod tests {
 
     #[test]
     fn stable_current_exe_is_used_when_not_on_path() {
-        let exe = Path::new("/opt/nexql/bin/nexql-mcp");
-        let launch = absolute_launch_with("nexql-mcp", &[], &OsString::new(), Some(exe));
-        assert_eq!(launch.command, "/opt/nexql/bin/nexql-mcp");
+        let installed = if cfg!(windows) {
+            r"C:\Program Files\nexql\nexql-mcp.exe"
+        } else {
+            "/opt/nexql/bin/nexql-mcp"
+        };
+        let launch = absolute_launch_with(
+            "nexql-mcp",
+            &[],
+            &OsString::new(),
+            Some(Path::new(installed)),
+        );
+        assert_eq!(launch.command, installed);
     }
 
     #[cfg(unix)]
