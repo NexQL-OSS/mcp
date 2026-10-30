@@ -1,104 +1,18 @@
 ---
-import BaseLayout from "../layouts/BaseLayout.astro";
-import { SetupDemo } from "../islands/SetupDemo";
+import ReplayPage from "../components/ReplayPage.astro";
+import { SETUP } from "../data/setup";
 ---
 
-<BaseLayout
-  title="NexQL MCP — install and setup in six steps"
-  description="Copy-paste prompts for your AI agent: run the setup wizard (or one non-interactive command), save a database profile, wire your client, verify with doctor, ask your first question with orient, and make it permanent with a standing agent rule. No manual JSON."
+<ReplayPage
+  current="setup"
+  title="Agent prompts · NexQL MCP"
   canonical="https://nexql-mcp.astrx.dev/setup"
+  description="Copy-paste prompts for your AI coding agent: install NexQL MCP, save a database connection without the password ever entering the chat, wire your app, check it with doctor, ask a first question and make it a standing rule."
+  eyebrow="Agent prompts · six steps"
+  lede="Using an AI coding agent like Claude Code or Cursor? Paste the first prompt and it installs NexQL, saves your connection, wires your app and checks it works. The one thing it never touches is your password: you type that once, in your own terminal."
+  hints={["Copy a prompt, paste it into your agent", "The first prompt covers every step", "Prefer doing it by hand? Take the tour"]}
+  replay={SETUP}
+  unit="Step"
 >
-  <SetupDemo client:load />
-</BaseLayout>
-
-<style is:global>
-  html,
-  body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow: hidden;
-    background: #0a0b0d;
-  }
-  body {
-    font-family: "Space Grotesk", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-  a {
-    color: #cc785c;
-    text-decoration: none;
-  }
-  button {
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    background: none;
-    color: inherit;
-  }
-  ::selection {
-    background: rgba(210, 167, 106, 0.3);
-  }
-  ::-webkit-scrollbar {
-    width: 6px;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #20242b;
-    border-radius: 99px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  @keyframes stRise {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes stFade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-  @keyframes stBlink {
-    0%,
-    48% {
-      opacity: 1;
-    }
-    49%,
-    100% {
-      opacity: 0;
-    }
-  }
-
-  .story-navlink:hover {
-    color: #f2f0ea;
-  }
-  .story-install-btn:hover {
-    border-color: #cc785c;
-  }
-  .story-option:hover {
-    border-color: #636a75;
-  }
-  .story-close:hover {
-    color: #f2f0ea;
-  }
-  .story-tab:hover {
-    border-color: #636a75;
-  }
-  .story-tab[aria-pressed="true"]:hover {
-    border-color: #cc785c;
-  }
-  .story-copy-btn:hover {
-    border-color: #cc785c;
-    color: #f2f0ea;
-  }
-</style>
+  <Fragment slot="title">Let your agent <span class="serif-em grad-text">set it up</span> for you.</Fragment>
+</ReplayPage>

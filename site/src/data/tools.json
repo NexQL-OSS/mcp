@@ -1,0 +1,1691 @@
+{
+  "tools": [
+    {
+      "name": "list_connections",
+      "description": "List configured connection profiles (never includes passwords).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "dba",
+        "meta"
+      ],
+      "params": []
+    },
+    {
+      "name": "list_databases",
+      "description": "List databases available for a connection profile.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Name of a configured connection profile, as returned by list_connections. Defaults to the active connection."
+        }
+      ]
+    },
+    {
+      "name": "list_schemas",
+      "description": "List non-system schemas in the currently selected database.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": []
+    },
+    {
+      "name": "list_objects",
+      "description": "List objects (tables, views, …) in a schema.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "include_partitions",
+          "type": "boolean",
+          "required": false,
+          "description": "When true, list child partition tables individually. Default false groups partitioned parents."
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "required": false,
+          "description": "Filter by object kind: \"table\", \"view\", or \"materialized_view\"."
+        },
+        {
+          "name": "schema",
+          "type": "string",
+          "required": false,
+          "description": "Schema name to list, e.g. \"public\". Defaults to all non-system schemas."
+        }
+      ]
+    },
+    {
+      "name": "get_current_context",
+      "description": "Return the active profile, database, and access mode.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "dba",
+        "meta"
+      ],
+      "params": []
+    },
+    {
+      "name": "switch_connection",
+      "description": "Switch the session to another connection profile / database.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Name of a configured connection profile, as returned by list_connections. Defaults to the active connection, so passing only `database` switches database."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database name on that connection. Defaults to the profile's configured database."
+        }
+      ]
+    },
+    {
+      "name": "run_select",
+      "description": "Run a read-only SELECT or WITH query. DML/DDL are rejected. Supports parameterized execution via `params` ($1, $2, …). Returns up to 50 rows by default; has_more says whether more exist, and total_count is included when the whole result fits (or with count: true).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "count",
+          "type": "boolean",
+          "required": false,
+          "description": "When true and has_more is true, also return total_count. Runs the query a second time, so only ask when the total matters."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "description": "Output format: \"compact\" (default columnar), \"json\", \"markdown\", or \"csv\"."
+        },
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum rows to return. Defaults to 50; capped by profile max_rows."
+        },
+        {
+          "name": "params",
+          "type": "array",
+          "required": false,
+          "description": "Bound parameters for $1, $2, … in `sql`. JSON values: string, number, boolean, or null."
+        },
+        {
+          "name": "resolve_fks",
+          "type": "boolean",
+          "required": false,
+          "description": "When true, add __resolved suffix columns for foreign-key IDs in the result."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single SELECT or WITH statement, schema-qualify table names where possible."
+        },
+        {
+          "name": "timeout_ms",
+          "type": "number",
+          "required": false,
+          "description": "Per-query statement timeout in milliseconds; capped by profile statement_timeout_ms."
+        }
+      ]
+    },
+    {
+      "name": "explain_query",
+      "description": "Run EXPLAIN (no ANALYZE execute) for a SELECT/WITH query.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single SELECT or WITH statement to explain (not executed)."
+        }
+      ]
+    },
+    {
+      "name": "discover_tools",
+      "description": "Dynamically discover and inspect specialized MCP database tools by keyword query (e.g., 'locks', 'bloat', 'index') or category ('query', 'dba', 'write'). Use this when you need specialized tools beyond the core surface.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Restrict to a tool category: \"query\", \"dba\", \"meta\", or \"write\"."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "description": "Free-text keyword to search tool names/descriptions, e.g. \"locks\" or \"bloat\"."
+        }
+      ]
+    },
+    {
+      "name": "run_doctor",
+      "description": "Run diagnostic health checks on active database connection, permissions, session guards, and index status.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "dba",
+        "meta"
+      ],
+      "params": []
+    },
+    {
+      "name": "add_database",
+      "description": "Connect another Postgres database for this session and save it as a read-only profile, without the password passing through the chat. Give the connection details; this opens a one-time page on the user's computer where they check those details and type the password themselves. Never ask the user to paste a password into the chat, and never put one in a shell command or file. Tell the user what the page is for, then call again with setupId to see whether they finished.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "query",
+        "dba",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "dbname",
+          "type": "string",
+          "required": false,
+          "description": "Database name."
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "required": false,
+          "description": "Database server hostname."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Name for the new connection, e.g. \"billing\". Must not already be in use."
+        },
+        {
+          "name": "port",
+          "type": "number",
+          "required": false,
+          "description": "Database server port (default 5432)."
+        },
+        {
+          "name": "setupId",
+          "type": "string",
+          "required": false,
+          "description": "Check on a setup started by an earlier call instead of starting a new one."
+        },
+        {
+          "name": "sslmode",
+          "type": "string",
+          "required": false,
+          "description": "libpq sslmode, e.g. \"require\" or \"verify-full\"."
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "required": false,
+          "description": "postgres:// URL without a password, as an alternative to host/port/dbname/user."
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "description": "Database role to log in as."
+        }
+      ]
+    },
+    {
+      "name": "setup_connection",
+      "description": "Automatically detect or configure a database connection. Scans environment variables, workspace files, and local settings, eliciting missing credentials when supported.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "dbname",
+          "type": "string",
+          "required": false,
+          "description": "Database name to connect to."
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "required": false,
+          "description": "Database server hostname."
+        },
+        {
+          "name": "interactive",
+          "type": "boolean",
+          "required": false,
+          "description": "Prompt (elicit) for missing credentials instead of failing. Default false."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Profile name to assign/detect."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "Database role password. Never written to disk in plaintext — stored in the OS keyring, or the call fails with the password_command/password_file alternative."
+        },
+        {
+          "name": "port",
+          "type": "number",
+          "required": false,
+          "description": "Database server port (default 5432)."
+        },
+        {
+          "name": "sslmode",
+          "type": "string",
+          "required": false,
+          "description": "libpq sslmode value, e.g. \"disable\", \"require\", \"verify-full\"."
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "required": false,
+          "description": "Full postgres:// connection URL; if given, host/port/dbname/user/password are ignored."
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "description": "Database role/username."
+        }
+      ]
+    },
+    {
+      "name": "save_profile",
+      "description": "Save or update a database connection profile in user configuration with atomic backup and dynamic session reload. Merges into the existing named profile by default — omitted fields are preserved, not cleared. Pass replace: true to wholesale-replace instead.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "access_mode",
+          "type": "string",
+          "required": false,
+          "description": "Session access mode: \"read\", \"write\", or \"admin\". Setting \"write\" or \"admin\" requires confirm_elevated_access: true, or the call is rejected."
+        },
+        {
+          "name": "confirm_elevated_access",
+          "type": "boolean",
+          "required": false,
+          "description": "Required (must be true) when access_mode is \"write\" or \"admin\" — explicit opt-in for a privilege escalation. No effect when access_mode is omitted or \"read\"."
+        },
+        {
+          "name": "dbname",
+          "type": "string",
+          "required": false,
+          "description": "Database name to connect to."
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "required": false,
+          "description": "Database server hostname."
+        },
+        {
+          "name": "max_rows",
+          "type": "number",
+          "required": false,
+          "description": "Row cap applied to run_select/export_query for this profile."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Profile name to save under."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "Database role password. Never written to disk in plaintext — stored in the OS keyring, or the call fails with the password_command/password_file alternative."
+        },
+        {
+          "name": "port",
+          "type": "number",
+          "required": false,
+          "description": "Database server port (default 5432)."
+        },
+        {
+          "name": "replace",
+          "type": "boolean",
+          "required": false,
+          "description": "If true, replace the profile wholesale instead of merging with existing saved fields. Default false."
+        },
+        {
+          "name": "sslmode",
+          "type": "string",
+          "required": false,
+          "description": "libpq sslmode value, e.g. \"disable\", \"require\", \"verify-full\"."
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "required": false,
+          "description": "Full postgres:// connection URL; if given, host/port/dbname/user/password are ignored."
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "description": "Database role/username."
+        }
+      ]
+    },
+    {
+      "name": "test_profile",
+      "description": "Test a database connection profile or inline parameters and return server version, superuser status, and round-trip latency.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "dbname",
+          "type": "string",
+          "required": false,
+          "description": "Database name (inline test)."
+        },
+        {
+          "name": "host",
+          "type": "string",
+          "required": false,
+          "description": "Database server hostname (inline test)."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Existing profile name to test. Omit to test inline parameters instead."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "Database role password (inline test)."
+        },
+        {
+          "name": "port",
+          "type": "number",
+          "required": false,
+          "description": "Database server port (inline test)."
+        },
+        {
+          "name": "sslmode",
+          "type": "string",
+          "required": false,
+          "description": "libpq sslmode value (inline test), e.g. \"require\"."
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "required": false,
+          "description": "Full postgres:// connection URL to test inline (alternative to name)."
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "required": false,
+          "description": "Database role/username (inline test)."
+        }
+      ]
+    },
+    {
+      "name": "export_profile",
+      "description": "Export a secret-sanitized TOML configuration for team sharing (.nexql/config.toml) with all passwords and credentials stripped.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "description": "Output format, currently only \"toml\" is supported (default)."
+        }
+      ]
+    },
+    {
+      "name": "import_profile",
+      "description": "Import a team configuration file (.nexql/config.toml) or TOML content into local user configuration.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "content",
+          "type": "string",
+          "required": false,
+          "description": "Raw TOML content to import. Provide this or `path`, not both."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "description": "Filesystem path to a .nexql/config.toml file to import."
+        }
+      ]
+    },
+    {
+      "name": "resolve_target",
+      "description": "Autonomously find which connection/database matches a user's hint (a database name, environment, host fragment) and/or an object hint (a table/view name), searching across ALL configured connections and their indexed schemas. Use it when the request names a database, environment, or object outside the current session context. When the match is unambiguous it switches the session context automatically and returns the resolved connection/database; only returns `ambiguous: true` with a candidate list when multiple equally-plausible matches exist, in which case surface those candidates to the user rather than guessing.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "hint",
+          "type": "string",
+          "required": false,
+          "description": "Free-text hint about the target connection: database name, environment, or host fragment."
+        },
+        {
+          "name": "objectHint",
+          "type": "string",
+          "required": false,
+          "description": "Free-text hint about a table/view name expected to live in the target database."
+        }
+      ]
+    },
+    {
+      "name": "orient",
+      "description": "Compact overview of the whole database: tables and views with columns, primary key and row estimate, foreign-key joins, and enum values. Use it for broad questions (\"what's in this database?\"); for a specific question, search_schema is cheaper.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "focus",
+          "type": "string",
+          "required": false,
+          "description": "Substring to filter tables/joins by ref (e.g. \"orders\"). Omit to summarize the whole indexed schema."
+        }
+      ]
+    },
+    {
+      "name": "inspect_or_search",
+      "description": "Composite schema discovery: search by keywords and return matching objects with columns, keys, and row estimates in one call — replaces search_schema → describe_object chains.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "include_columns",
+          "type": "boolean",
+          "required": false,
+          "description": "Include per-column definitions in each match. Default true."
+        },
+        {
+          "name": "limit_objects",
+          "type": "number",
+          "required": false,
+          "description": "Maximum matching objects to return. Default 3."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Natural-language or keyword search, e.g. \"cash card\"."
+        }
+      ]
+    },
+    {
+      "name": "search_all_databases",
+      "description": "Cross-database schema search: find which connection/database owns a table or view across every configured profile and every database it can connect to. Databases without a schema index are indexed on first search. Query a hit with run_select's `database` argument.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "limit_connections",
+          "type": "number",
+          "required": false,
+          "description": "Max connection/database pairs to search. Default 20."
+        },
+        {
+          "name": "limit_per_database",
+          "type": "number",
+          "required": false,
+          "description": "Max hits per connection/database pair. Default 3."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Table/view name or keyword to search across all connections and databases."
+        }
+      ]
+    },
+    {
+      "name": "search_schema",
+      "description": "Search the live, auto-indexed database schema using natural language or keywords to find tables, views, materialized views, and functions matching the query. Start here before writing SQL, then describe_object the tables you will use — do not assume a table exists without finding it here.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Natural-language or keyword search, e.g. \"customer email\"."
+        }
+      ]
+    },
+    {
+      "name": "describe_object",
+      "description": "Get structural details of a specific database object (table, view, or materialized view) including columns, data types, constraints, and indexes.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query",
+        "meta"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "resolve_refs",
+          "type": "boolean",
+          "required": false,
+          "description": "When true, attach enum values and resolved FK label samples on columns."
+        },
+        {
+          "name": "resolve_refs_limit",
+          "type": "number",
+          "required": false,
+          "description": "Max distinct FK values to resolve per column when resolve_refs is true. Default 20."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Table, view, or materialized view as \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous."
+        }
+      ]
+    },
+    {
+      "name": "get_join_path",
+      "description": "Find the shortest path of join relationships and foreign keys between two database tables.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "from",
+          "type": "string",
+          "required": true,
+          "description": "Start table as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous."
+        },
+        {
+          "name": "to",
+          "type": "string",
+          "required": true,
+          "description": "End table as \"schema.name\" (e.g. \"public.customers\"); a bare name is resolved if unambiguous."
+        }
+      ]
+    },
+    {
+      "name": "sample_values",
+      "description": "Retrieve a list of sample values from a specific table column to inspect its contents. Only works on read-only SELECT queries.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "column",
+          "type": "string",
+          "required": true,
+          "description": "Column of `table` to sample values from."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Table or view as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous."
+        }
+      ]
+    },
+    {
+      "name": "rebuild_index",
+      "description": "Rebuild the schema index for the active database connection.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "query",
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "depth",
+          "type": "string",
+          "required": false,
+          "description": "Index scope: \"shallow\" (structure only) or \"full\" (structure + sample values). Default \"full\"."
+        }
+      ]
+    },
+    {
+      "name": "refresh_index",
+      "description": "Refresh the schema index for the active database connection using previous build scope.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "query",
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "get_ddl",
+      "description": "Get the DDL / definition of a database object. Views, materialized views, functions, and indexes return their CREATE statement; tables return structured DDL (columns, constraints, indexes).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "required": false,
+          "description": "Object kind hint: \"table\", \"view\", \"materialized_view\", \"function\", or \"index\". Auto-detected if omitted."
+        },
+        {
+          "name": "object",
+          "type": "string",
+          "required": true,
+          "description": "Object as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous."
+        }
+      ]
+    },
+    {
+      "name": "table_stats",
+      "description": "Get size, row-count, activity (scans, inserts/updates/deletes, dead tuples, vacuum/analyze times) and per-column statistics for a specific table.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "connectionId",
+          "type": "string",
+          "required": false,
+          "description": "Optional connection profile override — does not change session context."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "required": false,
+          "description": "Database to use instead of the current one, on connectionId or the active connection."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Table as \"schema.name\" (e.g. \"public.orders\"); a bare name is resolved if unambiguous."
+        }
+      ]
+    },
+    {
+      "name": "index_usage",
+      "description": "Get index usage statistics (scan counts, size, definition, type) for a specific table's indexes. Useful for finding unused or missing indexes.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Table as \"schema.name\" (e.g. \"public.orders\")."
+        }
+      ]
+    },
+    {
+      "name": "list_running_queries",
+      "description": "List currently executing (non-idle) queries in the connected database with pid, user, state, wait events, and duration.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "find_blocking_locks",
+      "description": "Find lock contention: which queries are blocked waiting on locks and which pids/queries are blocking them.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "slow_queries",
+      "description": "List the slowest statements by mean execution time from pg_stat_statements (requires the extension; returns a hint if not installed).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of statements to return. Default 10."
+        }
+      ]
+    },
+    {
+      "name": "db_health_check",
+      "description": "Run a database health overview: size/connection stats, cache hit ratio, tables with dead tuples needing vacuum, active connections, and blocking-lock count. Sections that fail are reported individually; partial results are still returned.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "get_index_status",
+      "description": "Return schema-index status for the active connection/database: indexed_at, fingerprint, object counts, and optional live fingerprint drift. Returns status:\"missing\" (not an error) if no index has been built yet.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "list_extensions",
+      "description": "List installed PostgreSQL extensions (name, version, schema).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "server_settings",
+      "description": "Return key PostgreSQL server settings from pg_settings (memory, connections, timeouts, autovacuum, version).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "suggest_indexes",
+      "description": "Suggest indexes from high sequential-scan tables, unindexed FK columns, and optional pg_stat_statements / EXPLAIN plan heuristics. Pass sql to analyze a specific query plan.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of suggestions to return. Default 10."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": false,
+          "description": "Optional SELECT/WITH statement whose plan should inform the suggestions."
+        }
+      ]
+    },
+    {
+      "name": "find_unused_indexes",
+      "description": "List indexes with idx_scan = 0 (never used since stats reset), excluding primary keys, unique indexes, and constraint-backed indexes.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of indexes to return. Default 10."
+        }
+      ]
+    },
+    {
+      "name": "bloat_report",
+      "description": "Approximate table bloat via dead-tuple ratio from pg_stat_user_tables (simplified estimate — not physical page bloat). Tables with >1000 dead tuples, ordered by bloat %.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of tables to return. Default 10."
+        }
+      ]
+    },
+    {
+      "name": "find_missing_fks",
+      "description": "Find likely missing foreign keys: prefers schema-index join-graph inferred edges; falls back to catalog naming (*_id columns without an FK matching a PK).",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "description": "Maximum number of candidates to return. Default 20."
+        }
+      ]
+    },
+    {
+      "name": "export_query",
+      "description": "Run a read-only SELECT/WITH and format results as CSV, JSON, or SQL INSERT statements. Honors max-row / max-char caps. For sqlinsert, pass table as schema.name.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "query"
+      ],
+      "params": [
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "description": "Output format: \"csv\", \"json\", or \"sqlinsert\". Default \"csv\"."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single SELECT or WITH statement to run and export."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": false,
+          "description": "Target table as \"schema.name\", required when format=\"sqlinsert\"."
+        }
+      ]
+    },
+    {
+      "name": "list_roles",
+      "description": "List PostgreSQL roles (attributes). Pass role to get memberships and table privileges for one role.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "role",
+          "type": "string",
+          "required": false,
+          "description": "Specific role name to inspect memberships/privileges for. Omit to list all roles."
+        }
+      ]
+    },
+    {
+      "name": "db_dashboard",
+      "description": "One-shot live metrics bundle: DB size/owner, connection-state breakdown, top tables by size, object counts, active queries, and blocking locks. Soft-fails per section.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": []
+    },
+    {
+      "name": "deep_plan_analysis",
+      "description": "Run EXPLAIN (ANALYZE by default) and return parsed plan metrics (scan counts, bottlenecks, buffer stats) plus severity-graded findings: estimate skew, expensive function/CTE/subquery nodes, and recommendations. Set analyze=false for plan-only (no execution). The single query-plan-analysis tool — covers what separate explain_analyze/analyze_query_plan tools used to.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "analyze",
+          "type": "boolean",
+          "required": false,
+          "description": "If false, use plan-only estimates without executing the query. Default true."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single SELECT or WITH statement to analyze."
+        }
+      ]
+    },
+    {
+      "name": "schema_diff",
+      "description": "Compare two schemas in the current database (or sourceSchema vs targetSchema). Returns structured table/column/constraint/index diffs. Read-only — does not apply changes.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "sourceSchema",
+          "type": "string",
+          "required": true,
+          "description": "Name of the schema to treat as the baseline, e.g. \"public\"."
+        },
+        {
+          "name": "targetSchema",
+          "type": "string",
+          "required": true,
+          "description": "Name of the schema to diff against the baseline, e.g. \"staging\"."
+        }
+      ]
+    },
+    {
+      "name": "generate_migration",
+      "description": "Emit migration SQL to evolve sourceSchema toward targetSchema (from a live schema_diff). Read-only — returns SQL text, never executes it. Destructive drops are commented out.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "sourceSchema",
+          "type": "string",
+          "required": true,
+          "description": "Name of the schema to migrate from, e.g. \"public\"."
+        },
+        {
+          "name": "targetSchema",
+          "type": "string",
+          "required": true,
+          "description": "Name of the schema to migrate towards, e.g. \"staging\"."
+        }
+      ]
+    },
+    {
+      "name": "auto_tune_query",
+      "description": "Autonomous query tuner: executes EXPLAIN ANALYZE, checks table statistics, evaluates missing indexes, and outputs step-by-step performance tuning recommendations.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single SELECT or WITH statement to tune. It executes for real."
+        }
+      ]
+    },
+    {
+      "name": "check_ddl_safety",
+      "description": "Safety guard for migration DDL: inspects SQL for dangerous exclusive locks (e.g. non-concurrent index builds, column drops, table rewrites) and outputs risk scores and safe zero-downtime alternatives.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "ddl",
+          "type": "string",
+          "required": true,
+          "description": "One or more DDL statements to inspect for locking risk. Not executed."
+        }
+      ]
+    },
+    {
+      "name": "execute_sql",
+      "description": "Execute DML (and DDL in admin mode) inside an explicit transaction. Set dry_run=true to roll back after execution. Errors always roll back.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "dry_run",
+          "type": "boolean",
+          "required": false,
+          "description": "If true, execute then roll back so no change persists. Default false."
+        },
+        {
+          "name": "include_diff",
+          "type": "boolean",
+          "required": false,
+          "description": "When true (default when dry_run), capture before/after row snapshots for UPDATE/DELETE."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single DML statement (INSERT/UPDATE/DELETE), or DDL if the session is in admin mode."
+        },
+        {
+          "name": "timeout_ms",
+          "type": "number",
+          "required": false,
+          "description": "Override statement_timeout for this call, in milliseconds. Unlike run_select, may exceed the profile's configured ceiling — useful for bulk INSERT/DDL. Bounded by NEXQL_MCP_MAX_TIMEOUT_MS."
+        }
+      ]
+    },
+    {
+      "name": "edit_row",
+      "description": "Structured insert, update, or delete by primary key. The server builds parameterized SQL — pass table (schema.name), action, values, and pk for update/delete.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "action",
+          "type": "string",
+          "required": true,
+          "description": "Operation to perform: \"insert\", \"update\", or \"delete\"."
+        },
+        {
+          "name": "dry_run",
+          "type": "boolean",
+          "required": false,
+          "description": "If true, execute then roll back so no change persists. Default false."
+        },
+        {
+          "name": "include_diff",
+          "type": "boolean",
+          "required": false,
+          "description": "When true (default when dry_run), capture before/after row snapshots for update/delete."
+        },
+        {
+          "name": "pk",
+          "type": "object",
+          "required": false,
+          "description": "Primary-key column name/value pairs identifying the row. Required for update/delete."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Target table as \"schema.name\"."
+        },
+        {
+          "name": "values",
+          "type": "object",
+          "required": false,
+          "description": "Column name/value pairs to insert or update. Required for insert/update."
+        }
+      ]
+    },
+    {
+      "name": "import_data",
+      "description": "Batch INSERT rows from a JSON array of objects into a table. Optional columns array fixes column order; otherwise keys from the first row are used.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "columns",
+          "type": "array",
+          "required": false,
+          "description": "Explicit column order to insert with. Defaults to the keys of the first row."
+        },
+        {
+          "name": "rows",
+          "type": "array",
+          "required": true,
+          "description": "Array of row objects, each mapping column name to value."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": true,
+          "description": "Target table as \"schema.name\"."
+        }
+      ]
+    },
+    {
+      "name": "apply_ddl",
+      "description": "Apply a DDL statement (CREATE, ALTER, DROP, TRUNCATE, …) in admin mode inside a transaction. Set dry_run=true to roll back. Scope: objects within the connected database only — CREATE DATABASE / DROP DATABASE are always rejected, in every access mode.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "confirm_destructive",
+          "type": "boolean",
+          "required": false,
+          "description": "Required (true) when the statement is classified CRITICAL risk by check_ddl_safety's rules (e.g. DROP TABLE, TRUNCATE), unless the client supports MCP elicitation — in that case the server asks the human directly instead of requiring this argument. Call check_ddl_safety first, or dry_run:true to preview. Not required when dry_run is true. Default false."
+        },
+        {
+          "name": "dry_run",
+          "type": "boolean",
+          "required": false,
+          "description": "If true, execute then roll back so no change persists. Default false."
+        },
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single DDL statement to apply."
+        },
+        {
+          "name": "timeout_ms",
+          "type": "number",
+          "required": false,
+          "description": "Override statement_timeout for this call, in milliseconds. Unlike run_select, may exceed the profile's configured ceiling — useful for bulk INSERT/DDL. Bounded by NEXQL_MCP_MAX_TIMEOUT_MS."
+        }
+      ]
+    },
+    {
+      "name": "create_index_concurrently",
+      "description": "Run CREATE INDEX CONCURRENTLY outside a transaction (non-blocking index build). Admin mode only.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [],
+      "params": [
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A single CREATE INDEX CONCURRENTLY statement."
+        }
+      ]
+    },
+    {
+      "name": "run_maintenance",
+      "description": "Run VACUUM, ANALYZE, or REINDEX outside a transaction. Admin mode only. Optional table (schema.name); vacuum supports full=true.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "action",
+          "type": "string",
+          "required": true,
+          "description": "Maintenance action: \"vacuum\", \"analyze\", or \"reindex\"."
+        },
+        {
+          "name": "full",
+          "type": "boolean",
+          "required": false,
+          "description": "For action=\"vacuum\", run VACUUM FULL (rewrites the table, takes an exclusive lock). Default false."
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": false,
+          "description": "Target table as \"schema.name\". Omit to run against the whole database where supported."
+        }
+      ]
+    },
+    {
+      "name": "terminate_query",
+      "description": "Cancel (pg_cancel_backend) or force-terminate (pg_terminate_backend) a backend by pid. Admin mode only. Refuses superuser targets and the current session.",
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sets": [
+        "dba"
+      ],
+      "params": [
+        {
+          "name": "force",
+          "type": "boolean",
+          "required": false,
+          "description": "If true, force-terminate the backend (pg_terminate_backend) instead of a soft cancel. Default false."
+        },
+        {
+          "name": "pid",
+          "type": "number",
+          "required": true,
+          "description": "Backend process id to cancel/terminate."
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "arguments": [],
+      "description": "Run a full database health assessment and summarize issues by severity.",
+      "name": "health-check"
+    },
+    {
+      "arguments": [],
+      "description": "Find the slowest queries and propose index or rewrite improvements.",
+      "name": "analyze-slow-queries"
+    },
+    {
+      "arguments": [
+        {
+          "description": "What to explore, e.g. \"orders\", \"user accounts\", \"billing\".",
+          "name": "topic",
+          "required": true
+        }
+      ],
+      "description": "Explore and summarize the database schema around a topic.",
+      "name": "explore-schema"
+    },
+    {
+      "arguments": [],
+      "description": "Diagnose lock contention and identify the root blocking session.",
+      "name": "debug-blocking"
+    },
+    {
+      "arguments": [
+        {
+          "description": "The schema change to implement, e.g. \"add soft-delete to orders\".",
+          "name": "change",
+          "required": true
+        }
+      ],
+      "description": "Draft a safe PostgreSQL migration for a described schema change.",
+      "name": "write-migration"
+    },
+    {
+      "arguments": [
+        {
+          "description": "Current / left schema name (e.g. public).",
+          "name": "sourceSchema",
+          "required": true
+        },
+        {
+          "description": "Desired / right schema name.",
+          "name": "targetSchema",
+          "required": true
+        }
+      ],
+      "description": "Compare two PostgreSQL schemas and summarize structural differences.",
+      "name": "diff-schemas"
+    },
+    {
+      "arguments": [
+        {
+          "description": "The SELECT/WITH query to analyze.",
+          "name": "sql",
+          "required": true
+        }
+      ],
+      "description": "Deep-analyze a query plan with severity-graded findings.",
+      "name": "plan-deep-dive"
+    },
+    {
+      "arguments": [
+        {
+          "description": "Table as schema.name, e.g. \"public.orders\".",
+          "name": "table",
+          "required": true
+        }
+      ],
+      "description": "Analyze a table's indexes, bloat signals, and access patterns; propose improvements.",
+      "name": "optimize-table"
+    },
+    {
+      "arguments": [
+        {
+          "description": "The SQL SELECT (or other read query) to explain.",
+          "name": "sql",
+          "required": true
+        }
+      ],
+      "description": "Explain a SQL query against the live schema and propose plan improvements.",
+      "name": "explain-this-query"
+    }
+  ]
+}

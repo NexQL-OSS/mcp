@@ -1,0 +1,78 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { PROMPTS } from "../../data/docs";
+---
+
+<DocsLayout
+  title="Prompts and resources"
+  description="Ready-made tasks NexQL offers your app, often as slash commands, and the database objects it exposes as resources."
+>
+  <article class="prose">
+    <p class="eyebrow">Guide · 07</p>
+    <h1>Prompts and resources</h1>
+    <p class="lede">
+      Besides tools, NexQL offers your app a set of ready-made tasks (MCP prompts) and a way to attach a table's description to
+      a conversation (MCP resources). How they appear depends on the app: often as slash commands or an attach menu.
+    </p>
+
+    <h2>Prompts</h2>
+    <p>Each one starts a multi-step task with the right tools. Pick it, fill in the blanks, and the assistant takes it from there.</p>
+    <div class="prompts">
+      {
+        PROMPTS.map((p) => (
+          <div class="prompt">
+            <code class="pname">/{p.name}</code>
+            <p>{p.description}</p>
+            {p.arguments.length > 0 && (
+              <ul>
+                {p.arguments.map((a) => (
+                  <li>
+                    <code>{a.name}</code> {a.description}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))
+      }
+    </div>
+
+    <h2>Resources</h2>
+    <p>
+      Every table, view, materialized view and function in the schema index is available as a resource, addressed like this:
+    </p>
+    <pre><code>nexql://&#123;connectionId&#125;/&#123;database&#125;/object/&#123;schema&#125;/&#123;name&#125;</code></pre>
+    <p>
+      Reading one returns a structural card: columns, keys, indexes and, for views and functions, the definition. Attaching{" "}
+      <code>nexql://prod/shop/object/public/orders</code> to a conversation is a quick way to say “this table” without the
+      assistant having to search for it.
+    </p>
+  </article>
+</DocsLayout>
+
+<style>
+  .prompts {
+    display: grid;
+    gap: 12px;
+  }
+  .prompt {
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .pname {
+    font-size: 15px !important;
+    color: var(--accent);
+    background: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+  .prompt p {
+    margin-top: 6px;
+  }
+  .prompt ul {
+    margin-top: 8px;
+    font-size: 14.5px;
+  }
+</style>

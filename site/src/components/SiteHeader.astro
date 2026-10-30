@@ -1,0 +1,249 @@
+---
+import { REPO_URL, SITE_VERSION } from "../data/site";
+
+interface Props {
+  current?: "tour" | "docs" | "install" | "story" | "setup";
+}
+const { current } = Astro.props;
+const links = [
+  { id: "tour", href: "/", label: "Tour" },
+  { id: "docs", href: "/docs", label: "Docs" },
+  { id: "install", href: "/install", label: "Claude Desktop" },
+  { id: "story", href: "/story", label: "See a session" },
+  { id: "setup", href: "/setup", label: "Agent prompts" },
+] as const;
+---
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="/" aria-label="NexQL MCP home">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="word">NexQL</span>
+      <span class="chip">MCP</span>
+    </a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" hidden>
+      <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="menu-label">Menu</span>
+    </button>
+    <nav id="site-nav" aria-label="Main">
+      {
+        links.map((l) => (
+          <a href={l.href} class:list={["nav-link", { secondary: l.id === "story" || l.id === "setup" }]} aria-current={current === l.id ? "page" : undefined}>
+            {l.label}
+          </a>
+        ))
+      }
+      <a class="nav-link gh" href={REPO_URL}>GitHub <span class="ver">v{SITE_VERSION}</span></a>
+    </nav>
+  </div>
+  <div class="ribbon"></div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg-deep) 84%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .ribbon {
+    height: 2px;
+    border-radius: 0;
+    opacity: 0.85;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: var(--header-h);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 17px;
+    text-decoration: none;
+    flex: none;
+  }
+  .mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--nex-grad);
+    box-shadow: 0 0 18px rgba(224, 56, 143, 0.35);
+  }
+  .chip {
+    font: 600 11px/1 var(--font-mono);
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+  .nav-link {
+    color: var(--muted);
+    font-size: 14.5px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  .nav-link:hover,
+  .nav-link[aria-current="page"] {
+    color: var(--fg);
+    text-decoration: none;
+    background: var(--panel);
+  }
+  .ver {
+    font: 500 11px/1 var(--font-mono);
+    color: var(--faint);
+    margin-left: 4px;
+  }
+  .menu-btn {
+    display: none;
+    align-items: center;
+    gap: 9px;
+    margin-left: auto;
+    padding: 8px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 9px;
+    background: var(--panel);
+    color: var(--fg);
+    font: 500 14px/1 var(--font-body);
+    cursor: pointer;
+  }
+  .menu-btn:hover {
+    border-color: var(--accent);
+  }
+  .bars {
+    position: relative;
+    width: 16px;
+    height: 12px;
+  }
+  .bars span {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform 0.2s, opacity 0.2s, top 0.2s;
+  }
+  .bars span:nth-child(1) {
+    top: 0;
+  }
+  .bars span:nth-child(2) {
+    top: 5px;
+  }
+  .bars span:nth-child(3) {
+    top: 10px;
+  }
+  .menu-btn[aria-expanded="true"] .bars span:nth-child(1) {
+    top: 5px;
+    transform: rotate(45deg);
+  }
+  .menu-btn[aria-expanded="true"] .bars span:nth-child(2) {
+    opacity: 0;
+  }
+  .menu-btn[aria-expanded="true"] .bars span:nth-child(3) {
+    top: 5px;
+    transform: rotate(-45deg);
+  }
+
+  /* Narrow screens: every link moves into a menu under the header. Without JS
+     the button stays hidden and the short inline nav below is used instead. */
+  @media (max-width: 860px) {
+    .site-header.has-menu .menu-btn {
+      display: inline-flex;
+    }
+    .site-header.has-menu nav {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+      padding: 10px 16px 18px;
+      background: var(--bg-deep);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.6);
+      max-height: calc(100dvh - var(--header-h));
+      overflow-y: auto;
+    }
+    .site-header.has-menu.open nav {
+      display: flex;
+    }
+    .site-header.has-menu .nav-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 14px;
+      font-size: 16px;
+    }
+    .site-header.has-menu .gh {
+      margin-top: 6px;
+      border-top: 1px solid var(--line);
+      border-radius: 0 0 8px 8px;
+      padding-top: 16px;
+    }
+    .site-header:not(.has-menu) .secondary,
+    .site-header:not(.has-menu) .ver {
+      display: none;
+    }
+  }
+  @media (max-width: 480px) {
+    .site-header:not(.has-menu) .nav-link {
+      padding: 8px 7px;
+      font-size: 14px;
+    }
+    .site-header:not(.has-menu) .word,
+    .site-header:not(.has-menu) .gh {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const header = document.querySelector<HTMLElement>(".site-header");
+  const btn = header?.querySelector<HTMLButtonElement>(".menu-btn");
+  if (header && btn) {
+    const nav = header.querySelector<HTMLElement>("nav")!;
+    header.classList.add("has-menu");
+    btn.hidden = false;
+    const set = (open: boolean) => {
+      header.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    btn.addEventListener("click", () => set(!header.classList.contains("open")));
+    nav.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("a")) set(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && header.classList.contains("open")) {
+        set(false);
+        btn.focus();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (!header.contains(e.target as Node)) set(false);
+    });
+    matchMedia("(min-width: 861px)").addEventListener("change", (e) => e.matches && set(false));
+  }
+</script>

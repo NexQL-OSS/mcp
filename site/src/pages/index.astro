@@ -1,102 +1,1955 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { StoryDemo } from "../islands/StoryDemo";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import Code from "../components/Code.astro";
+import { APPS, DEFAULT_APP, PLATFORMS, PROMPTS, STOPS } from "../data/tour";
+import { FACTS, REPO_URL } from "../data/site";
+
+const DOWNLOAD = `${REPO_URL}/releases/latest/download`;
+const BUNDLES = [
+  { id: "darwin-arm64", label: "macOS (Apple silicon)" },
+  { id: "darwin-x64", label: "macOS (Intel)" },
+  { id: "win32-x64", label: "Windows" },
+  { id: "linux-x64", label: "Linux (x64)" },
+  { id: "linux-arm64", label: "Linux (arm64)" },
+];
+const pad = (n: number) => String(n).padStart(2, "0");
+const stopNo = (id: string) => pad(STOPS.findIndex((s) => s.id === id) + 1);
+const nextOf = (id: string) => STOPS[STOPS.findIndex((s) => s.id === id) + 1];
+const defaultApp = APPS.find((a) => a.id === DEFAULT_APP)!;
+
+const fill = (key: string, value: string) => `<span data-fill="${key}">${value}</span>`;
+const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "localhost")}:${fill("port", "5432")}/${fill("db", "appdb")}${fill("query", "")}'`;
 ---
 
 <BaseLayout
-  title="NexQL MCP — a week in the life of one database"
-  description="A replayed agent conversation: an evening sales drop noticed, narrowed to a single slow request, explained, fixed without locking payments, and confirmed recovered — all through NexQL MCP's read-only tools."
+  title="NexQL MCP — a guided tour from install to your first answer"
+  description="Connect Claude, Cursor, VS Code or another AI app to your Postgres database in about five minutes. A stop-by-stop tour: pick your app, install, connect, ask, add more databases, and stay in control. Read-only by default, personal data masked."
 >
-  <StoryDemo client:load />
+  <SiteHeader current="tour" />
+
+  <main>
+    <!-- Start -->
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="pill"><span class="live-dot"></span>A guided tour · about 5 minutes</p>
+        <h1>
+          Ask your Postgres database{" "}
+          <span class="serif-em grad-text">anything</span>, in plain English.
+        </h1>
+        <p class="lede">
+          NexQL MCP connects your AI app to your database. It runs on your computer, reads by default, and masks personal data
+          before results reach the AI. This tour takes you from nothing to your first answer, one stop at a time.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#app">Start the tour</a>
+          <a class="btn btn-ghost" href="#ask">Already set up? Go to stop {stopNo("ask")}</a>
+        </div>
+      </div>
+
+      <aside class="ticket" aria-label="Your route">
+        <div class="ticket-head">
+          <span class="mono-label">Your route</span>
+          <span class="mono-label">{STOPS.length} stops</span>
+        </div>
+        <ol class="route">
+          {
+            STOPS.map((s, i) => (
+              <li>
+                <a href={`#${s.id}`}>
+                  <span class="route-dot" />
+                  <span class="route-no">{pad(i + 1)}</span>
+                  <span class="route-label">{s.label}</span>
+                  <span class="route-min">{s.minutes}</span>
+                </a>
+              </li>
+            ))
+          }
+        </ol>
+        <div class="ticket-foot">
+          <span>Works with Postgres {FACTS.pgVersions}</span>
+          <span>{FACTS.toolCount} tools · {FACTS.license}</span>
+        </div>
+      </aside>
+    </section>
+
+    <!-- Mobile progress, under the header -->
+    <div class="mbar" aria-hidden="true">
+      <div class="mbar-fill"></div>
+      <span class="mbar-label">Stop 01 of {pad(STOPS.length)} · {STOPS[0].label}</span>
+    </div>
+
+    <div class="tour wrap">
+      <nav class="rail" aria-label="Tour stops">
+        <div class="track"><div class="track-fill"></div></div>
+        <ol>
+          {
+            STOPS.map((s, i) => (
+              <li>
+                <a href={`#${s.id}`} data-stop={s.id}>
+                  <span class="dot" />
+                  <span class="rail-text">
+                    <span class="rail-no">Stop {pad(i + 1)}</span>
+                    <span class="rail-label">{s.label}</span>
+                  </span>
+                </a>
+              </li>
+            ))
+          }
+        </ol>
+        <p class="rail-app">Touring with <b data-fill="app">{defaultApp.name}</b> · <a href="#app">change</a></p>
+      </nav>
+
+      <div class="stops">
+        <!-- 01 Pick your app -->
+        <section class="stop" id="app">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("app")}</b></span>
+            <span class="stop-time">{STOPS[0].minutes}</span>
+          </header>
+          <h2>Which app do you want to <span class="serif-em">talk to</span> your database from?</h2>
+          <p class="lede">The rest of the tour changes to match. You can come back and switch at any time.</p>
+
+          <div class="apps" role="radiogroup" aria-label="Your AI app">
+            {
+              APPS.map((a) => (
+                <button
+                  type="button"
+                  class="app"
+                  role="radio"
+                  aria-checked={a.id === DEFAULT_APP ? "true" : "false"}
+                  data-app={a.id}
+                  data-kind={a.kind}
+                  data-name={a.name}
+                  data-client={a.client ?? ""}
+                >
+                  <span class="app-name">
+                    {a.name}
+                    {a.id === DEFAULT_APP && <span class="app-tag">Easiest</span>}
+                  </span>
+                  <span class="app-hint">{a.hint}</span>
+                </button>
+              ))
+            }
+          </div>
+          <p class="picked">
+            <span class="ok-dot"></span> Touring with <b data-fill="app">{defaultApp.name}</b>.
+            <span data-for="other">Your app needs to support local (stdio) MCP servers. Most desktop and editor apps do; ChatGPT doesn't yet.</span>
+          </p>
+
+          <a class="next" href={`#${nextOf("app").id}`}>Next stop <b>{nextOf("app").label}</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- 02 Install -->
+        <section class="stop" id="install">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("install")}</b></span>
+            <span class="stop-time">{STOPS[1].minutes}</span>
+          </header>
+
+          <div data-for="bundle">
+            <h2>Install it like any <span class="serif-em">app</span>.</h2>
+            <p class="lede">One file. No terminal, no Node, no config files.</p>
+            <div class="install-box">
+              <a id="dl-primary" class="btn btn-primary dl" href={`${DOWNLOAD}/nexql-mcp-darwin-arm64.mcpb`}>
+                Download for <span id="dl-label">macOS (Apple silicon)</span>
+              </a>
+              <p class="small" id="dl-hint">Not your computer? Pick another:</p>
+              <ul class="dl-list">
+                {BUNDLES.map((b) => (
+                  <li><a href={`${DOWNLOAD}/nexql-mcp-${b.id}.mcpb`} data-bundle={b.id}>{b.label}</a></li>
+                ))}
+              </ul>
+            </div>
+            <ol class="steps">
+              <li><b>Double-click the downloaded <code>.mcpb</code> file.</b> Claude Desktop opens an install dialog.</li>
+              <li><b>No dialog?</b> In Claude Desktop, open <b>Settings → Extensions</b> and drop the file there.</li>
+              <li><b>Keep the dialog open.</b> It asks for your database next, which is the next stop.</li>
+            </ol>
+          </div>
+
+          <div data-for="cli other">
+            <h2>Nothing to install, <span class="serif-em">really</span>.</h2>
+            <p class="lede">
+              <b data-fill="app">{defaultApp.name}</b> starts NexQL through <code>npx</code>, which fetches the latest version
+              when it's needed. You only need Node.js 18 or newer. Check with:
+            </p>
+            <Code html={`<span class="p">$ </span>node --version`} />
+            <p class="note">
+              Prints <code>v18</code> or higher? You're set. Otherwise install Node.js from
+              <a href="https://nodejs.org/">nodejs.org</a> (the LTS version), then reopen your terminal.
+            </p>
+          </div>
+
+          <a class="next" href={`#${nextOf("install").id}`}>Next stop <b>{nextOf("install").label}</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- 03 Connect -->
+        <section class="stop" id="connect">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("connect")}</b></span>
+            <span class="stop-time">{STOPS[2].minutes}</span>
+          </header>
+          <h2>Point it at your <span class="serif-em">database</span>.</h2>
+          <p class="lede">First, find your database's address. Where does it live?</p>
+
+          <div class="platforms" role="radiogroup" aria-label="Where your database lives">
+            {
+              PLATFORMS.map((p, i) => (
+                <button
+                  type="button"
+                  class="platform"
+                  role="radio"
+                  aria-checked={i === 0 ? "true" : "false"}
+                  data-platform={p.id}
+                  data-host={p.host}
+                  data-port={p.port}
+                  data-ssl={p.ssl}
+                >
+                  {p.icon ? <img src={`/assets/platforms/${p.icon}.svg`} alt="" width="20" height="20" loading="lazy" /> : <span class="pf-dot" />}
+                  {p.name}
+                </button>
+              ))
+            }
+          </div>
+          {
+            PLATFORMS.map((p, i) => (
+              <div class="pf-tip" data-tip={p.id} hidden={i !== 0}>
+                <p><span class="mono-label">Where to look</span>{p.where}</p>
+                <p><span class="mono-label">Can your computer reach it?</span>{p.network}</p>
+              </div>
+            ))
+          }
+
+          <h3 class="sub">Build the address</h3>
+          <p class="small">
+            Fill in what you found. There's deliberately no password box: type your real password only into your app or NexQL's
+            own page on your computer, never into a website, including this one.
+          </p>
+          <form class="builder" autocomplete="off" onsubmit="return false">
+            <label>User <input name="user" value="app_reader" spellcheck="false" /></label>
+            <label class="wide">Host <input name="host" value="localhost" spellcheck="false" /></label>
+            <label>Port <input name="port" value="5432" inputmode="numeric" spellcheck="false" /></label>
+            <label>Database <input name="db" value="appdb" spellcheck="false" /></label>
+            <label>SSL
+              <select name="ssl">
+                <option value="">Off (local)</option>
+                <option value="require">require</option>
+                <option value="verify-full">verify-full</option>
+              </select>
+            </label>
+          </form>
+          <figure class="code url-out">
+            <pre><span class="u-s">postgres://</span><span class="u-u" data-fill="user">app_reader</span>:<span class="u-p">YOUR_PASSWORD</span>@<span class="u-h" data-fill="host">localhost</span>:<span class="u-n" data-fill="port">5432</span>/<span class="u-d" data-fill="db">appdb</span><span class="u-q" data-fill="query"></span></pre>
+            <button class="copy" type="button" aria-label="Copy the address">Copy</button>
+          </figure>
+
+          <div data-for="bundle">
+            <h3 class="sub">Fill in Claude Desktop's dialog</h3>
+            <div class="form-mock" aria-label="Claude Desktop install dialog, as an example">
+              <div class="fm-row">
+                <span class="fm-label">Database URL</span>
+                <span class="fm-field mono">postgres://<span data-fill="user">app_reader</span>:<mark>your-real-password</mark>@<span data-fill="host">localhost</span>:<span data-fill="port">5432</span>/<span data-fill="db">appdb</span><span data-fill="query"></span></span>
+                <span class="fm-help">Paste the address, then replace YOUR_PASSWORD here, in the dialog.</span>
+              </div>
+              <div class="fm-row">
+                <span class="fm-label">Allow changes to data</span>
+                <span class="fm-toggle" aria-hidden="true"><span></span></span>
+                <span class="fm-help">Leave it off. Claude can then only read.</span>
+              </div>
+              <div class="fm-row">
+                <span class="fm-label">Schemas</span>
+                <span class="fm-field mono faint">public,sales</span>
+                <span class="fm-help">Optional. Leave empty to let Claude see every schema.</span>
+              </div>
+            </div>
+            <p class="note">Click <b>Install</b>, then make sure the extension is switched on. Claude Desktop keeps the URL in your system's secure storage.</p>
+          </div>
+
+          <div data-for="cli other">
+            <h3 class="sub">Save it with NexQL's setup page</h3>
+            <p class="small">Run this in a terminal. A page opens on your computer (127.0.0.1), not on the web.</p>
+            <Code html={`<span class="p">$ </span>npx -y nexql-mcp@latest setup`} />
+            <ol class="steps">
+              <li><b>Add a database</b> with the details above, type the password on that page, and click <b>Test</b>. NexQL keeps the password in your system keychain.</li>
+              <li data-for="cli"><b>Open Clients</b>, tick <b data-fill="app">{defaultApp.name}</b> and click <b>Apply</b>.</li>
+              <li data-for="other"><b>Open Clients</b> and copy the snippet for your app, or use the JSON below.</li>
+              <li><b>Restart <span data-fill="app">{defaultApp.name}</span></b> so it picks NexQL up.</li>
+            </ol>
+            <details class="alt">
+              <summary>Prefer the terminal? Two commands do the same.</summary>
+              <Code html={`<span class="p">$ </span>npx -y nexql-mcp@latest profile add mydb --url ${URL_CMD} --access-mode read
+<span class="c"># asks for the password without showing it</span>`} />
+              <div data-for="cli">
+                <Code html={`<span class="p">$ </span>npx -y nexql-mcp@latest init <span data-fill="client">claude-code</span> --apply`} />
+              </div>
+              <div data-for="other">
+                <p class="small">Then add this to your app's MCP settings:</p>
+                <Code html={`{
+  "mcpServers": {
+    "nexql": {
+      "command": "npx",
+      "args": ["-y", "nexql-mcp@latest", "--profile", "mydb"]
+    }
+  }
+}`} />
+              </div>
+            </details>
+          </div>
+
+          <aside class="tip">
+            <span class="mono-label">Tip · least privilege</span>
+            <p>
+              Connect as a user that can only read. <code>npx -y nexql-mcp@latest profile readonly-role</code> prints the SQL
+              to create one. If you connect as a superuser, NexQL stays read-only even when changes are switched on.
+            </p>
+          </aside>
+
+          <a class="next" href={`#${nextOf("connect").id}`}>Next stop <b>{nextOf("connect").label}</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- 04 Ask -->
+        <section class="stop" id="ask">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("ask")}</b></span>
+            <span class="stop-time">{STOPS[3].minutes}</span>
+          </header>
+          <h2>Now just <span class="serif-em">ask</span>.</h2>
+          <p class="lede">
+            Open a new chat in <b data-fill="app">{defaultApp.name}</b> and ask a question about your data. Here's what happens
+            behind the answer.
+          </p>
+
+          <div class="ask-grid">
+            <div class="chat" data-replay>
+              <div class="chat-top">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="mono-label" data-fill="app">{defaultApp.name}</span>
+                <button type="button" class="replay">Replay</button>
+              </div>
+              <div class="chat-body">
+                <p class="msg user" style="--d:0">Which products sold best last month?</p>
+                <p class="tool" style="--d:1"><span class="t-name">search_schema</span> <span class="t-arg">"products sold"</span> <span class="t-out">→ orders.order_items, catalog.products</span></p>
+                <p class="tool" style="--d:2"><span class="t-name">describe_object</span> <span class="t-arg">orders.order_items</span> <span class="t-out">→ 8 columns</span></p>
+                <p class="tool" style="--d:3"><span class="t-name">run_select</span> <span class="t-arg">read-only</span> <span class="t-out">→ 5 rows · 41 ms</span></p>
+                <div class="msg ai" style="--d:4">
+                  <p>Your top seller last month was the <b>Trail Runner 2</b>, well ahead of the rest:</p>
+                  <table>
+                    <thead><tr><th>Product</th><th>Units</th><th>Revenue</th></tr></thead>
+                    <tbody>
+                      <tr><td>Trail Runner 2</td><td>1,284</td><td>$153,951</td></tr>
+                      <tr><td>Merino Base Layer</td><td>906</td><td>$62,514</td></tr>
+                      <tr><td>Summit Pack 30L</td><td>512</td><td>$58,880</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <ol class="behind">
+              <li style="--d:1"><b>Finds the right tables</b> by searching an index of your schema kept on your computer, so it doesn't guess names.</li>
+              <li style="--d:2"><b>Reads the exact columns</b> before writing any SQL.</li>
+              <li style="--d:3"><b>Runs a read-only query.</b> Statements that change data are refused unless you allowed them.</li>
+              <li style="--d:4"><b>Masks personal data</b> such as emails and phone numbers before the rows reach the AI.</li>
+            </ol>
+          </div>
+
+          <h3 class="sub">Good first questions</h3>
+          <ul class="prompts">
+            {
+              PROMPTS.map((p) => (
+                <li>
+                  <span>{p}</span>
+                  <button type="button" class="copy-inline" data-text={p} aria-label={`Copy: ${p}`}>Copy</button>
+                </li>
+              ))
+            }
+          </ul>
+
+          <a class="next" href={`#${nextOf("ask").id}`}>Next stop <b>{nextOf("ask").label}</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- 05 More databases -->
+        <section class="stop" id="more">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("more")}</b></span>
+            <span class="stop-time">{STOPS[4].minutes}</span>
+          </header>
+          <h2>More than one database? <span class="serif-em">Just ask</span> for it.</h2>
+          <p class="lede">
+            Tell your assistant where the other database is. NexQL opens a page on your computer where you type its password.
+            Your assistant never sees it.
+          </p>
+
+          <ol class="board">
+            <li class="frame">
+              <span class="frame-no">1 · You ask</span>
+              <div class="mini-chat">
+                <p class="msg user">Also connect our billing database: db.internal, database billing, user billing_reader.</p>
+                <p class="tool"><span class="t-name">add_database</span> <span class="t-arg">billing</span> <span class="t-out">→ page opened</span></p>
+              </div>
+            </li>
+            <li class="frame">
+              <span class="frame-no">2 · You confirm, on your computer</span>
+              <div class="browser">
+                <div class="b-bar"><span class="dots"><i></i><i></i><i></i></span><span class="b-url">127.0.0.1:41873/connect/…</span></div>
+                <div class="b-page">
+                  <p class="b-title">Connect "billing"</p>
+                  <dl>
+                    <dt>Host</dt><dd>db.internal</dd>
+                    <dt>Database</dt><dd>billing</dd>
+                    <dt>User</dt><dd>billing_reader</dd>
+                    <dt>Access</dt><dd>Read-only</dd>
+                  </dl>
+                  <span class="b-pw"><span class="typed">••••••••••••</span></span>
+                  <span class="b-btn">Test and connect</span>
+                </div>
+              </div>
+            </li>
+            <li class="frame">
+              <span class="frame-no">3 · It's connected</span>
+              <div class="mini-chat">
+                <p class="tool ok"><span class="t-name">add_database</span> <span class="t-out">→ connected, read-only</span></p>
+                <p class="msg ai">billing is connected. Paid invoices total <b>$64,844</b> across 1,200 invoices.</p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="facts">
+            <p><span class="mono-label">Why it's safe</span>The page lives on 127.0.0.1, works once, and expires after 10 minutes. You check the host and user before typing anything. New databases are always read-only.</p>
+            <p><span class="mono-label">Then ask across them</span>"Compare last month's orders in shop with paid invoices in billing." Your assistant picks the right database for each part.</p>
+          </div>
+          <p class="warn">
+            <b>Never paste a password into the chat.</b> Chats are stored by your AI provider. If you already did, change that
+            password.
+          </p>
+          <p class="small" data-for="cli other">
+            Setting several up at once? <code>npx -y nexql-mcp@latest setup</code> lets you add each database, then tick which
+            ones <span data-fill="app">{defaultApp.name}</span> should see under Clients.
+          </p>
+
+          <a class="next" href={`#${nextOf("more").id}`}>Next stop <b>{nextOf("more").label}</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- 06 Stay in control -->
+        <section class="stop" id="safe">
+          <header class="stop-head">
+            <span class="stop-no">Stop <b>{stopNo("safe")}</b></span>
+            <span class="stop-time">{STOPS[5].minutes}</span>
+          </header>
+          <h2>You stay in <span class="serif-em">control</span>.</h2>
+          <p class="lede">What NexQL does by default, so you can let your assistant explore without worrying.</p>
+
+          <div class="cards">
+            <article class="card">
+              <h3>Read-only unless you say so</h3>
+              <p>Every query runs in a read-only transaction. Changes need the switch turned on and a user that isn't a superuser.</p>
+              <code class="proof">BEGIN READ ONLY</code>
+              <a class="more" href="/docs/safety">Access modes and guardrails →</a>
+            </article>
+            <article class="card">
+              <h3>Personal data is masked</h3>
+              <p>Columns that look like emails, phone numbers, names, addresses or secrets come back as <code>&lt;redacted&gt;</code>.</p>
+              <code class="proof">email → &lt;redacted&gt;</code>
+              <a class="more" href="/docs/privacy">What gets masked →</a>
+            </article>
+            <article class="card">
+              <h3>Passwords stay on your computer</h3>
+              <p>NexQL stores them in your system keychain, or an encrypted file where there isn't one. Never in plain text.</p>
+              <code class="proof">credential_provider = "keyring"</code>
+              <a class="more" href="/docs/connections#where-passwords-live">Where passwords live →</a>
+            </article>
+            <article class="card">
+              <h3>You know what leaves</h3>
+              <p>NexQL runs locally and talks to your database directly. The tables it describes and the rows it returns become part of your chat, so your AI provider sees them.</p>
+              <code class="proof">127.0.0.1 → your database</code>
+              <a class="more" href="/docs/how-it-works">How a question travels →</a>
+            </article>
+          </div>
+
+          <a class="next" href="#arrived">Final stop <b>You've arrived</b> <span aria-hidden="true">→</span></a>
+        </section>
+
+        <!-- Arrived -->
+        <section class="arrived" id="arrived">
+          <div class="ribbon"></div>
+          <h2>You've <span class="serif-em grad-text">arrived</span>.</h2>
+          <p class="lede">
+            That's the whole route. If something on the way didn't work, the fixes below cover most problems.
+          </p>
+          <div class="faq">
+            <details>
+              <summary><span data-fill="app">{defaultApp.name}</span> doesn't show NexQL</summary>
+              <p>
+                Quit the app completely and open it again. <span data-for="bundle">In Claude Desktop, check <b>Settings → Extensions</b> shows NexQL switched on.</span>
+                <span data-for="cli other">Then check the database itself with <code>npx -y nexql-mcp@latest --profile mydb doctor</code>.</span>
+              </p>
+            </details>
+            <details>
+              <summary>"Connection refused" or it times out</summary>
+              <p>
+                Your computer can't reach the database. Check the host and port, and that a firewall, security group or allow list
+                lets your IP in. Cloud databases usually also need <code>sslmode=require</code>.
+              </p>
+            </details>
+            <details>
+              <summary>"password authentication failed"</summary>
+              <p>The user or password is wrong. Run the setup again and retype the password on the setup page or in the dialog.</p>
+            </details>
+            <details>
+              <summary>"permission denied for table …"</summary>
+              <p>The user can't read that table. On Postgres 14 or newer, <code>GRANT pg_read_all_data TO app_reader;</code> lets it read everything.</p>
+            </details>
+            <details>
+              <summary>It says changes are switched off</summary>
+              <p>
+                You're connected as a database superuser, so NexQL stays read-only. To allow changes, connect as a user that
+                isn't a superuser and has the write privileges it needs.
+              </p>
+            </details>
+          </div>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="/docs">Explore the docs</a>
+            <a class="btn" href="/story">See a full session</a>
+            <a class="btn btn-ghost" href={`${REPO_URL}/issues`}>Still stuck? Tell us</a>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <SiteFooter />
 </BaseLayout>
 
-<style is:global>
-  html,
-  body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow: hidden;
-    background: #0a0b0d;
+<style>
+  /* ---------- Hero ---------- */
+  .hero {
+    display: grid;
+    gap: 40px;
+    padding-top: 56px;
+    padding-bottom: 72px;
+    align-items: center;
   }
-  body {
-    font-family: "Space Grotesk", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+  @media (min-width: 960px) {
+    .hero {
+      grid-template-columns: 1.25fr 0.9fr;
+      padding-top: 88px;
+      padding-bottom: 104px;
+      gap: 64px;
+    }
   }
-  a {
-    color: #cc785c;
-    text-decoration: none;
+  .hero h1 {
+    font-size: clamp(38px, 6vw, 68px);
+    font-weight: 700;
+    margin: 22px 0 20px;
+    letter-spacing: -0.02em;
   }
-  button {
-    font-family: inherit;
-    cursor: pointer;
-    border: none;
-    background: none;
-    color: inherit;
+  .hero h1 .serif-em {
+    font-size: 1.08em;
+    padding-right: 0.06em;
   }
-  ::selection {
-    background: rgba(210, 167, 106, 0.3);
+  .lede {
+    color: var(--muted);
+    font-size: 17.5px;
+    max-width: 40em;
   }
-  ::-webkit-scrollbar {
-    width: 6px;
+  .hero .lede {
+    font-size: clamp(17px, 1.6vw, 19px);
   }
-  ::-webkit-scrollbar-thumb {
-    background: #20242b;
-    border-radius: 99px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
+  .hero-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
   }
 
-  @keyframes stRise {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
+  /* Ticket: the route, as a boarding pass */
+  .ticket {
+    position: relative;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line-2);
+    border-radius: 18px;
+    padding: 22px 22px 18px;
+    box-shadow:
+      0 30px 80px -30px rgba(108, 76, 214, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  }
+  .ticket::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 18px;
+    padding: 1px;
+    background: var(--nex-grad);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .ticket-head,
+  .ticket-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .ticket-foot {
+    border-top: 1px dashed var(--line-2);
+    margin-top: 16px;
+    padding-top: 14px;
+    font: 500 12px/1.4 var(--font-mono);
+    color: var(--faint);
+    flex-wrap: wrap;
+  }
+  .route {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    position: relative;
+  }
+  .route::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 14px;
+    bottom: 14px;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--nex-grad-v);
+  }
+  .route a {
+    display: grid;
+    grid-template-columns: 17px 30px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 8px 9px 0;
+    color: var(--fg);
+    border-radius: 8px;
+  }
+  .route a:hover {
+    text-decoration: none;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .route-dot {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid var(--fg);
+    position: relative;
+    z-index: 1;
+  }
+  .route-no,
+  .route-min {
+    font: 500 12.5px/1 var(--font-mono);
+    color: var(--faint);
+  }
+  .route-label {
+    font-weight: 500;
+  }
+
+  /* ---------- Mobile progress ---------- */
+  .mbar {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 40;
+    background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    padding: 9px 16px 10px;
+    font: 500 12.5px/1.2 var(--font-mono);
+    color: var(--muted);
+  }
+  .mbar-fill {
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    height: 2px;
+    width: 0;
+    background: var(--nex-grad);
+    transition: width 0.2s;
+  }
+  @media (min-width: 960px) {
+    .mbar {
+      display: none;
     }
+  }
+
+  /* ---------- Tour layout ---------- */
+  .tour {
+    display: grid;
+    gap: 40px;
+  }
+  @media (min-width: 960px) {
+    .tour {
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 56px;
+    }
+  }
+  .rail {
+    display: none;
+  }
+  @media (min-width: 960px) {
+    .rail {
+      display: block;
+      position: sticky;
+      top: calc(var(--header-h) + 40px);
+      align-self: start;
+    }
+  }
+  .rail ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+  }
+  .track {
+    position: absolute;
+    left: 8px;
+    top: 14px;
+    width: 3px;
+    height: calc(var(--rail-h, 300px) - 28px);
+    background: var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .track-fill {
+    width: 100%;
+    height: 0;
+    background: var(--nex-grad-v);
+    background-size: 100% var(--rail-h, 300px);
+    transition: height 0.15s linear;
+  }
+  .rail a {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 0;
+    color: var(--faint);
+    position: relative;
+    z-index: 1;
+  }
+  .rail a:hover {
+    text-decoration: none;
+    color: var(--fg);
+  }
+  .dot {
+    width: 19px;
+    height: 19px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid var(--line-2);
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  }
+  .rail a.done .dot {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+  .rail a.active {
+    color: var(--fg);
+  }
+  .rail a.active .dot {
+    border-color: var(--accent);
+    background: var(--bg);
+    box-shadow: 0 0 0 5px rgba(224, 164, 204, 0.16), 0 0 18px rgba(224, 164, 204, 0.5);
+  }
+  .rail-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+  }
+  .rail-no {
+    font: 500 11px/1.4 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.8;
+  }
+  .rail-label {
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+  .rail-app {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--faint);
+  }
+  .rail-app b {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  /* ---------- Stops ---------- */
+  .stops {
+    min-width: 0;
+  }
+  .stop {
+    padding: 8px 0 80px;
+    margin-bottom: 80px;
+    border-bottom: 1px solid var(--line);
+  }
+  .stop-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .stop-no {
+    font: 500 13px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stop-no b {
+    font: 400 italic 30px/1 var(--font-serif);
+    letter-spacing: 0;
+    color: var(--accent);
+    text-transform: none;
+  }
+  .stop-time {
+    font: 500 12px/1 var(--font-mono);
+    color: var(--faint);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 5px 9px;
+  }
+  .stop h2,
+  .arrived h2 {
+    font-size: clamp(28px, 3.6vw, 42px);
+    font-weight: 700;
+    margin-bottom: 12px;
+    max-width: 22em;
+  }
+  .stop h2 .serif-em,
+  .arrived h2 .serif-em {
+    color: var(--accent);
+    font-size: 1.1em;
+  }
+  .arrived h2 .serif-em.grad-text {
+    color: transparent;
+  }
+  .sub {
+    font-size: 19px;
+    font-weight: 600;
+    margin: 36px 0 8px;
+  }
+  .small {
+    color: var(--muted);
+    font-size: 14.5px;
+    max-width: 46em;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 15px;
+    margin-top: 14px;
+    max-width: 44em;
+  }
+  .stop > p + :global(.code),
+  .stop > div > p + :global(.code),
+  .small + :global(.code) {
+    margin-top: 14px;
+  }
+
+  .next {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 40px;
+    padding: 12px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--line-2);
+    color: var(--muted);
+    font-size: 15px;
+    background: var(--panel);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .next b {
+    color: var(--fg);
+  }
+  .next:hover {
+    text-decoration: none;
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+
+  /* Personalised blocks */
+  [data-for] {
+    display: none;
+  }
+  [data-for].on {
+    display: revert;
+  }
+  div[data-for].on {
+    display: block;
+  }
+  /* Without JavaScript, show the default app's steps. */
+  :global(html:not(.js)) [data-for~="bundle"] {
+    display: revert;
+  }
+
+  /* ---------- Stop 1: apps ---------- */
+  .apps {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+    gap: 12px;
+    margin-top: 28px;
+  }
+  .app {
+    position: relative;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 84px;
+    padding: 16px 16px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .app:hover {
+    border-color: var(--line-2);
+    transform: translateY(-1px);
+  }
+  .app[aria-checked="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .app-name {
+    font-weight: 600;
+    font-size: 16px;
+  }
+  .app-hint {
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .app-name {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+  .app-tag {
+    font: 600 10px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 5px 7px;
+    border-radius: 6px;
+    color: var(--accent-ink);
+    background: var(--nex-grad);
+  }
+  .picked {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .picked b {
+    color: var(--fg);
+  }
+  .ok-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    margin-right: 6px;
+    vertical-align: 1px;
+  }
+
+  /* ---------- Stop 2: install ---------- */
+  .install-box {
+    margin-top: 24px;
+    padding: 22px;
+    border-radius: var(--radius);
+    background: var(--nex-grad-soft), var(--panel);
+    border: 1px solid var(--line-2);
+  }
+  .dl {
+    font-size: 16px;
+    min-height: 50px;
+    padding: 12px 22px;
+  }
+  #dl-hint {
+    margin-top: 16px;
+  }
+  .dl-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 14.5px;
+  }
+  .steps {
+    list-style: none;
+    counter-reset: s;
+    padding: 0;
+    margin: 22px 0 0;
+    display: grid;
+    gap: 12px;
+    max-width: 46em;
+  }
+  .steps li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 42px;
+    color: var(--muted);
+    min-height: 28px;
+  }
+  .steps li.on,
+  .steps li:not([data-for]) {
+    display: block;
+  }
+  .steps li b {
+    color: var(--fg);
+  }
+  .steps li::before {
+    content: counter(s);
+    position: absolute;
+    left: 0;
+    top: -1px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--line-2);
+    display: grid;
+    place-items: center;
+    font: 500 13px/1 var(--font-mono);
+    color: var(--accent);
+  }
+
+  /* ---------- Stop 3: connect ---------- */
+  .platforms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 22px;
+  }
+  .platform {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--fg);
+    font: 500 14.5px/1 var(--font-body);
+    cursor: pointer;
+  }
+  .platform:hover {
+    border-color: var(--line-2);
+  }
+  .platform[aria-checked="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  }
+  .platform img {
+    width: 18px;
+    height: 18px;
+  }
+  .pf-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--nex-grad);
+  }
+  .pf-tip {
+    margin-top: 14px;
+    display: grid;
+    gap: 12px;
+    padding: 16px 18px;
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    border-radius: 0 10px 10px 0;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .pf-tip[hidden] {
+    display: none;
+  }
+  @media (min-width: 720px) {
+    .pf-tip:not([hidden]) {
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+  }
+  .pf-tip .mono-label,
+  .facts .mono-label,
+  .tip .mono-label {
+    display: block;
+    margin-bottom: 4px;
+  }
+  .builder {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  @media (min-width: 720px) {
+    .builder {
+      grid-template-columns: 1fr 1.6fr 0.6fr 1fr 0.9fr;
+    }
+  }
+  .builder .wide {
+    grid-column: 1 / -1;
+  }
+  @media (min-width: 720px) {
+    .builder .wide {
+      grid-column: auto;
+    }
+  }
+  .builder label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font: 500 12px/1.2 var(--font-mono);
+    color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .builder input,
+  .builder select {
+    min-height: 42px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-deep);
+    color: var(--fg);
+    font: 14px/1.2 var(--font-mono);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .builder input:focus,
+  .builder select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .url-out {
+    margin-top: 12px;
+  }
+  .url-out pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 14.5px;
+  }
+  .u-s {
+    color: var(--kw);
+  }
+  .u-u {
+    color: var(--prop);
+  }
+  .u-p {
+    color: var(--str);
+    border-bottom: 1px dashed var(--str);
+  }
+  .u-h {
+    color: var(--fn);
+  }
+  .u-n {
+    color: var(--num);
+  }
+  .u-q {
+    color: var(--comment);
+  }
+
+  .form-mock {
+    border: 1px solid var(--line-2);
+    border-radius: 14px;
+    background: var(--panel);
+    padding: 8px 20px;
+    max-width: 640px;
+  }
+  .fm-row {
+    display: grid;
+    gap: 6px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .fm-row:last-child {
+    border-bottom: 0;
+  }
+  .fm-label {
+    font-weight: 600;
+    font-size: 14.5px;
+  }
+  .fm-field {
+    border: 1px solid var(--line-2);
+    background: var(--bg-deep);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+  .faint {
+    color: var(--faint);
+  }
+  .fm-field mark {
+    background: rgba(255, 165, 136, 0.16);
+    color: var(--str);
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+  .fm-help {
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .fm-toggle {
+    width: 40px;
+    height: 22px;
+    border-radius: 99px;
+    background: var(--line-2);
+    position: relative;
+  }
+  .fm-toggle span {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .alt {
+    margin-top: 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 4px 16px;
+    background: var(--panel);
+  }
+  .alt summary {
+    cursor: pointer;
+    padding: 10px 0;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .alt[open] {
+    padding-bottom: 16px;
+  }
+  .alt :global(.code + .code),
+  .alt :global(.code) + div,
+  .alt div > :global(.code),
+  .alt div > p {
+    margin-top: 10px;
+  }
+  .tip {
+    margin-top: 32px;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px dashed var(--line-2);
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  /* ---------- Stop 4: ask ---------- */
+  .ask-grid {
+    display: grid;
+    gap: 28px;
+    margin-top: 28px;
+    align-items: start;
+  }
+  @media (min-width: 1080px) {
+    .ask-grid {
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    }
+  }
+  .chat {
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    background: var(--bg-deep);
+    overflow: hidden;
+    box-shadow: 0 30px 70px -40px rgba(224, 56, 143, 0.5);
+  }
+  .chat-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .dots {
+    display: inline-flex;
+    gap: 5px;
+  }
+  .dots i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--line-2);
+  }
+  .replay {
+    margin-left: auto;
+    min-height: 30px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--muted);
+    font: 500 12px/1 var(--font-mono);
+    cursor: pointer;
+  }
+  .replay:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .chat-body {
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+    min-height: 380px;
+    align-content: start;
+  }
+  .msg {
+    border-radius: 14px;
+    padding: 11px 14px;
+    font-size: 15px;
+    max-width: 92%;
+  }
+  .msg.user {
+    justify-self: end;
+    background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .msg.ai {
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+  .msg.ai table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 13.5px;
+  }
+  .msg.ai th,
+  .msg.ai td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .msg.ai th {
+    font: 500 11.5px/1.2 var(--font-mono);
+    color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .msg.ai td:not(:first-child),
+  .msg.ai th:not(:first-child) {
+    text-align: right;
+    font-family: var(--font-mono);
+  }
+  .tool {
+    font: 13px/1.5 var(--font-mono);
+    color: var(--muted);
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    justify-self: start;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .t-name {
+    color: var(--kw);
+    font-weight: 500;
+  }
+  .t-arg {
+    color: var(--str);
+  }
+  .t-out {
+    color: var(--faint);
+  }
+  .tool.ok .t-out {
+    color: var(--ok);
+  }
+  /* Replay: hidden until the chat scrolls into view, then in sequence. */
+  :global(.js) [data-replay] .chat-body > * {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  :global(.js) [data-replay].play .chat-body > * {
+    animation: rise 0.45s ease-out forwards;
+    animation-delay: calc(var(--d) * 0.9s);
+  }
+  @keyframes rise {
     to {
       opacity: 1;
       transform: none;
     }
   }
-  @keyframes stFade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+  .behind {
+    list-style: none;
+    counter-reset: b;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 16px;
   }
-  @keyframes stBlink {
-    0%,
-    48% {
-      opacity: 1;
-    }
-    49%,
-    100% {
-      opacity: 0;
-    }
+  .behind li {
+    counter-increment: b;
+    position: relative;
+    padding: 2px 0 0 46px;
+    color: var(--muted);
+    font-size: 15.5px;
+  }
+  .behind li b {
+    color: var(--fg);
+    display: block;
+  }
+  .behind li::before {
+    content: counter(b);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font: 500 13px/1 var(--font-mono);
+    color: var(--accent-ink);
+    background: var(--nex-grad);
+  }
+  .prompts {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 8px;
+    max-width: 720px;
+  }
+  .prompts li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 10px 10px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+  }
+  .copy-inline {
+    flex: none;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--muted);
+    font: 500 12px/1 var(--font-mono);
+    cursor: pointer;
+  }
+  .copy-inline:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .copy-inline[data-done] {
+    color: var(--ok);
+    border-color: var(--ok);
   }
 
-  /* Hover states — Preact's string `style` prop can't carry pseudo-classes,
-     so these live as classes on the few interactive elements in StoryDemo
-     (base color stays inline for 1:1 fidelity with the design source). */
-  .story-navlink:hover {
-    color: #f2f0ea;
+  /* ---------- Stop 5: more ---------- */
+  .board {
+    list-style: none;
+    padding: 0;
+    margin: 28px 0 0;
+    display: grid;
+    gap: 16px;
   }
-  .story-install-btn:hover {
-    border-color: #cc785c;
+  @media (min-width: 1080px) {
+    .board {
+      grid-template-columns: 1fr 1.15fr 1fr;
+      align-items: stretch;
+    }
   }
-  .story-option:hover {
-    border-color: #636a75;
+  .frame {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
   }
-  .story-close:hover {
-    color: #f2f0ea;
+  .frame-no {
+    font: 500 12px/1.2 var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
   }
-  .story-tab:hover {
-    border-color: #636a75;
+  .mini-chat {
+    display: grid;
+    gap: 8px;
   }
-  .story-tab[aria-pressed="true"]:hover {
-    border-color: #cc785c;
+  .mini-chat .msg {
+    font-size: 14px;
+    max-width: 100%;
+  }
+  .browser {
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f5f5f4;
+    color: #1c1917;
+  }
+  .b-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    background: #e7e5e4;
+  }
+  .b-bar .dots i {
+    background: #c8c4c0;
+  }
+  .b-url {
+    flex: 1;
+    min-width: 0;
+    background: #fff;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font: 12px/1.4 var(--font-mono);
+    color: #57534e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .b-page {
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .b-title {
+    font-weight: 700;
+  }
+  .b-page dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    margin: 0;
+    padding: 9px 11px;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .b-page dt {
+    color: #78716c;
+  }
+  .b-page dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .b-pw {
+    border: 1px solid #d6d3d1;
+    border-radius: 8px;
+    padding: 7px 10px;
+    background: #fff;
+    font-family: var(--font-mono);
+    letter-spacing: 2px;
+    min-height: 34px;
+  }
+  .typed {
+    display: inline-block;
+    overflow: hidden;
+    white-space: nowrap;
+    vertical-align: bottom;
+    border-right: 2px solid #b4532a;
+  }
+  :global(.js) .board.play .typed {
+    animation: type 2.4s steps(12) 0.4s both;
+  }
+  @keyframes type {
+    from {
+      width: 0;
+    }
+    to {
+      width: 12ch;
+    }
+  }
+  .b-btn {
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    background: #b4532a;
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .facts {
+    display: grid;
+    gap: 16px;
+    margin-top: 24px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  @media (min-width: 720px) {
+    .facts {
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+  }
+  .warn {
+    margin-top: 20px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(245, 178, 58, 0.08);
+    border: 1px solid rgba(245, 178, 58, 0.35);
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .warn b {
+    color: var(--warn);
+  }
+  .warn + .small {
+    margin-top: 14px;
+  }
+
+  /* ---------- Stop 6: safe ---------- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+    gap: 14px;
+    margin-top: 28px;
+  }
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    background: var(--nex-grad);
+    opacity: 0.7;
+  }
+  .card h3 {
+    font-size: 17px;
+  }
+  .card p {
+    color: var(--muted);
+    font-size: 14.5px;
+    flex: 1;
+  }
+  .card .proof {
+    align-self: flex-start;
+    font-size: 12.5px;
+    color: var(--num);
+    background: var(--bg-deep);
+  }
+  .card .more {
+    margin-top: auto;
+    font-size: 14px;
+  }
+
+  /* ---------- Arrived ---------- */
+  .arrived {
+    position: relative;
+    padding: 40px 28px 36px;
+    border-radius: 20px;
+    border: 1px solid var(--line-2);
+    background: var(--nex-grad-soft), var(--panel);
+    overflow: hidden;
+  }
+  .arrived > .ribbon {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    border-radius: 0;
+  }
+  .faq {
+    display: grid;
+    gap: 8px;
+    margin-top: 24px;
+  }
+  .faq details {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    padding: 0 16px;
+  }
+  .faq summary {
+    cursor: pointer;
+    padding: 13px 0;
+    font-weight: 500;
+  }
+  .faq details p {
+    padding-bottom: 14px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .faq [data-for].on {
+    display: inline;
+  }
+  .picked [data-for].on {
+    display: inline;
+  }
+  @media (max-width: 719px) {
+    .arrived {
+      padding: 32px 18px 28px;
+    }
   }
 </style>
+
+<script>
+  type Kind = "bundle" | "cli" | "other";
+  const root = document.documentElement;
+  root.classList.add("js");
+
+  const store = {
+    get(k: string) {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set(k: string, v: string) {
+      try {
+        localStorage.setItem(k, v);
+      } catch {
+        /* private mode: the choice just isn't remembered */
+      }
+    },
+  };
+
+  const fillAll = (key: string, value: string) => {
+    document.querySelectorAll<HTMLElement>(`[data-fill="${key}"]`).forEach((el) => (el.textContent = value));
+  };
+
+  // ---- Stop 1: the app picked shapes every later stop ----
+  const appButtons = [...document.querySelectorAll<HTMLButtonElement>(".app")];
+  function pickApp(id: string, remember: boolean) {
+    const btn = appButtons.find((b) => b.dataset.app === id) ?? appButtons[0];
+    appButtons.forEach((b) => b.setAttribute("aria-checked", String(b === btn)));
+    const kind = btn.dataset.kind as Kind;
+    document.querySelectorAll<HTMLElement>("[data-for]").forEach((el) => {
+      el.classList.toggle("on", (el.dataset.for ?? "").split(" ").includes(kind));
+    });
+    fillAll("app", btn.dataset.name ?? "");
+    fillAll("client", btn.dataset.client || "claude-code");
+    if (remember) {
+      store.set("nexql-tour-app", btn.dataset.app ?? "");
+      const url = new URL(location.href);
+      url.searchParams.set("app", btn.dataset.app ?? "");
+      history.replaceState(null, "", url);
+    }
+  }
+  appButtons.forEach((b) => b.addEventListener("click", () => pickApp(b.dataset.app ?? "", true)));
+  appButtons.forEach((b, i) =>
+    b.addEventListener("keydown", (e) => {
+      const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      const next = appButtons[(i + step + appButtons.length) % appButtons.length];
+      next.focus();
+      pickApp(next.dataset.app ?? "", true);
+    }),
+  );
+  pickApp(new URLSearchParams(location.search).get("app") ?? store.get("nexql-tour-app") ?? "claude-desktop", false);
+
+  // ---- Stop 2: download for this computer ----
+  (async () => {
+    const LABELS: Record<string, string> = {
+      "darwin-arm64": "macOS (Apple silicon)",
+      "darwin-x64": "macOS (Intel)",
+      "win32-x64": "Windows",
+      "linux-x64": "Linux (x64)",
+      "linux-arm64": "Linux (arm64)",
+    };
+    type UAData = { platform?: string; getHighEntropyValues?: (h: string[]) => Promise<{ architecture?: string }> };
+    const uaData = (navigator as Navigator & { userAgentData?: UAData }).userAgentData;
+    const platform = (uaData?.platform || navigator.platform || "").toLowerCase();
+    const ua = navigator.userAgent.toLowerCase();
+    let id: string | null = null;
+    let sure = true;
+    if (platform.includes("win") || ua.includes("windows")) id = "win32-x64";
+    else if (platform.includes("mac") || ua.includes("mac os")) {
+      // Only Chromium reports the CPU; nearly every Mac sold since 2021 is arm64.
+      const arch = await uaData?.getHighEntropyValues?.(["architecture"]).catch(() => undefined);
+      id = arch?.architecture === "x86" ? "darwin-x64" : "darwin-arm64";
+      sure = arch?.architecture != null;
+    } else if (platform.includes("linux") || ua.includes("linux")) {
+      id = ua.includes("aarch64") || ua.includes("arm64") ? "linux-arm64" : "linux-x64";
+      sure = false;
+    }
+    const target = id && document.querySelector<HTMLAnchorElement>(`.dl-list a[data-bundle="${id}"]`);
+    const primary = document.getElementById("dl-primary") as HTMLAnchorElement | null;
+    const label = document.getElementById("dl-label");
+    if (!id || !target || !primary || !label) return;
+    primary.href = target.href;
+    label.textContent = LABELS[id];
+    const hint = document.getElementById("dl-hint");
+    if (hint && !sure && id === "darwin-arm64") hint.textContent = "On an Intel Mac? Use macOS (Intel) below. Other downloads:";
+  })();
+
+  // ---- Stop 3: platform tips and the address builder ----
+  const builder = document.querySelector<HTMLFormElement>(".builder");
+  function renderAddress() {
+    if (!builder) return;
+    const v = (n: string) => (builder.elements.namedItem(n) as HTMLInputElement).value.trim();
+    fillAll("user", v("user") || "user");
+    fillAll("host", v("host") || "host");
+    fillAll("port", v("port") || "5432");
+    fillAll("db", v("db") || "postgres");
+    fillAll("query", v("ssl") ? `?sslmode=${v("ssl")}` : "");
+  }
+  builder?.addEventListener("input", renderAddress);
+  const platformButtons = [...document.querySelectorAll<HTMLButtonElement>(".platform")];
+  platformButtons.forEach((b) =>
+    b.addEventListener("click", () => {
+      platformButtons.forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+      document.querySelectorAll<HTMLElement>("[data-tip]").forEach((t) => (t.hidden = t.dataset.tip !== b.dataset.platform));
+      if (builder) {
+        (builder.elements.namedItem("host") as HTMLInputElement).value = b.dataset.host ?? "";
+        (builder.elements.namedItem("port") as HTMLInputElement).value = b.dataset.port ?? "";
+        (builder.elements.namedItem("ssl") as HTMLSelectElement).value = b.dataset.ssl ?? "";
+        renderAddress();
+      }
+    }),
+  );
+
+  // ---- Copy buttons ----
+  async function copyText(text: string, btn: HTMLElement) {
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.dataset.done = "";
+      btn.textContent = "Copied";
+      setTimeout(() => {
+        delete btn.dataset.done;
+        btn.textContent = "Copy";
+      }, 1600);
+    } catch {
+      btn.textContent = "Select and copy";
+    }
+  }
+  document.querySelectorAll<HTMLButtonElement>(".code .copy").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const pre = btn.parentElement?.querySelector("pre");
+      if (!pre) return;
+      const clone = pre.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(".p, .c").forEach((n) => n.remove());
+      const text = (clone.textContent ?? "")
+        .split("\n")
+        .map((l) => l.trimEnd())
+        .filter((l) => l.trim() !== "")
+        .join("\n");
+      copyText(text, btn);
+    }),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".copy-inline").forEach((btn) =>
+    btn.addEventListener("click", () => copyText(btn.dataset.text ?? "", btn)),
+  );
+
+  // ---- Replays: play when scrolled into view ----
+  const players = document.querySelectorAll<HTMLElement>("[data-replay], .board");
+  const playObs = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          e.target.classList.add("play");
+          playObs.unobserve(e.target);
+        }
+      });
+    },
+    { threshold: 0.35 },
+  );
+  players.forEach((p) => playObs.observe(p));
+  document.querySelectorAll<HTMLButtonElement>(".replay").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const chat = btn.closest<HTMLElement>("[data-replay]");
+      if (!chat) return;
+      chat.classList.remove("play");
+      void chat.offsetWidth;
+      chat.classList.add("play");
+    }),
+  );
+
+  // ---- Route progress: rail on wide screens, bar on narrow ones ----
+  const stops = [...document.querySelectorAll<HTMLElement>(".stop")];
+  const railLinks = [...document.querySelectorAll<HTMLAnchorElement>(".rail a[data-stop]")];
+  const railList = document.querySelector<HTMLElement>(".rail ol");
+  const fill = document.querySelector<HTMLElement>(".track-fill");
+  const mFill = document.querySelector<HTMLElement>(".mbar-fill");
+  const mLabel = document.querySelector<HTMLElement>(".mbar-label");
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  function update() {
+    const mark = window.innerHeight * 0.35;
+    let active = 0;
+    stops.forEach((s, i) => {
+      if (s.getBoundingClientRect().top <= mark) active = i;
+    });
+    const s = stops[active];
+    const r = s.getBoundingClientRect();
+    const within = Math.min(1, Math.max(0, (mark - r.top) / Math.max(1, r.height)));
+    const progress = (active + within) / stops.length;
+
+    railLinks.forEach((a, i) => {
+      a.classList.toggle("active", i === active);
+      a.classList.toggle("done", i < active);
+      if (i === active) a.setAttribute("aria-current", "step");
+      else a.removeAttribute("aria-current");
+    });
+    if (fill && railList && railLinks.length) {
+      const first = railLinks[0].querySelector(".dot")!.getBoundingClientRect();
+      const cur = railLinks[active].querySelector(".dot")!.getBoundingClientRect();
+      const next = railLinks[Math.min(active + 1, railLinks.length - 1)].querySelector(".dot")!.getBoundingClientRect();
+      const y = cur.top - first.top + (next.top - cur.top) * within;
+      fill.style.height = `${Math.max(0, y)}px`;
+    }
+    if (mFill) mFill.style.width = `${progress * 100}%`;
+    if (mLabel) {
+      const label = railLinks[active]?.querySelector(".rail-label")?.textContent ?? "";
+      mLabel.textContent = `Stop ${pad(active + 1)} of ${pad(stops.length)} · ${label}`;
+    }
+  }
+  if (railList) {
+    const setH = () => railList.parentElement?.style.setProperty("--rail-h", `${railList.offsetHeight}px`);
+    setH();
+    window.addEventListener("resize", setH);
+  }
+  let queued = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        update();
+      });
+    },
+    { passive: true },
+  );
+  window.addEventListener("resize", update);
+  update();
+</script>

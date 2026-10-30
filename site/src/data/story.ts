@@ -1,22 +1,18 @@
 /**
- * The full-screen narrative demo: a week in the life of one online store's
- * database, told as a replayed agent conversation — notice the drop, narrow
- * it to a page, explain the plan, ship the safe fix, confirm the recovery.
- *
- * Ported from the Claude Design source (`NexQL MCP Story.dc.html`) into a
- * plain Preact island. Scene data lives here; playback chrome is in
- * NarrativePlayer.
+ * /story: a week in the life of one online store's database, told as the
+ * questions people asked and what Claude found with NexQL. Notice the drop,
+ * narrow it to one request, explain it, ship the safe fix, confirm recovery.
  */
 
-import { AMBER, BLUE, INDIGO, type Scene } from "./story-shared";
-import { NarrativePlayer } from "./NarrativePlayer";
+import { HUE, type Replay, type Scene } from "./scenes";
 
 const HOURLY = [3.9, 3.94, 3.88, 3.91, 3.86, 3.9, 3.72, 3.4, 3.05, 2.71, 2.66, 2.72, 3.1, 3.5, 3.78, 3.86, 3.9, 3.88];
 const RECOVER = [2.66, 2.7, 2.68, 2.72, 2.69, 2.74, 3.1, 3.62, 3.94, 4.02, 4.06, 4.04, 4.08, 4.05, 4.07, 4.09, 4.06, 4.08];
 
-const SCENES: Scene[] = [
+const scenes: Scene[] = [
   {
-    act: 0,
+    chapter: "Noticed",
+    label: "The evening drop",
     role: "HEAD OF ONLINE STORE",
     where: "Mon 09:12",
     prompt: "Sales were down about 4% last week. Can you tell me why?",
@@ -33,10 +29,10 @@ const SCENES: Scene[] = [
       ["$212K", "SALES MISSED"],
     ],
     mark: { kind: "line", title: "Orders per hour", sub: "averaged over last week", vals: HOURLY, ymax: 4.4, tone: "hot", xa: "6am", xb: "midnight" },
-    alts: [3, 6],
   },
   {
-    act: 1,
+    chapter: "Narrowed",
+    label: "Where shoppers leave",
     role: "DATA ANALYST",
     where: "Mon 09:40",
     prompt: "Where in the checkout are people giving up?",
@@ -67,15 +63,15 @@ const SCENES: Scene[] = [
         ["Completes the order", ["57", 1], ["19", 1]],
       ],
     },
-    alts: [2, 0],
   },
   {
-    act: 1,
+    chapter: "Narrowed",
+    label: "One slow request",
     role: "DATA ANALYST",
     where: "Mon 09:55",
     prompt: "Is the whole site slow in the evening, or just that page?",
     steps: [
-      ["db_health_check", "ran 14 general health checks", "140ms"],
+      ["db_health_check", "ran the general health checks", "140ms"],
       ["slow_queries", "ranked what takes the most time", "61ms"],
       ["table_stats", "checked size and activity per table", "29ms"],
     ],
@@ -90,14 +86,14 @@ const SCENES: Scene[] = [
       title: "What came back",
       items: [
         ["hot", "The cart total request is using 46% of the evening", "It adds up items and stock levels for the cart page."],
-        ["ok", "Memory, connections and disk are all healthy", "Fourteen checks, no warnings outside this one request."],
+        ["ok", "Memory, connections and disk are all healthy", "No warnings outside this one request."],
         ["ok", "No other request is above 17%", "Payments, prices and logins are unchanged from last month."],
       ],
     },
-    alts: [3, 1],
   },
   {
-    act: 2,
+    chapter: "Explained",
+    label: "Why only after 6pm",
     role: "ENGINEER",
     where: "Mon 10:20",
     prompt: "Why is that only slow after 6pm?",
@@ -127,10 +123,10 @@ const SCENES: Scene[] = [
         ["Method chosen", "one at a time", ["needs bulk match", 1]],
       ],
     },
-    alts: [4, 2],
   },
   {
-    act: 3,
+    chapter: "Fixed",
+    label: "The safe fix",
     role: "ENGINEER",
     where: "Mon 10:35",
     prompt: "What is the safest fix we can ship today?",
@@ -155,17 +151,17 @@ const SCENES: Scene[] = [
         ["p", "Both steps can be undone in seconds if anything looks wrong.", ""],
       ],
     },
-    alts: [5, 3],
   },
   {
-    act: 3,
+    chapter: "Fixed",
+    label: "Did it work?",
     role: "ENGINEER",
     where: "Mon 19:04",
     prompt: "It is live. Did it work?",
     steps: [
       ["explain_query", "confirmed the new approach is being used", "68ms"],
       ["slow_queries", "compared tonight with last night", "58ms"],
-      ["db_health_check", "14 checks, no warnings", "132ms"],
+      ["db_health_check", "reran the health checks: no warnings", "132ms"],
     ],
     insight: "Yes. The cart total now comes back in 31 milliseconds instead of 812 — about 26 times faster — and no single request is taking more than 9% of the evening.",
     figures: [
@@ -182,10 +178,10 @@ const SCENES: Scene[] = [
         ["Tonight", 31, "31 ms", 2],
       ],
     },
-    alts: [6, 4],
   },
   {
-    act: 4,
+    chapter: "Recovered",
+    label: "Sales are back",
     role: "HEAD OF ONLINE STORE",
     where: "Tue 09:10",
     prompt: "Are sales back to normal?",
@@ -207,51 +203,20 @@ const SCENES: Scene[] = [
       sub: "last night compared with the week before",
       vals: RECOVER,
       ymax: 4.4,
-      tone: "mint",
+      tone: "ok",
       xa: "6pm last week",
       xb: "10pm last night",
       vline: 0.34,
       vlineLabel: "fix went live",
     },
-    alts: [0, 3],
   },
 ];
 
-const ACTS: [string, number][] = [
-  ["NOTICED", 0],
-  ["NARROWED", 1],
-  ["EXPLAINED", 3],
-  ["FIXED", 4],
-  ["RECOVERED", 6],
-];
-
-// Green (MINT, imported by NarrativePlayer for chart/success tones) is reserved
-// for the recovery arc's payoff — roles get distinct, non-overlapping hues so
-// "who's speaking" and "this metric recovered" never read as the same signal.
-const roleHue = (r: string) => (r === "HEAD OF ONLINE STORE" ? AMBER : r === "DATA ANALYST" ? BLUE : INDIGO);
-
-interface StoryDemoProps {
-  autoplay?: boolean;
-  sceneSeconds?: number;
-  startScene?: number;
-  height?: string;
-}
-
-export function StoryDemo({ autoplay = true, sceneSeconds = 25, startScene = 1, height = "100dvh" }: StoryDemoProps) {
-  return (
-    <NarrativePlayer
-      scenes={SCENES}
-      acts={ACTS}
-      roleHue={roleHue}
-      agentLabel="CLAUDE + NEXQL"
-      stepsLabel="CHECKED THE DATABASE"
-      footerNote="one online store's database · read-only"
-      mintGlowFromScene={5}
-      mode="use-case"
-      autoplay={autoplay}
-      sceneSeconds={sceneSeconds}
-      startScene={startScene}
-      height={height}
-    />
-  );
-}
+// Green is kept for the recovery payoff, so roles get distinct hues and "who
+// is asking" never reads as "this metric recovered".
+export const STORY: Replay = {
+  scenes,
+  agentLabel: "Claude + NexQL",
+  stepsLabel: "Checked the database",
+  roleHue: (r) => (r === "HEAD OF ONLINE STORE" ? HUE.accent : r === "DATA ANALYST" ? HUE.blue : HUE.indigo),
+};
