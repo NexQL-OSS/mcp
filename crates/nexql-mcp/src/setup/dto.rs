@@ -27,6 +27,8 @@ pub struct MetaResponse {
     pub secrets_dir: Option<String>,
     pub installed_binary_version: Option<String>,
     pub launch_modes: Vec<&'static str>,
+    /// SQL for a least-privilege login, offered when a test connects as superuser.
+    pub readonly_role_sql: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +37,46 @@ pub struct ProfileListItem {
     pub is_default: bool,
     pub access_mode: String,
     pub host_or_url: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub dbname: Option<String>,
+    pub user: Option<String>,
+    pub sslmode: Option<String>,
+    /// Where the password comes from: `keyring`, `encrypted_file`, `command`,
+    /// `file`, `inline` or `none`.
+    pub password_source: &'static str,
+}
+
+impl ProfileListItem {
+    pub fn new(name: String, is_default: bool, p: &ProfileConfig) -> Self {
+        let password_source = if p.password_command.is_some() {
+            "command"
+        } else {
+            match p.credential_provider.as_deref() {
+                Some("keyring") | Some("os_keyring") => "keyring",
+                Some("encrypted_file") => "encrypted_file",
+                _ if p.password_file.is_some() => "file",
+                _ if p.password.is_some() => "inline",
+                _ => "none",
+            }
+        };
+        Self {
+            name,
+            is_default,
+            access_mode: p.access_mode.clone().unwrap_or_else(|| "read".into()),
+            host_or_url: p
+                .url
+                .clone()
+                .or_else(|| p.host.clone())
+                .unwrap_or_else(|| "(not set)".into()),
+            host: p.host.clone(),
+            port: p.port,
+            dbname: p.dbname.clone(),
+            user: p.user.clone(),
+            sslmode: p.sslmode.clone(),
+            password_source,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
