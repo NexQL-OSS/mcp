@@ -989,6 +989,7 @@ mod tests {
             config: Some(ConfigFile {
                 default_profile: Some("local".into()),
                 profiles,
+                ..Default::default()
             }),
             env: Some(HashMap::new()),
             ..Default::default()
@@ -1335,6 +1336,7 @@ mod tests {
             config: Some(ConfigFile {
                 default_profile: Some("local".into()),
                 profiles,
+                ..Default::default()
             }),
             env: Some(env(&[("PGHOST", "pgh"), ("PGDATABASE", "pgd")])),
             ..Default::default()

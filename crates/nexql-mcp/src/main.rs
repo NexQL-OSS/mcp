@@ -9,6 +9,7 @@ mod launch;
 mod password_page;
 mod setup;
 mod tui;
+mod update_check;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -109,6 +110,16 @@ struct Cli {
         )
     )]
     tools: CliToolProfile,
+
+    /// Skip the once-a-day check for a newer nexql-mcp release. Also off with
+    /// `update_check = false` in config.toml, `DO_NOT_TRACK=1`, or under CI.
+    /// Env: `NEXQL_MCP_NO_UPDATE_CHECK`.
+    #[arg(
+        long,
+        env = "NEXQL_MCP_NO_UPDATE_CHECK",
+        value_parser = clap::builder::FalseyValueParser::new()
+    )]
+    no_update_check: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -403,6 +414,8 @@ enum ProfileAction {
 
 struct RouterBackend {
     router: ToolRouter,
+    /// Update notice for the first successful tool result (see `update_check`).
+    update: Arc<update_check::PendingNotice>,
 }
 
 #[async_trait]
@@ -429,7 +442,16 @@ impl ToolBackend for RouterBackend {
     }
 
     async fn call_tool(&self, name: &str, arguments: Value) -> ToolCallResult {
-        let out = self.router.call(name, arguments).await;
+        let mut out = self.router.call(name, arguments).await;
+        if !out.is_error
+            && let Some((text, structured)) = self.update.take()
+        {
+            out.text
+                .push_str(&format!("\n\n[nexql-mcp update: {text}]"));
+            if let Some(obj) = out.structured.as_mut().and_then(Value::as_object_mut) {
+                obj.insert("updateNotice".into(), structured);
+            }
+        }
         ToolCallResult {
             text: out.text,
             structured: out.structured,
@@ -1116,11 +1138,21 @@ async fn build_mcp_handler(cli: &Cli) -> Result<McpHandler, Box<dyn std::error::
         router = router.with_access_notice(connection_id, notice);
     }
 
-    let tools = Arc::new(RouterBackend { router });
+    let (update_line, update) = if update_check_enabled(cli) {
+        let remote = cli.transport.http && !is_loopback_bind(&cli.transport.bind);
+        update_check::start(remote)
+    } else {
+        (None, Arc::default())
+    };
+
+    let tools = Arc::new(RouterBackend { router, update });
 
     let mut handler = McpHandler::new(tools)
         .with_prompts(Arc::new(StaticPromptBackend))
         .with_server_title("NexQL Postgres MCP");
+    if let Some(line) = update_line {
+        handler = handler.with_instructions_note(line);
+    }
 
     if let Some(store) = session.index_store.clone() {
         handler = handler
@@ -1189,6 +1221,15 @@ async fn run_http_server(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     .with_rate_limit_per_min(cli.transport.http_rate_limit);
     server.serve().await?;
     Ok(())
+}
+
+fn update_check_enabled(cli: &Cli) -> bool {
+    let config_off = profile_config_path(cli)
+        .ok()
+        .and_then(|p| ConfigFile::load_path(&p).ok())
+        .and_then(|c| c.update_check)
+        == Some(false);
+    update_check::enabled(cli.no_update_check, config_off)
 }
 
 fn is_loopback_bind(bind: &str) -> bool {
@@ -1985,6 +2026,11 @@ fn masked_columns_summary(filter: &nexql_policy::PolicyFilter, cols: &[String]) 
 }
 
 async fn run_doctor(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if update_check_enabled(cli) {
+        println!("{}", update_check::doctor_line().await);
+    } else {
+        println!("update: check disabled");
+    }
     let mode = cli_access_mode(&cli.access)?;
     let resolved = resolve(&resolve_inputs(cli))?;
     println!(

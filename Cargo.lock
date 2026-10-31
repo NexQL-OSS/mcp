@@ -2584,6 +2584,7 @@ dependencies = [
  "nexql-proto",
  "nexql-tools",
  "ratatui",
+ "semver",
  "serde",
  "serde_json",
  "similar",
@@ -2592,6 +2593,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "url",
  "uuid",
 ]

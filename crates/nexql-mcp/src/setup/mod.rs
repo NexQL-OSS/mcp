@@ -4,6 +4,7 @@
 //! Browser-based setup wizard — local HTTP API + embedded UI.
 
 mod dto;
+mod entries;
 pub mod headless;
 pub mod wire;
 
@@ -126,6 +127,7 @@ pub async fn run(options: SetupOptions) -> Result<(), Box<dyn std::error::Error>
         .route("/api/v1/profiles/{name}/export", get(export_profile))
         .route("/api/v1/profiles/import", post(import_profiles))
         .route("/api/v1/clients", get(list_clients_handler))
+        .route("/api/v1/clients/entries", get(client_entries_handler))
         .route("/api/v1/clients/preview", post(clients_preview))
         .route("/api/v1/clients/apply", post(clients_apply))
         .route("/api/v1/shutdown", post(shutdown_handler))
@@ -293,6 +295,7 @@ async fn meta_handler(State(state): State<Arc<SetupState>>, headers: HeaderMap) 
         secrets_dir,
         installed_binary_version: probe_installed_version(),
         launch_modes: vec!["path", "npx", "npx_latest"],
+        readonly_role_sql: nexql_policy::readonly_role_sql(),
     };
     let mut resp = Json(body).into_response();
     if let Ok(value) = serde_json::to_value(&detected) {
@@ -319,18 +322,9 @@ async fn list_profiles(State(state): State<Arc<SetupState>>, headers: HeaderMap)
     let items: Vec<ProfileListItem> = names
         .into_iter()
         .map(|name| {
-            let profile = &config.profiles[&name];
             let is_default = config.default_profile.as_deref() == Some(name.as_str());
-            ProfileListItem {
-                name: name.clone(),
-                is_default,
-                access_mode: profile.access_mode.clone().unwrap_or_else(|| "read".into()),
-                host_or_url: profile
-                    .url
-                    .clone()
-                    .or_else(|| profile.host.clone())
-                    .unwrap_or_else(|| "(not set)".into()),
-            }
+            let profile = &config.profiles[&name];
+            ProfileListItem::new(name, is_default, profile)
         })
         .collect();
     Json(items).into_response()
@@ -730,6 +724,17 @@ async fn list_clients_handler(
     }
     state.touch();
     Json(list_clients(state.workspace_root.as_deref())).into_response()
+}
+
+async fn client_entries_handler(
+    State(state): State<Arc<SetupState>>,
+    headers: HeaderMap,
+) -> Response {
+    if !auth_ok(&headers, &state.token) {
+        return unauthorized();
+    }
+    state.touch();
+    Json(entries::list_entries(state.workspace_root.as_deref())).into_response()
 }
 
 async fn clients_preview(

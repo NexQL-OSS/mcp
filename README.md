@@ -104,7 +104,7 @@ curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.
 Pin a version:
 
 ```bash
-NEXQL_MCP_VERSION=v0.2.2 curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NexQL-OSS/mcp/main/scripts/install.sh | NEXQL_MCP_VERSION=v0.2.2 bash
 ```
 
 **Windows** (PowerShell) — installs to `%LOCALAPPDATA%\Programs\nexql-mcp` and adds it to your user `PATH`:
@@ -262,6 +262,20 @@ cargo build --release -p nexql-mcp
 ```
 
 </details>
+
+### Updates
+
+Once a day nexql-mcp asks the npm registry (`registry.npmjs.org/nexql-mcp/latest`) for the newest version.
+The request sends nothing about you or your database, only a `nexql-mcp/<version>` user agent. When a newer
+release is out, the chat gets a short notice with the upgrade command for the way you installed it: npx,
+npm, pnpm, bun, Volta, cargo, uv, pipx, pip, Homebrew, Docker, the install script or the Claude Desktop
+bundle. The model passes it on and, if it can run commands on your machine, offers to run it for you.
+`nexql-mcp doctor` prints the same line.
+
+npx configs need `nexql-mcp@latest`. With no tag, `npx -y nexql-mcp` keeps running the copy npx cached first.
+
+Turn the check off with `--no-update-check`, `NEXQL_MCP_NO_UPDATE_CHECK=1`, `update_check = false` in
+`config.toml`, or `DO_NOT_TRACK=1`. It is also off when `CI` is set, and fails quietly offline.
 
 ## Set up a connection
 

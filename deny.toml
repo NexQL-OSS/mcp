@@ -36,7 +36,7 @@ allow = [
     "Zlib",
     "MPL-2.0",
     # webpki-roots ships the Mozilla CA bundle as data under CDLA-Permissive-2.0.
-    # Permissive, no copyleft on our code; reaches us via hf-hub -> ureq (embeddings feature).
+    # Permissive, no copyleft on our code; reaches us via ureq (update check; also hf-hub with the embeddings feature).
     "CDLA-Permissive-2.0",
 ]
 # Our own crates are GPL-3.0-only (see workspace Cargo.toml). GPL stays OUT of

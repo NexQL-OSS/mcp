@@ -3,1715 +3,2128 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0B0E14" id="theme-color-meta" />
-  <title>NexQL MCP — Profile setup</title>
+  <meta name="theme-color" content="#07080e" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f2f8" media="(prefers-color-scheme: light)" />
+  <meta id="theme-color-force" name="theme-color" content="#07080e" media="not all" />
+  <title>NexQL MCP setup</title>
   <script>
+    // Same three-way theme choice as the site: system (default), dark, light.
     (function () {
-      var stored = localStorage.getItem('nexql_setup_theme');
-      var theme = stored === 'light' || stored === 'dark'
-        ? stored
-        : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-      document.documentElement.setAttribute('data-theme', theme);
-      var meta = document.getElementById('theme-color-meta');
-      if (meta) meta.setAttribute('content', theme === 'light' ? '#faf9f5' : '#0B0E14');
+      var KEY = 'nexql-setup-theme';
+      var stored = null;
+      try { stored = localStorage.getItem(KEY); } catch (e) { stored = null; }
+      if (stored !== 'light' && stored !== 'dark' && stored !== 'system') stored = 'system';
+      var mq = window.matchMedia('(prefers-color-scheme: light)');
+      function paint(choice) {
+        var root = document.documentElement;
+        root.setAttribute('data-theme-choice', choice);
+        if (choice === 'system') root.removeAttribute('data-theme');
+        else root.setAttribute('data-theme', choice);
+        var theme = choice === 'system' ? (mq.matches ? 'light' : 'dark') : choice;
+        var force = document.getElementById('theme-color-force');
+        if (!force) return;
+        if (choice === 'system') force.setAttribute('media', 'not all');
+        else { force.removeAttribute('media'); force.setAttribute('content', theme === 'light' ? '#f4f2f8' : '#07080e'); }
+      }
+      paint(stored);
+      window.__nexqlSetTheme = function (choice) {
+        try { localStorage.setItem(KEY, choice); } catch (e) { /* private mode: lasts for this page */ }
+        paint(choice);
+      };
     })();
   </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    :root,
-    [data-theme="dark"] {
+    /* Tokens copied from mcp/site/src/styles/theme.css. Dark is "Mute Dark",
+       light is daylight; the two light blocks must stay identical. No web
+       fonts are loaded: the site's faces are used when installed locally. */
+    :root {
       color-scheme: dark;
-      /* NexQL brand ribbon (fixed — matches nexql.astrx.dev) */
-      --nex-blue: #3d6fe0;
-      --nex-indigo: #6c4cd6;
-      --nex-magenta: #e0388f;
-      --nex-orange: #f26b3a;
-      --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
-      /* NexQL Mute Dark (site default theme) */
-      --theme-color: #0b0e14;
       --bg: #0b0e14;
-      --bg-elevated: #161b22;
-      --input-bg: #0b0e14;
-      --text: #e6edf3;
-      --text-bright: #e6edf3;
-      --muted: #a0a0a0;
-      --muted-dim: #586674;
-      --muted-line: #7688b8;
-      --border: #21262d;
-      --border-mid: #21262d;
-      --border-strong: #30363d;
-      --border-ui: #30363d;
-      --border-btn: #30363d;
+      --bg-deep: #07080e;
+      --panel: #11151d;
+      --panel-2: #161b25;
+      --line: #3e4a5c;
+      --line-2: #526078;
+      --fg: #e6edf3;
+      --prose: #c9d1d9;
+      --muted: #a0a8b3;
+      --faint: #7d8590;
       --accent: #e0a4cc;
-      --btn-on-accent: #0b0e14;
-      --mint: #7ee8a8;
-      --hot: #ff4d6d;
-      --chrome: rgba(11, 14, 20, 0.9);
-      --chrome-subtle: rgba(11, 14, 20, 0.78);
-      --scrollbar-thumb: #30363d;
-      --brand-mark-bg: var(--nex-grad);
-      --brand-mark-border: #30363d;
-      --tab-active-bg: #e0a4cc26;
-      --accent-subtle: #e0a4cc1f;
-      --accent-subtle-hover: #e0a4cc33;
-      --accent-focus: #e0a4cc8c;
-      --surface-inset: rgba(255, 255, 255, 0.028);
-      --surface-inset-hover: rgba(255, 255, 255, 0.045);
-      --surface-inset-2: rgba(255, 255, 255, 0.018);
-      --surface-inset-3: rgba(255, 255, 255, 0.02);
-      --row-hover: rgba(255, 255, 255, 0.03);
-      --row-selected: #e0a4cc1a;
-      --table-head-border: #21262d;
-      --table-cell: #e6edf3;
-      --table-mono: #a0a0a0;
-      --diff-text: #c4a4b8;
-      --textarea-readonly: #c4a4b8;
-      --client-hover-border: #484f58;
-      --selection: #e0a4cc4d;
-      --mint-bg: rgba(126, 232, 168, 0.1);
-      --mint-border: rgba(126, 232, 168, 0.28);
-      --mint-badge-border: rgba(126, 232, 168, 0.35);
-      --hot-bg: rgba(255, 77, 109, 0.1);
-      --accent-bg: rgba(224, 164, 204, 0.1);
-      --accent-border: rgba(224, 164, 204, 0.28);
-      --hot-border: rgba(255, 77, 109, 0.45);
-      --glow: rgba(224, 164, 204, 0.09);
-      --panel: var(--surface-inset);
-      --panel-hover: var(--surface-inset-hover);
-      --font-sans: "Space Grotesk", system-ui, sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, monospace;
-      --font-serif: "Instrument Serif", Georgia, serif;
-      --text-xs: 0.75rem;
-      --text-sm: 0.8125rem;
-      --text-base: 0.875rem;
-      --text-lg: 1rem;
-      --text-xl: 1.375rem;
-      --space-xs: 0.375rem;
-      --space-sm: 0.5rem;
-      --space-md: 0.75rem;
-      --space-lg: 1rem;
-      --space-xl: 1.5rem;
-      --touch-min: 2.25rem;
-      --content-max: min(960px, 100%);
-      --page-pad: clamp(0.75rem, 2vw, 1.5rem);
-    }
-
-    [data-theme="light"] {
-      color-scheme: light;
-      --nex-blue: #3d6fe0;
-      --nex-indigo: #6c4cd6;
-      --nex-magenta: #e0388f;
-      --nex-orange: #f26b3a;
+      --accent-ink: #0b0e14;
+      --accent-hover: #ebbcdb;
+      --kw: #8a9ad0;
+      --str: #ffa588;
+      --comment: #84909c;
+      --ok: #7ee8a8;
+      --warn: #f5b23a;
+      --hot: #f26b3a;
+      --ok-wash: rgba(126, 232, 168, 0.08);
+      --ok-line: rgba(126, 232, 168, 0.35);
+      --hot-wash: rgba(242, 107, 58, 0.09);
+      --hot-line: rgba(242, 107, 58, 0.45);
+      --warn-wash: rgba(245, 178, 58, 0.08);
+      --warn-line: rgba(245, 178, 58, 0.35);
+      --diff-add: rgba(126, 232, 168, 0.1);
+      --diff-del: rgba(242, 107, 58, 0.1);
       --nex-grad: linear-gradient(105deg, #3d6fe0, #6c4cd6 30%, #a23bc9 52%, #e0388f 72%, #f26b3a 90%, #f5b23a);
-      /* NexQL site light surfaces + Mute accent */
-      --theme-color: #faf9f5;
-      --bg: #faf9f5;
-      --bg-elevated: #ffffff;
-      --input-bg: #ffffff;
-      --text: #1a1917;
-      --text-bright: #1a1917;
-      --muted: #6b665f;
-      --muted-dim: #8a857c;
-      --muted-line: #6b665f;
-      --border: #d9d5cc;
-      --border-mid: #d9d5cc;
-      --border-strong: #cfc9be;
-      --border-ui: #c2bbb0;
-      --border-btn: #b8b0a4;
-      --accent: #a84d8f;
-      --btn-on-accent: #ffffff;
-      --mint: #1a7a52;
-      --hot: #c42d4a;
-      --chrome: rgba(250, 249, 245, 0.92);
-      --chrome-subtle: rgba(250, 249, 245, 0.88);
-      --scrollbar-thumb: #c8c2b8;
-      --brand-mark-bg: var(--nex-grad);
-      --brand-mark-border: #d9d5cc;
-      --tab-active-bg: rgba(168, 77, 143, 0.12);
-      --accent-subtle: rgba(168, 77, 143, 0.1);
-      --accent-subtle-hover: rgba(168, 77, 143, 0.18);
-      --accent-focus: rgba(168, 77, 143, 0.45);
-      --surface-inset: rgba(0, 0, 0, 0.025);
-      --surface-inset-hover: rgba(0, 0, 0, 0.045);
-      --surface-inset-2: rgba(0, 0, 0, 0.02);
-      --surface-inset-3: rgba(0, 0, 0, 0.03);
-      --row-hover: rgba(0, 0, 0, 0.03);
-      --row-selected: rgba(168, 77, 143, 0.1);
-      --table-head-border: #d9d5cc;
-      --table-cell: #1a1917;
-      --table-mono: #5a5568;
-      --diff-text: #3d3848;
-      --textarea-readonly: #6b5a6a;
-      --client-hover-border: #a8a095;
-      --selection: rgba(168, 77, 143, 0.22);
-      --mint-bg: rgba(26, 122, 82, 0.1);
-      --mint-border: rgba(26, 122, 82, 0.28);
-      --mint-badge-border: rgba(26, 122, 82, 0.35);
-      --hot-bg: rgba(196, 45, 74, 0.08);
-      --accent-bg: rgba(168, 77, 143, 0.08);
-      --accent-border: rgba(168, 77, 143, 0.22);
-      --hot-border: rgba(196, 45, 74, 0.4);
-      --glow: rgba(168, 77, 143, 0.07);
-      --panel: #ffffff;
-      --panel-hover: var(--surface-inset-hover);
+      --nex-grad-text: var(--nex-grad);
+      --selection: rgba(224, 164, 204, 0.3);
+      --hover: rgba(255, 255, 255, 0.03);
+      --mark-glow: 0 0 18px rgba(224, 56, 143, 0.35);
+      --shadow-1: 1px 2px 3px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.09), inset -1px -1px 0 rgba(0, 0, 0, 0.4);
+      --shadow-2: 1px 2px 4px rgba(0, 0, 0, 0.55), 8px 16px 30px -10px rgba(0, 0, 0, 0.85), inset 1px 1px 0 rgba(255, 255, 255, 0.11), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+      --shadow-3: 2px 4px 8px rgba(0, 0, 0, 0.55), 14px 28px 50px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(108, 76, 214, 0.28), inset 1px 1px 0 rgba(255, 255, 255, 0.13), inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+      --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.5), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 1px 2px 3px rgba(0, 0, 0, 0.55), 6px 12px 26px -10px rgba(224, 164, 204, 0.55);
+      --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.55), inset -1px -1px 0 rgba(80, 20, 60, 0.35), 2px 5px 9px rgba(0, 0, 0, 0.5), 9px 18px 34px -12px rgba(224, 164, 204, 0.65);
+      --btn-primary-shadow-active: inset 2px 2px 5px rgba(80, 20, 60, 0.45), inset -1px -1px 0 rgba(255, 255, 255, 0.3);
+      --btn-focus-shadow: 0 0 0 4px rgba(224, 164, 204, 0.24);
+      --btn-lift: -1px;
+      --page-bg:
+        radial-gradient(880px 480px at 8% -10%, rgba(224, 56, 143, 0.11), transparent 60%),
+        radial-gradient(800px 440px at 96% -8%, rgba(80, 112, 214, 0.12), transparent 58%),
+        radial-gradient(600px 380px at 74% 40%, rgba(162, 59, 201, 0.05), transparent 62%),
+        #0b0e14;
+      --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 46%), #0e131c;
+      --code-bg: #10141e;
+      --pill-bg: color-mix(in srgb, #151c28 88%, transparent);
+      --selected-shadow: 0 0 0 1px var(--accent) inset, 0 0 24px -4px rgba(224, 164, 204, 0.32), 0 14px 30px -14px rgba(224, 56, 143, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      --rail-active: color-mix(in srgb, #e0a4cc 16%, #12161e);
+      --well: #090c12;
+      --well-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.55), inset -1px -1px 0 rgba(255, 255, 255, 0.04);
+      --bevel-border: #4a5870 #2f3848 #222a37 #435069;
+      --surface: linear-gradient(150deg, #1f2636 0%, #151a25 44%, #0e1219 100%);
+      --surface-raised: linear-gradient(150deg, #252e40 0%, #18202c 44%, #10151e 100%);
+      --control-bg: linear-gradient(150deg, #29334a 0%, #1a2130 52%, #131925 100%);
+      --control-bg-hover: linear-gradient(150deg, #313c55 0%, #1e2637 52%, #151c29 100%);
+      --control-shadow: 1px 2px 3px rgba(0, 0, 0, 0.6), 3px 6px 12px -4px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.14), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+      --control-shadow-hover: 2px 4px 6px rgba(0, 0, 0, 0.55), 6px 12px 22px -8px rgba(0, 0, 0, 0.7), 0 0 18px -6px rgba(224, 164, 204, 0.35), inset 1px 1px 0 rgba(255, 255, 255, 0.18), inset -1px -1px 0 rgba(0, 0, 0, 0.45);
+      --control-shadow-active: inset 2px 2px 5px rgba(0, 0, 0, 0.6), inset -1px -1px 0 rgba(255, 255, 255, 0.06);
+      --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.12)), var(--accent);
+      --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 55%, rgba(60, 10, 40, 0.1)), var(--accent-hover);
+
+      --font-body: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --font-serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+      --radius: 12px;
+      --header-h: 60px;
     }
 
-    * { box-sizing: border-box; }
-    html {
-      font-size: 100%;
-      scroll-behavior: smooth;
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f4f2f8;
+      --bg-deep: #e8e4f1;
+      --panel: #fffcfe;
+      --panel-2: #ffffff;
+      --line: #e4dce8;
+      --line-2: #74829b;
+      --fg: #161d2b;
+      --prose: #1e2838;
+      --muted: #3c4b60;
+      --faint: #4e5e74;
+      --accent: #882d5a;
+      --accent-ink: #f8f9fc;
+      --accent-hover: #9a3468;
+      --kw: #2f3f86;
+      --str: #9a3412;
+      --comment: #4a5868;
+      --ok: #0a6234;
+      --warn: #7a4e00;
+      --hot: #b53c0a;
+      --ok-wash: rgba(10, 98, 52, 0.07);
+      --ok-line: rgba(10, 98, 52, 0.35);
+      --hot-wash: rgba(181, 60, 10, 0.07);
+      --hot-line: rgba(181, 60, 10, 0.4);
+      --warn-wash: rgba(122, 78, 0, 0.1);
+      --warn-line: rgba(122, 78, 0, 0.45);
+      --diff-add: rgba(10, 98, 52, 0.08);
+      --diff-del: rgba(181, 60, 10, 0.08);
+      --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+      --selection: rgba(136, 45, 90, 0.18);
+      --hover: rgba(136, 45, 90, 0.06);
+      --mark-glow: 0 8px 16px -6px rgba(224, 56, 143, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+      --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+      --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+      --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+      --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
+      --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
+      --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
+      --page-bg:
+        radial-gradient(920px 520px at 6% -8%, rgba(224, 56, 143, 0.14), transparent 62%),
+        radial-gradient(840px 480px at 96% -6%, rgba(80, 112, 214, 0.16), transparent 60%),
+        radial-gradient(640px 420px at 78% 36%, rgba(162, 59, 201, 0.07), transparent 62%),
+        #f4f2f8;
+      --header-bg: linear-gradient(180deg, #ffffff, #f6f4fa);
+      --code-bg: #ebe6f4;
+      --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
+      --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
+      --well: #ebe6f2;
+      --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+      --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+      --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+      --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+      --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+      --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+      --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+      --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+      --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+      --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+      --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
     }
-    html, body {
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #f4f2f8;
+        --bg-deep: #e8e4f1;
+        --panel: #fffcfe;
+        --panel-2: #ffffff;
+        --line: #e4dce8;
+        --line-2: #74829b;
+        --fg: #161d2b;
+        --prose: #1e2838;
+        --muted: #3c4b60;
+        --faint: #4e5e74;
+        --accent: #882d5a;
+        --accent-ink: #f8f9fc;
+        --accent-hover: #9a3468;
+        --kw: #2f3f86;
+        --str: #9a3412;
+        --comment: #4a5868;
+        --ok: #0a6234;
+        --warn: #7a4e00;
+        --hot: #b53c0a;
+        --ok-wash: rgba(10, 98, 52, 0.07);
+        --ok-line: rgba(10, 98, 52, 0.35);
+        --hot-wash: rgba(181, 60, 10, 0.07);
+        --hot-line: rgba(181, 60, 10, 0.4);
+        --warn-wash: rgba(122, 78, 0, 0.1);
+        --warn-line: rgba(122, 78, 0, 0.45);
+        --diff-add: rgba(10, 98, 52, 0.08);
+        --diff-del: rgba(181, 60, 10, 0.08);
+        --nex-grad-text: linear-gradient(105deg, #1e40af, #5b21b6 30%, #7e22ce 52%, #9d174d 72%, #9a3412 90%, #7a4e00);
+        --selection: rgba(136, 45, 90, 0.18);
+        --hover: rgba(136, 45, 90, 0.06);
+        --mark-glow: 0 8px 16px -6px rgba(224, 56, 143, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+        --shadow-1: 0.5px 1px 1px rgba(72, 36, 88, 0.06), 1px 2px 3px rgba(48, 64, 140, 0.05), inset 1px 1px 0 rgba(255, 255, 255, 0.9), inset -1px -1px 0 rgba(72, 36, 88, 0.04);
+        --shadow-2: 1px 2px 3px rgba(72, 36, 88, 0.06), 6px 12px 22px -10px rgba(120, 52, 110, 0.18), 2px 4px 8px -3px rgba(55, 78, 160, 0.1), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+        --shadow-3: 1px 3px 5px rgba(72, 36, 88, 0.06), 10px 22px 40px -16px rgba(128, 44, 100, 0.2), 4px 8px 16px -6px rgba(50, 72, 160, 0.12), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.05);
+        --btn-primary-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 1px 2px 3px rgba(80, 24, 48, 0.18), 6px 12px 20px -9px rgba(136, 45, 90, 0.55);
+        --btn-primary-shadow-hover: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset -1px -1px 0 rgba(40, 10, 30, 0.25), 2px 4px 6px rgba(80, 24, 48, 0.14), 9px 18px 30px -11px rgba(136, 45, 90, 0.5);
+        --btn-primary-shadow-active: inset 2px 2px 5px rgba(40, 0, 20, 0.35), inset -1px -1px 0 rgba(255, 255, 255, 0.2);
+        --btn-focus-shadow: 0 0 0 4px rgba(136, 45, 90, 0.18);
+        --page-bg:
+          radial-gradient(920px 520px at 6% -8%, rgba(224, 56, 143, 0.14), transparent 62%),
+          radial-gradient(840px 480px at 96% -6%, rgba(80, 112, 214, 0.16), transparent 60%),
+          radial-gradient(640px 420px at 78% 36%, rgba(162, 59, 201, 0.07), transparent 62%),
+          #f4f2f8;
+        --header-bg: linear-gradient(180deg, #ffffff, #f6f4fa);
+        --code-bg: #ebe6f4;
+        --pill-bg: color-mix(in srgb, #ffffff 82%, transparent);
+        --selected-shadow: 0 0 0 1px var(--accent) inset, 0 12px 26px -14px rgba(136, 45, 90, 0.38), 0 2px 6px rgba(72, 36, 88, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        --rail-active: color-mix(in srgb, #882d5a 9%, #ffffff);
+        --well: #ebe6f2;
+        --well-shadow: inset 1px 1px 3px rgba(72, 36, 88, 0.14), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+        --bevel-border: #efe9f2 #e0d7e5 #d3c8da #ebe4ef;
+        --surface: linear-gradient(150deg, #ffffff 0%, #fffcfe 46%, #f8f3f9 100%);
+        --surface-raised: linear-gradient(150deg, #ffffff 0%, #ffffff 46%, #faf6fb 100%);
+        --control-bg: linear-gradient(150deg, #ffffff 0%, #fbf8fc 52%, #f0eaf4 100%);
+        --control-bg-hover: linear-gradient(150deg, #ffffff 0%, #fdfbfe 52%, #f4eff7 100%);
+        --control-shadow: 1px 2px 3px rgba(72, 36, 88, 0.1), 3px 6px 12px -5px rgba(120, 52, 110, 0.18), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+        --control-shadow-hover: 2px 4px 6px rgba(72, 36, 88, 0.1), 6px 12px 20px -8px rgba(120, 52, 110, 0.24), inset 1px 1px 0 #fff, inset -1px -1px 0 rgba(72, 36, 88, 0.08);
+        --control-shadow-active: inset 2px 2px 4px rgba(72, 36, 88, 0.16), inset -1px -1px 0 rgba(255, 255, 255, 0.9);
+        --btn-primary-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.12)), var(--accent);
+        --btn-primary-bg-hover: linear-gradient(150deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%, rgba(40, 0, 20, 0.1)), var(--accent-hover);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :root { --btn-lift: 0px; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--header-h) + 16px); }
+    body {
       margin: 0;
-      padding: 0;
-      min-height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-sans);
-      font-size: var(--text-base);
-      line-height: 1.5;
+      min-height: 100vh;
+      background: var(--page-bg);
+      background-color: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { color: var(--text-bright); }
-    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
     ::selection { background: var(--selection); }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-
-    .stage {
-      position: relative;
-      min-height: 100dvh;
-      display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
-      background: var(--bg);
-    }
-    @media (min-width: 900px) {
-      .stage {
-        grid-template-columns: 220px minmax(0, 1fr);
-        grid-template-rows: auto minmax(0, 1fr);
-      }
-    }
-    .stage::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      background: radial-gradient(66% 48% at 50% 0%, var(--glow), transparent 72%);
-    }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-md);
-      padding: var(--space-sm) var(--page-pad);
-      border-bottom: 1px solid var(--border);
-      background: var(--chrome);
-      backdrop-filter: blur(14px);
-      grid-column: 1 / -1;
-    }
-    @media (min-width: 900px) {
-      .topbar { padding-block: var(--space-md); }
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
-      flex: none;
-    }
-    .topbar-actions {
-      display: flex;
-      align-items: center;
-      gap: var(--space-sm);
-      flex: none;
-    }
-    .theme-toggle {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: var(--touch-min);
-      min-height: var(--touch-min);
-      padding: 0.5rem;
-      border-radius: 10px;
-      border: 1px solid var(--border-ui);
-      background: var(--surface-inset-3);
-      color: var(--muted);
-      transition: border-color 0.2s, color 0.2s, background 0.2s;
-    }
-    .theme-toggle:hover {
-      border-color: var(--accent);
-      color: var(--text-bright);
-      background: var(--panel-hover);
-    }
-    .theme-toggle svg {
-      width: 1.125rem;
-      height: 1.125rem;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.75;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .theme-toggle .icon-sun { display: none; }
-    .theme-toggle .icon-moon { display: block; }
-    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
-    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
-    .brand-mark {
-      width: 1.625rem;
-      height: 1.625rem;
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    h1, h2, h3 { line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+    p { margin: 0; }
+    code, kbd, pre { font-family: var(--font-mono); }
+    :not(pre) > code {
+      font-size: 0.88em;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
       border-radius: 5px;
-      background: var(--brand-mark-bg);
-      border: 1px solid var(--brand-mark-border);
-      display: grid;
-      place-items: center;
-      font: 600 0.625rem/1 var(--font-mono);
-      color: #ffffff;
-      letter-spacing: -0.04em;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+      padding: 0.08em 0.38em;
+      overflow-wrap: anywhere;
     }
-    .brand-name {
-      font: 600 var(--text-base)/1 var(--font-sans);
-      letter-spacing: -0.01em;
-      color: var(--text-bright);
-    }
-    .brand-badge {
-      padding: 0.25rem 0.5rem;
-      border-radius: 5px;
-      border: 1px solid var(--border-ui);
-      font: 500 var(--text-xs)/1 var(--font-mono);
-      letter-spacing: 0.12em;
-      color: var(--muted);
-    }
-    .topbar-meta {
-      font: 400 var(--text-xs)/1.5 var(--font-mono);
-      color: var(--muted);
-      text-align: right;
-      max-width: min(56ch, 55vw);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    @media (max-width: 599px) {
-      .topbar-meta { display: none; }
-      .mobile-meta {
-        display: block;
-        margin: 0 0 var(--space-sm);
-        padding-bottom: var(--space-sm);
-        border-bottom: 1px solid var(--border);
-      }
-    }
-    @media (min-width: 600px) {
-      .mobile-meta { display: none; }
-    }
+    [hidden] { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .serif-em { font-family: var(--font-serif); font-style: italic; font-weight: 400; letter-spacing: 0; }
+    .grad-text { background: var(--nex-grad-text); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+    .wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+    @media (min-width: 720px) { .wrap { padding: 0 28px; } }
 
-    .tabs {
-      position: sticky;
-      top: 0;
-      z-index: 4;
-      display: flex;
-      align-items: stretch;
-      gap: 0.25rem;
-      padding: var(--space-sm) var(--page-pad);
-      border-bottom: 1px solid var(--border);
-      background: var(--chrome-subtle);
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
+    .skip {
+      position: absolute; left: 16px; top: 8px; z-index: 80;
+      padding: 8px 12px; border-radius: 8px;
+      background: var(--accent); color: var(--accent-ink); font-weight: 600;
+      transform: translateY(-150%);
     }
-    @media (min-width: 900px) {
-      .tabs {
-        position: sticky;
-        top: 0;
-        grid-row: 2;
-        grid-column: 1;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.35rem;
-        padding: var(--space-lg) var(--space-md);
-        border-bottom: none;
-        border-right: 1px solid var(--border);
-        overflow-x: hidden;
-        overflow-y: auto;
-        min-height: 0;
-      }
+    .skip:focus { transform: none; }
+    #main:focus { outline: none; }
+
+    /* Header */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--line);
     }
-    .tabs-label {
-      display: none;
-      margin: 0 0 var(--space-sm);
-      padding: 0 0.5rem;
-      font: 500 var(--text-xs)/1 var(--font-mono);
-      letter-spacing: 0.14em;
-      color: var(--muted-line);
-      text-transform: uppercase;
+    .site-header .ribbon { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--nex-grad); opacity: 0.85; }
+    .bar { display: flex; align-items: center; gap: 12px; min-height: var(--header-h); flex-wrap: wrap; }
+    .brand { display: inline-flex; align-items: center; gap: 9px; color: var(--fg); font-weight: 700; font-size: 17px; flex: none; }
+    .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--nex-grad); box-shadow: var(--mark-glow); }
+    .chip {
+      font: 600 11px/1 var(--font-mono); letter-spacing: 0.08em; color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 6px; padding: 4px 6px;
     }
-    @media (min-width: 900px) {
-      .tabs-label { display: block; }
+    .bar-end { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    .ver { font: 500 12px/1 var(--font-mono); color: var(--faint); }
+    @media (max-width: 560px) { .ver { display: none; } }
+    @media (max-width: 420px) {
+      .bar { gap: 8px; }
+      .bar-end { gap: 6px; }
+      .brand .chip { display: none; }
+      #btn-finish { padding: 6px 10px; }
+      #btn-finish .long { display: none; }
     }
+    .theme-switch {
+      display: inline-flex; align-items: center; flex: none; padding: 3px;
+      border: 1px solid var(--line); border-radius: 999px; background: var(--well); box-shadow: var(--well-shadow);
+    }
+    .theme-switch button {
+      appearance: none; display: inline-grid; place-items: center; width: 32px; height: 30px;
+      border: 0; background: transparent; color: var(--muted); border-radius: 999px; cursor: pointer;
+      transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+    }
+    .theme-switch svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .theme-switch button[aria-checked="true"] { background: var(--btn-primary-bg); color: var(--accent-ink); box-shadow: var(--btn-primary-shadow); }
+    .theme-switch button:hover { color: var(--fg); }
+    .theme-switch button[aria-checked="true"]:hover { color: var(--accent-ink); }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-height: 44px; padding: 10px 18px; border-radius: 10px;
+      border: 1px solid; border-color: var(--bevel-border);
+      background: var(--control-bg); color: var(--fg);
+      font: 600 15px/1.2 var(--font-body); cursor: pointer; text-decoration: none;
+      box-shadow: var(--control-shadow);
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+    }
+    .btn:hover { background: var(--control-bg-hover); text-decoration: none; box-shadow: var(--control-shadow-hover); transform: translateY(var(--btn-lift)); }
+    .btn:active { box-shadow: var(--control-shadow-active); transform: translateY(1px); }
+    .btn:focus-visible { box-shadow: var(--btn-focus-shadow), var(--control-shadow); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: var(--control-shadow); }
+    .btn-primary { background: var(--btn-primary-bg); border-color: var(--accent); color: var(--accent-ink); box-shadow: var(--btn-primary-shadow); }
+    .btn-primary:hover { background: var(--btn-primary-bg-hover); border-color: var(--accent-hover); box-shadow: var(--btn-primary-shadow-hover); }
+    .btn-primary:active { box-shadow: var(--btn-primary-shadow-active); }
+    .btn-primary:focus-visible { box-shadow: var(--btn-focus-shadow), var(--btn-primary-shadow); }
+    .btn-primary:disabled { box-shadow: var(--btn-primary-shadow); }
+    .btn-sm { min-height: 36px; padding: 6px 12px; font-size: 14px; border-radius: 8px; }
+    .btn-danger { color: var(--hot); }
+    .btn-danger.btn-primary { background: var(--hot); border-color: var(--hot); color: #fff; }
+    .btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--muted); }
+    .btn-ghost:hover { background: var(--hover); box-shadow: none; color: var(--fg); }
+
+    /* Intro */
+    .intro { padding-top: clamp(28px, 5vw, 56px); padding-bottom: 20px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      font: 500 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--muted); border: 1px solid var(--line-2); border-radius: 99px; padding: 8px 14px;
+    }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+    .intro h1 { margin-top: 18px; font-size: clamp(30px, 5vw, 50px); font-weight: 700; max-width: 820px; }
+    .intro .lede { margin-top: 14px; font-size: clamp(16px, 1.5vw, 18.5px); color: var(--muted); max-width: 70ch; }
+    .facts { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .facts li {
+      font-size: 13.5px; color: var(--muted); padding: 6px 11px; border-radius: 8px;
+      background: var(--surface); border: 1px solid; border-color: var(--bevel-border); box-shadow: var(--shadow-1);
+      max-width: 100%; overflow-wrap: anywhere;
+    }
+    .facts li strong { color: var(--fg); font-weight: 600; }
+
+    /* View tabs */
+    .views {
+      display: flex; gap: 4px; margin: 8px 0 20px; padding: 4px; width: max-content; max-width: 100%;
+      overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--well); box-shadow: var(--well-shadow);
+    }
+    .views button {
+      appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted);
+      font: 500 14.5px/1.2 var(--font-body); padding: 9px 14px; border-radius: 9px; cursor: pointer; white-space: nowrap;
+    }
+    .views button:hover { color: var(--fg); background: var(--hover); }
+    .views button[aria-selected="true"] { color: var(--fg); background: var(--control-bg); border-color: var(--bevel-border); box-shadow: var(--control-shadow); }
+    .views .count { font: 500 11.5px/1 var(--font-mono); color: var(--faint); margin-left: 6px; }
+
+    /* Notices */
+    .notice {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); border-left-width: 3px;
+      background: var(--surface); box-shadow: var(--shadow-1); font-size: 14.5px; color: var(--prose);
+    }
+    .notice + .notice { margin-top: 10px; }
+    .notice strong { color: var(--fg); }
+    .notice .n-body { flex: 1; min-width: 0; }
+    .notice .n-body > * + * { margin-top: 6px; }
+    .notice.ok { border-left-color: var(--ok); background: var(--ok-wash); }
+    .notice.err { border-left-color: var(--hot); background: var(--hot-wash); }
+    .notice.warn { border-left-color: var(--warn); background: var(--warn-wash); }
+    .notice.info { border-left-color: var(--accent); }
+    .notice ul, .notice ol { margin: 4px 0 0; padding-left: 20px; }
+    .notice li + li { margin-top: 3px; }
+    .notice .close { flex: none; margin: -4px -6px 0 0; }
+    #flash:empty { display: none; }
+    #flash { margin-bottom: 16px; }
+
+    /* Cards */
+    .card {
+      border: 1px solid; border-color: var(--bevel-border); border-radius: var(--radius);
+      background: var(--surface); box-shadow: var(--shadow-2); padding: clamp(18px, 2.4vw, 28px);
+    }
+    .card + .card { margin-top: 16px; }
+    .card-head { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+    .card-head h2 { font-size: 24px; }
+    .card-head p { color: var(--muted); margin-top: 6px; max-width: 68ch; }
+    .k { font: 500 11px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+    .mono-label { font: 500 12px/1.3 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+
+    /* Wizard layout */
+    .wizard { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 900px) { .wizard { grid-template-columns: 250px minmax(0, 1fr); align-items: start; } }
+    .rail { position: relative; }
+    @media (min-width: 900px) { .rail { position: sticky; top: calc(var(--header-h) + 20px); } }
+    .rail-progress { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+    .rail-progress .mono-label { color: var(--muted); }
+    .meter { height: 3px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 14px; }
+    .meter > span { display: block; height: 100%; background: var(--nex-grad); border-radius: 99px; transition: width 0.3s ease; }
+    .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
     @media (max-width: 899px) {
-      .tabs { top: 3.5rem; }
+      .steps { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px; scrollbar-width: thin; }
     }
-    .tab-btn {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      min-height: 2rem;
-      padding: 0.45rem 0.65rem;
-      flex: none;
-      white-space: nowrap;
-      border-radius: 10px;
-      transition: background 0.2s ease;
+    .steps button {
+      position: relative; appearance: none; width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+      padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; background: transparent;
+      color: var(--muted); font: 500 15px/1.25 var(--font-body); cursor: pointer;
     }
-    @media (min-width: 900px) {
-      .tab-btn {
-        flex: none;
-        width: 100%;
-        padding: 0.85rem 1rem;
-      }
+    @media (max-width: 899px) { .steps button { width: auto; white-space: nowrap; padding: 8px 10px; font-size: 14px; } }
+    .steps button:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+    .steps button:disabled { cursor: default; opacity: 0.6; }
+    .steps .num {
+      display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
+      border: 1px solid var(--line-2); font: 600 12px/1 var(--font-mono); color: var(--muted);
     }
-    .tab-btn:hover { background: var(--panel-hover); }
-    .tab-btn.active { background: var(--tab-active-bg); }
-    .tab-btn .bar {
-      width: 12px;
-      height: 3px;
-      border-radius: 2px;
-      background: var(--border-ui);
-      flex: none;
-      transition: width 0.35s ease, background 0.35s ease;
-    }
-    @media (min-width: 900px) {
-      .tab-btn .bar { width: 4px; height: 1.25rem; border-radius: 2px; }
-    }
-    .tab-btn.active .bar {
-      width: 28px;
-      background: var(--accent);
-    }
-    @media (min-width: 900px) {
-      .tab-btn.active .bar { width: 4px; height: 1.75rem; }
-    }
-    .tab-btn span:last-child {
-      font: 500 var(--text-xs)/1.2 var(--font-sans);
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      transition: color 0.35s ease;
-    }
-    .tab-btn.active span:last-child { color: var(--text-bright); font-weight: 600; }
-    .tab-btn:hover span:last-child { color: var(--text); }
+    .steps .sub { display: block; font-size: 12.5px; color: var(--faint); font-weight: 400; margin-top: 2px; }
+    @media (max-width: 899px) { .steps .sub { display: none; } }
+    .steps button[aria-current="step"] { color: var(--fg); background: var(--rail-active); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+    .steps button[aria-current="step"] .num { border-color: var(--accent); color: var(--accent); }
+    .steps button.done .num { border-color: var(--ok-line); background: var(--ok-wash); color: var(--ok); }
+    .rail-note { margin-top: 16px; font-size: 13.5px; color: var(--faint); }
+    @media (max-width: 899px) { .rail-note { display: none; } }
 
-    main {
-      position: relative;
-      z-index: 2;
-      overflow-y: auto;
-      padding: var(--space-lg) var(--page-pad) var(--space-xl);
-      min-height: 0;
+    .step > header { margin-bottom: 20px; }
+    .step > header h2 { font-size: clamp(22px, 2.6vw, 28px); margin-top: 8px; }
+    .step > header h2:focus { outline: none; }
+    .step > header p { color: var(--muted); margin-top: 8px; max-width: 68ch; }
+    .step-nav {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center;
+      margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line);
     }
-    @media (min-width: 900px) {
-      main { grid-row: 2; grid-column: 2; padding: var(--space-xl) var(--page-pad); }
-    }
-    .content {
-      max-width: var(--content-max);
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-lg);
-    }
+    .step-nav .grow { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+    .step-nav .hint { font-size: 13.5px; color: var(--faint); }
 
-    .panel {
-      border: 1px solid var(--border-mid);
-      border-radius: 16px;
-      background: var(--panel);
-      padding: clamp(0.875rem, 1.5vw, 1.25rem);
-      animation: rise 0.35s ease both;
+    /* Sections & fields */
+    .section { margin-top: 22px; }
+    .section:first-child { margin-top: 0; }
+    .section > h3 { font-size: 17px; }
+    .section > h3 + p, .section > .section-desc { color: var(--muted); font-size: 14.5px; margin-top: 4px; max-width: 70ch; }
+    .grid { display: grid; gap: 16px; margin-top: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid .wide { grid-column: 1 / -1; }
+    @media (max-width: 640px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    .grid-3 { grid-template-columns: 2fr 1fr 2fr; }
+    @media (max-width: 760px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+    .field label, .field .label { display: block; font-weight: 600; font-size: 14.5px; color: var(--fg); margin-bottom: 6px; }
+    .field .opt { font-weight: 400; color: var(--faint); font-size: 13px; margin-left: 4px; }
+    .help { margin-top: 6px; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+    .help code { font-size: 0.86em; }
+    .field-error { margin-top: 6px; font-size: 13.5px; color: var(--hot); font-weight: 500; }
+    input[type="text"], input[type="number"], input[type="password"], input:not([type]), select, textarea {
+      width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 9px;
+      border: 1px solid var(--line); background: var(--well); box-shadow: var(--well-shadow);
+      color: var(--fg); font: 400 15px/1.4 var(--font-body);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .panel h2 {
-      margin: 0 0 var(--space-sm);
-      font: 400 var(--text-xl)/1.2 var(--font-serif);
-      color: var(--text-bright);
-    }
-    .panel .lede {
-      margin: -0.15rem 0 var(--space-md);
-      font: 400 var(--text-sm)/1.5 var(--font-sans);
-      color: var(--muted);
-      max-width: 65ch;
-    }
-    .panel .lede code {
-      font-family: var(--font-mono);
-      font-size: 0.92em;
-      color: var(--accent);
-    }
+    input::placeholder, textarea::placeholder { color: var(--faint); opacity: 0.85; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--well-shadow), var(--btn-focus-shadow); }
+    input[readonly] { color: var(--muted); cursor: default; }
+    input[aria-invalid="true"] { border-color: var(--hot); }
+    textarea { min-height: 9rem; font: 400 13.5px/1.55 var(--font-mono); resize: vertical; }
+    select { cursor: pointer; }
+    .input-row { display: flex; gap: 8px; }
+    .input-row input { flex: 1; min-width: 0; }
 
-    .section-title {
-      margin: var(--space-lg) 0 var(--space-sm);
-      font: 600 var(--text-xs)/1.3 var(--font-mono);
-      letter-spacing: 0.1em;
-      color: var(--muted-line);
-      text-transform: uppercase;
+    details.more { margin-top: 18px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--panel) 60%, transparent); }
+    details.more > summary {
+      cursor: pointer; padding: 12px 14px; font-weight: 600; font-size: 15px; list-style: none;
+      display: flex; align-items: center; gap: 10px; border-radius: 10px;
     }
-    .section-title:first-child { margin-top: 0; }
+    details.more > summary::-webkit-details-marker { display: none; }
+    details.more > summary::before { content: "›"; display: inline-block; color: var(--accent); font-size: 18px; line-height: 1; transition: transform 0.15s; }
+    details.more[open] > summary::before { transform: rotate(90deg); }
+    details.more > summary .sum-sub { font-weight: 400; color: var(--faint); font-size: 13.5px; }
+    details.more > .more-body { padding: 0 14px 16px; }
+    details.more > .more-body > .grid:first-child { margin-top: 0; }
 
-    .subnav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin: 0 0 var(--space-lg);
-      padding: var(--space-sm);
-      border: 1px solid var(--border-mid);
-      border-radius: 12px;
-      background: var(--surface-inset-3);
+    /* Choice cards (radio/checkbox) */
+    .choices { display: grid; gap: 10px; margin-top: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+    .choices.stack { grid-template-columns: 1fr; }
+    .choice { position: relative; display: block; cursor: pointer; }
+    .choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .choice .face {
+      display: flex; gap: 12px; align-items: flex-start; height: 100%;
+      padding: 14px 16px; border-radius: 10px; border: 1px solid; border-color: var(--bevel-border);
+      background: var(--surface); box-shadow: var(--shadow-1); transition: box-shadow 0.15s, border-color 0.15s;
     }
-    .subnav a {
-      padding: 0.5rem 0.85rem;
-      border-radius: 8px;
-      font: 500 var(--text-sm)/1.2 var(--font-sans);
-      color: var(--muted);
-      transition: background 0.15s, color 0.15s;
+    .choice:hover .face { box-shadow: var(--shadow-2); }
+    .choice input:checked + .face { border-color: var(--accent); box-shadow: var(--selected-shadow); background: var(--surface-raised); }
+    .choice input:focus-visible + .face { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .choice input:disabled + .face { opacity: 0.55; cursor: not-allowed; }
+    .tick {
+      flex: none; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%;
+      border: 1.5px solid var(--line-2); display: grid; place-items: center; background: var(--well);
     }
-    .subnav a:hover {
-      color: var(--text-bright);
-      background: var(--panel-hover);
+    .choice input[type="checkbox"] + .face .tick { border-radius: 6px; }
+    .choice input:checked + .face .tick { border-color: var(--accent); background: var(--accent); }
+    .choice input:checked + .face .tick::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-ink); }
+    .choice input[type="checkbox"]:checked + .face .tick::after {
+      width: 10px; height: 6px; border-radius: 0; background: none;
+      border-left: 2px solid var(--accent-ink); border-bottom: 2px solid var(--accent-ink); transform: translateY(-1px) rotate(-45deg);
     }
-
-    .toolbar {
-      display: flex;
-      gap: var(--space-sm);
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: var(--space-lg);
-    }
-    .btn-primary,
-    .btn-secondary {
-      min-height: var(--touch-min);
-      padding: 0.45rem 0.85rem;
-      border-radius: 8px;
-      font: 500 var(--text-sm)/1.2 var(--font-sans);
-      transition: border-color 0.2s, background 0.2s;
-    }
-    .btn-primary {
-      border: 1px solid var(--accent);
-      background: var(--accent);
-      color: var(--btn-on-accent, #0b0e14);
-    }
-    .btn-primary:hover {
-      border-color: color-mix(in srgb, var(--accent) 85%, white);
-      background: color-mix(in srgb, var(--accent) 88%, white);
-      color: var(--btn-on-accent, #0b0e14);
-    }
-    .btn-secondary {
-      border: 1px solid var(--border-btn);
-      color: var(--text);
-    }
-    .btn-secondary:hover { border-color: var(--accent); }
-    .btn-danger {
-      border-color: var(--hot-border);
-      color: var(--hot);
-    }
-    .btn-danger:hover { border-color: var(--hot); }
-
-    .table-wrap {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      margin: 0 -0.25rem;
-      padding: 0 0.25rem;
-    }
-    .data-table {
-      width: 100%;
-      min-width: 520px;
-      border-collapse: collapse;
-    }
-    .data-table thead span {
-      display: block;
-      padding: 0 0 var(--space-sm);
-      border-bottom: 1px solid var(--table-head-border);
-      font: 600 var(--text-xs)/1.3 var(--font-mono);
-      letter-spacing: 0.08em;
-      color: var(--muted-line);
-    }
-    .data-table tbody tr {
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .data-table tbody tr:hover { background: var(--row-hover); }
-    .data-table tbody tr.selected { background: var(--row-selected); }
-    .data-table td {
-      padding: var(--space-sm) 0.375rem;
-      font: 400 var(--text-sm)/1.4 var(--font-sans);
-      color: var(--table-cell);
-      vertical-align: middle;
-    }
-    .data-table td:last-child { text-align: right; }
-    .data-table .mono {
-      font: 400 var(--text-sm)/1.45 var(--font-mono);
-      color: var(--table-mono);
-    }
-    .data-table .btn-secondary {
-      min-height: 2.25rem;
-      padding: 0.45rem 0.85rem;
-      font-size: var(--text-xs);
-    }
+    .face .body { min-width: 0; flex: 1; }
+    .face .title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-weight: 600; color: var(--fg); }
+    .face .desc { display: block; color: var(--muted); font-size: 14px; margin-top: 3px; }
+    .face .path { display: block; font: 400 12.5px/1.45 var(--font-mono); color: var(--faint); margin-top: 6px; overflow-wrap: anywhere; }
 
     .badge {
-      display: inline-block;
-      padding: 0.2rem 0.55rem;
-      border-radius: 5px;
-      border: 1px solid var(--border-ui);
-      font: 500 var(--text-xs)/1.2 var(--font-mono);
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      text-transform: lowercase;
+      display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 6px;
+      border: 1px solid var(--line); font: 500 11.5px/1.5 var(--font-mono); letter-spacing: 0.03em;
+      color: var(--muted); background: var(--pill-bg); white-space: nowrap;
     }
-    .badge.default {
-      border-color: var(--mint-badge-border);
-      color: var(--mint);
-      background: var(--mint-bg);
-    }
+    .badge.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-wash); }
+    .badge.warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-wash); }
+    .badge.hot { color: var(--hot); border-color: var(--hot-line); background: var(--hot-wash); }
+    .badge.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--space-md);
+    /* Toggle */
+    .toggle { display: flex; gap: 14px; align-items: flex-start; cursor: pointer; }
+    .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .toggle .track {
+      flex: none; position: relative; width: 42px; height: 24px; margin-top: 2px; border-radius: 99px;
+      background: var(--well); border: 1px solid var(--line-2); box-shadow: var(--well-shadow); transition: background 0.15s;
     }
-    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .toggle .track::after {
+      content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--control-bg); box-shadow: var(--control-shadow); transition: transform 0.15s;
+    }
+    .toggle input:checked + .track { background: var(--accent); border-color: var(--accent); }
+    .toggle input:checked + .track::after { transform: translateX(18px); background: var(--accent-ink); }
+    .toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .toggle .t-title { font-weight: 600; }
+    .toggle .t-desc { display: block; color: var(--muted); font-size: 14px; margin-top: 3px; }
 
-    label.field-label {
-      display: block;
-      margin-bottom: 0.3rem;
-      font: 500 var(--text-xs)/1.35 var(--font-sans);
-      color: var(--text);
+    /* Code */
+    .code { position: relative; background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-1); margin-top: 10px; }
+    .code pre { margin: 0; padding: 12px 14px; padding-right: 72px; overflow-x: auto; font-size: 13px; line-height: 1.6; color: var(--fg); white-space: pre; }
+    .copy {
+      position: absolute; top: 7px; right: 7px; min-height: 30px; padding: 4px 10px; border-radius: 7px;
+      border: 1px solid; border-color: var(--bevel-border); background: var(--control-bg); box-shadow: var(--control-shadow);
+      color: var(--muted); font: 500 12px/1 var(--font-mono); cursor: pointer;
     }
-    .field-hint {
-      margin: -0.2rem 0 0.65rem;
-      font: 400 var(--text-sm)/1.5 var(--font-sans);
-      color: var(--muted);
-    }
-    input, select, textarea {
-      width: 100%;
-      padding: 0.5rem 0.65rem;
-      border-radius: 8px;
-      border: 1px solid var(--border-strong);
-      background: var(--input-bg);
-      color: var(--text-bright);
-      font: 400 var(--text-sm)/1.4 var(--font-sans);
-      transition: border-color 0.15s;
-    }
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: var(--accent-focus);
-    }
-    select { cursor: pointer; }
-    textarea {
-      min-height: 8rem;
-      font: 400 var(--text-xs)/1.55 var(--font-mono);
-      color: var(--accent);
-      resize: vertical;
-    }
-    textarea[readonly] { color: var(--textarea-readonly); }
+    .copy:hover { color: var(--fg); background: var(--control-bg-hover); }
+    .copy[data-done] { color: var(--ok); border-color: var(--ok); }
+    pre.diff { padding-right: 14px; max-height: min(55vh, 460px); overflow: auto; }
+    pre.diff .l { display: block; padding: 0 6px; margin: 0 -6px; }
+    pre.diff .add { color: var(--ok); background: var(--diff-add); }
+    pre.diff .del { color: var(--hot); background: var(--diff-del); }
+    pre.diff .hunk { color: var(--kw); }
+    pre.diff .meta { color: var(--faint); }
 
-    .check-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      font: 400 var(--text-sm)/1.45 var(--font-sans);
-      color: var(--muted);
-      min-height: auto;
-      padding: 0.15rem 0;
-    }
-    .check-row input {
-      width: 1.125rem;
-      height: 1.125rem;
-      margin-top: 0.2rem;
-      flex: none;
-      accent-color: var(--accent);
-    }
+    /* Test result */
+    .test-box { margin-top: 4px; }
+    .spinner { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin 0.8s linear infinite; margin-top: 2px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin-top: 8px; font-size: 14px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; color: var(--fg); }
+    details.raw { margin-top: 8px; font-size: 13.5px; }
+    details.raw summary { cursor: pointer; color: var(--muted); }
+    details.raw pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--code-bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
 
-    .status {
-      padding: var(--space-sm) var(--space-md);
-      border-radius: 8px;
-      margin-bottom: var(--space-sm);
-      font: 400 var(--text-sm)/1.45 var(--font-sans);
-      border: 1px solid transparent;
-    }
-    .status.ok {
-      color: var(--mint);
-      background: var(--mint-bg);
-      border-color: var(--mint-border);
-    }
-    .status.err {
-      color: var(--hot);
-      background: var(--hot-bg);
-      border-left: 3px solid var(--hot);
-      border-radius: 4px 12px 12px 4px;
-    }
-    .status.info {
-      color: var(--accent);
-      background: var(--accent-bg);
-      border-color: var(--accent-border);
-    }
-    .status code {
-      font-family: var(--font-mono);
-      font-size: 0.92em;
-    }
+    /* Review / diff list */
+    .diff-card { border: 1px solid; border-color: var(--bevel-border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1); padding: 16px; }
+    .diff-card + .diff-card { margin-top: 12px; }
+    .diff-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+    .diff-head h3 { font-size: 17px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .diff-path { font: 400 12.5px/1.45 var(--font-mono); color: var(--faint); margin-top: 4px; overflow-wrap: anywhere; }
+    .check-inline { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: 14.5px; cursor: pointer; }
+    .check-inline input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 
-    .hidden { display: none !important; }
+    /* Done */
+    .next-list { list-style: none; counter-reset: n; margin: 14px 0 0; padding: 0; display: grid; gap: 12px; }
+    .next-list > li { counter-increment: n; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; }
+    .next-list > li::before {
+      content: counter(n); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+      border: 1px solid var(--accent); color: var(--accent); font: 600 13px/1 var(--font-mono);
+    }
+    .next-list li > div > strong { display: block; }
+    .next-list .help { margin-top: 2px; }
+    .result-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .result-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; }
+    .result-list .path { font: 400 12.5px/1.5 var(--font-mono); color: var(--faint); overflow-wrap: anywhere; }
 
-    pre.diff {
-      margin: var(--space-md) 0 0;
-      padding: var(--space-md) var(--space-lg);
-      border: 1px solid var(--border-strong);
-      border-radius: 12px;
-      background: var(--input-bg);
-      overflow: auto;
-      max-height: min(50vh, 420px);
-      font: 400 var(--text-sm)/1.6 var(--font-mono);
-      color: var(--diff-text);
-      white-space: pre;
+    /* Saved profiles table */
+    .table-wrap { margin: 0 -4px; padding: 0 4px; }
+    table.profiles { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+    table.profiles th {
+      text-align: left; font: 500 11.5px/1.3 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--faint); padding: 0 10px 10px; border-bottom: 1px solid var(--line);
     }
+    table.profiles td { padding: 14px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.profiles tr:last-child td { border-bottom: 0; }
+    table.profiles .p-name { font-weight: 600; color: var(--fg); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+    table.profiles .mono { font: 400 13px/1.5 var(--font-mono); color: var(--prose); overflow-wrap: anywhere; }
+    table.profiles .sub { display: block; font-size: 13px; color: var(--faint); margin-top: 2px; overflow-wrap: anywhere; }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+    tr.test-row td { padding-top: 0; }
+    @media (max-width: 860px) {
+      table.profiles thead { display: none; }
+      table.profiles, table.profiles tbody, table.profiles tr, table.profiles td { display: block; width: 100%; }
+      table.profiles tr { border: 1px solid; border-color: var(--bevel-border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1); padding: 6px 14px; margin-bottom: 12px; }
+      table.profiles tr.test-row { border: 0; background: none; box-shadow: none; padding: 0; margin-top: -8px; }
+      table.profiles td { border-bottom: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+      table.profiles td::before { content: attr(data-label); font: 500 11px/1.6 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+      table.profiles td.no-label { display: block; }
+      table.profiles td.no-label::before { content: none; }
+      table.profiles tr td:last-child { border-bottom: 0; }
+      .row-actions { justify-content: flex-start; }
+    }
+    .empty { text-align: center; padding: 28px 12px; color: var(--muted); }
+    .empty strong { display: block; color: var(--fg); font-size: 18px; margin-bottom: 6px; }
+    .empty .btn { margin-top: 14px; }
 
-    .client-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-      gap: var(--space-sm);
-    }
-    .client-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.6rem;
-      min-height: auto;
-      padding: var(--space-sm) var(--space-md);
-      border: 1px solid var(--border-mid);
-      border-radius: 8px;
-      background: var(--surface-inset-2);
-      font: 400 var(--text-sm)/1.4 var(--font-sans);
-      color: var(--table-cell);
-      transition: border-color 0.15s;
-      cursor: pointer;
-    }
-    .client-item:hover { border-color: var(--client-hover-border); }
-    .client-item input {
-      width: 1.125rem;
-      height: 1.125rem;
-      margin-top: 0.2rem;
-      flex: none;
-      accent-color: var(--accent);
-    }
-    .client-item .path {
-      display: block;
-      margin-top: 0.35rem;
-      font: 400 var(--text-xs)/1.45 var(--font-mono);
-      color: var(--muted);
-      word-break: break-all;
-    }
+    .client-rows { display: grid; gap: 10px; }
+    .client-row { border: 1px solid; border-color: var(--bevel-border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1); }
+    .client-row > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; border-radius: 10px; }
+    .client-row > summary::-webkit-details-marker { display: none; }
+    .client-row .c-name { font-weight: 600; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+    .client-row .c-name::before { content: "›"; color: var(--accent); font-size: 18px; line-height: 1; transition: transform 0.15s; }
+    .client-row[open] .c-name::before { transform: rotate(90deg); }
+    .client-row .c-path { grid-column: 1 / -1; font: 400 12.5px/1.45 var(--font-mono); color: var(--faint); overflow-wrap: anywhere; }
+    .client-row .c-body { padding: 0 16px 16px; }
+    .client-row .c-body > p { color: var(--muted); font-size: 14px; }
 
-    .diff-apply {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.6rem;
-      margin: var(--space-sm) 0;
-      font: 400 var(--text-base)/1.5 var(--font-sans);
-      color: var(--muted);
+    /* Dialog */
+    dialog {
+      width: min(520px, calc(100vw - 32px)); padding: 0; border-radius: 14px; color: var(--fg);
+      border: 1px solid; border-color: var(--bevel-border); background: var(--surface-raised); background-color: var(--panel); box-shadow: var(--shadow-3);
     }
-    .diff-apply input {
-      width: 1.125rem;
-      height: 1.125rem;
-      margin-top: 0.2rem;
-      flex: none;
-      accent-color: var(--accent);
-    }
+    dialog::backdrop { background: rgba(7, 8, 14, 0.6); backdrop-filter: blur(3px); }
+    dialog form { padding: 22px; }
+    dialog h2 { font-size: 21px; }
+    dialog .d-body { margin-top: 10px; color: var(--prose); font-size: 15px; }
+    dialog .d-body > * + * { margin-top: 8px; }
+    dialog .d-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 
-    .meta {
-      font: 400 var(--text-sm)/1.55 var(--font-mono);
-      color: var(--muted);
-      word-break: break-all;
-    }
+    footer.page-foot { margin: 40px 0 28px; color: var(--faint); font-size: 13.5px; }
+    footer.page-foot p + p { margin-top: 4px; }
 
-    .panel-compact h2 {
-      font-size: var(--text-base);
-      margin-bottom: var(--space-xs);
-    }
-
-    /* Editor wizard */
-    .editor-panel { padding-bottom: 0; }
-    .editor-header { margin-bottom: var(--space-lg); }
-    .editor-header .lede { margin-bottom: 0; }
-
-    .stepper {
-      display: flex;
-      gap: 0.35rem;
-      margin: 0 0 var(--space-lg);
-      padding: var(--space-sm);
-      border: 1px solid var(--border-mid);
-      border-radius: 12px;
-      background: var(--surface-inset-3);
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .step-pill {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      flex: 1 0 auto;
-      min-width: 7rem;
-      min-height: 2rem;
-      padding: 0.4rem 0.65rem;
-      border-radius: 7px;
-      border: 1px solid transparent;
-      font: 500 var(--text-xs)/1.2 var(--font-sans);
-      color: var(--muted);
-      text-align: left;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-    }
-    .step-pill:hover:not(:disabled) {
-      background: var(--panel-hover);
-      color: var(--text);
-    }
-    .step-pill:disabled { cursor: default; opacity: 0.55; }
-    .step-pill .step-num {
-      display: grid;
-      place-items: center;
-      width: 1.5rem;
-      height: 1.5rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-ui);
-      font: 600 0.75rem/1 var(--font-mono);
-      flex: none;
-    }
-    .step-pill.active {
-      background: var(--tab-active-bg);
-      border-color: var(--accent-border);
-      color: var(--text-bright);
-    }
-    .step-pill.active .step-num {
-      border-color: var(--accent);
-      background: var(--accent-subtle);
-      color: var(--accent);
-    }
-    .step-pill.done { color: var(--text); }
-    .step-pill.done .step-num {
-      border-color: var(--mint-badge-border);
-      background: var(--mint-bg);
-      color: var(--mint);
-    }
-
-    .form-step {
-      display: none;
-      animation: rise 0.3s ease both;
-    }
-    .form-step.active { display: block; }
-
-    .form-section {
-      margin-bottom: var(--space-md);
-      padding: var(--space-md);
-      border: 1px solid var(--border-mid);
-      border-radius: 10px;
-      background: var(--surface-inset-3);
-    }
-    .form-section:last-child { margin-bottom: 0; }
-    .form-section-heading {
-      margin: 0 0 0.25rem;
-      font: 600 var(--text-base)/1.25 var(--font-sans);
-      color: var(--text-bright);
-    }
-    .form-section-desc {
-      margin: 0 0 var(--space-sm);
-      font: 400 var(--text-xs)/1.45 var(--font-sans);
-      color: var(--muted);
-      max-width: 62ch;
-    }
-    .form-section .grid { margin-top: var(--space-sm); }
-
-    .form-divider {
-      margin: var(--space-lg) 0;
-      border: none;
-      border-top: 1px solid var(--border);
-    }
-
-    .form-nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-sm);
-      align-items: center;
-      justify-content: space-between;
-      margin-top: var(--space-lg);
-      padding: var(--space-lg) 0;
-      border-top: 1px solid var(--border);
-      position: sticky;
-      bottom: 0;
-      background: linear-gradient(to top, var(--panel) 78%, transparent);
-    }
-    .form-nav-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-sm);
-      align-items: center;
-    }
-    .form-nav .btn-primary,
-    .form-nav .btn-secondary { margin-bottom: 0; }
-
-    .review-summary {
-      display: grid;
-      gap: var(--space-md);
-    }
-    .review-block {
-      padding: var(--space-md) var(--space-lg);
-      border: 1px solid var(--border-mid);
-      border-radius: 12px;
-      background: var(--input-bg);
-    }
-    .review-block h3 {
-      margin: 0 0 var(--space-sm);
-      font: 600 var(--text-sm)/1.3 var(--font-sans);
-      color: var(--muted-line);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .review-row {
-      display: flex;
-      justify-content: space-between;
-      gap: var(--space-md);
-      padding: 0.4rem 0;
-      border-bottom: 1px solid var(--border);
-      font: 400 var(--text-sm)/1.45 var(--font-sans);
-    }
-    .review-row:last-child { border-bottom: none; }
-    .review-row dt { color: var(--muted); flex: none; }
-    .review-row dd {
-      margin: 0;
-      text-align: right;
-      color: var(--text-bright);
-      font-family: var(--font-mono);
-      font-size: 0.92em;
-      word-break: break-all;
-    }
-
-    @media (max-width: 599px) {
-      .toolbar .check-row { width: 100%; }
-    }
-
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: none; }
-    }
+    .closed { text-align: center; padding: 48px 20px; }
+    .closed h2 { font-size: 28px; margin-bottom: 10px; }
+    .closed p { color: var(--muted); max-width: 52ch; margin: 0 auto; }
   </style>
 </head>
 <body>
-  <div class="stage">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">N</div>
-        <span class="brand-name">NexQL</span>
-        <span class="brand-badge">SETUP</span>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap bar">
+      <span class="brand"><span class="mark" aria-hidden="true"></span><span>NexQL</span><span class="chip">SETUP</span></span>
+      <div class="bar-end">
+        <span class="ver" id="ver"></span>
+        <div class="theme-switch" role="radiogroup" aria-label="Color theme">
+          <button type="button" role="radio" data-choice="system" aria-checked="true" aria-label="Match system" title="Match system">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.5" /><path d="M5.5 13.75h5M8 11.25v2.5" /></svg>
+          </button>
+          <button type="button" role="radio" data-choice="dark" aria-checked="false" tabindex="-1" aria-label="Dark" title="Dark">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 9.6A5.5 5.5 0 0 1 6.4 2.75a5.5 5.5 0 1 0 6.85 6.85Z" /></svg>
+          </button>
+          <button type="button" role="radio" data-choice="light" aria-checked="false" tabindex="-1" aria-label="Light" title="Light">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.75" /><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.2 3.2l1.06 1.06M11.74 11.74l1.06 1.06M3.2 12.8l1.06-1.06M11.74 4.26l1.06-1.06" /></svg>
+          </button>
+        </div>
+        <button type="button" class="btn btn-sm" id="btn-finish">Finish<span class="long"> &amp; close</span></button>
       </div>
-      <div class="topbar-actions">
-        <button type="button" class="btn-primary" id="btn-finish-close" title="Save and return to the terminal">Finish &amp; Close</button>
-        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to light mode" title="Switch to light mode">
-          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-        </button>
-        <div class="topbar-meta" id="header-meta">Loading…</div>
+    </div>
+    <div class="ribbon"></div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="intro wrap">
+      <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Local setup · only on this computer</p>
+      <h1>Connect Postgres, then <span class="serif-em grad-text">wire your app</span>.</h1>
+      <p class="lede">Save a database connection, check it works, choose what the assistant may do, and add nexql-mcp to your MCP apps. You review every file change before it's written, and a backup is kept.</p>
+      <ul class="facts" id="facts">
+        <li>Loading…</li>
+      </ul>
+    </section>
+
+    <div class="wrap">
+      <div class="views" role="tablist" aria-label="Setup views">
+        <button type="button" role="tab" id="tab-wizard" aria-controls="view-wizard" aria-selected="true">Set up a connection</button>
+        <button type="button" role="tab" id="tab-saved" aria-controls="view-saved" aria-selected="false" tabindex="-1">Saved profiles &amp; apps<span class="count" id="saved-count"></span></button>
+        <button type="button" role="tab" id="tab-transfer" aria-controls="view-transfer" aria-selected="false" tabindex="-1">Import &amp; export</button>
       </div>
-    </header>
 
-    <nav class="tabs" aria-label="Setup sections">
-      <p class="tabs-label">Sections</p>
-      <button type="button" class="tab-btn active" data-tab="profiles"><span class="bar" aria-hidden="true"></span><span>Profiles</span></button>
-      <button type="button" class="tab-btn" data-tab="editor"><span class="bar" aria-hidden="true"></span><span>Editor</span></button>
-      <button type="button" class="tab-btn" data-tab="wire"><span class="bar" aria-hidden="true"></span><span>Wire clients</span></button>
-      <button type="button" class="tab-btn" data-tab="import"><span class="bar" aria-hidden="true"></span><span>Import / Export</span></button>
-    </nav>
+      <div id="flash" role="status" aria-live="polite"></div>
 
-    <main>
-      <div class="content">
-        <div id="keyring-banner" class="hidden"></div>
-        <div id="flash"></div>
+      <!-- ============ Wizard ============ -->
+      <section id="view-wizard" role="tabpanel" aria-labelledby="tab-wizard">
+        <div class="wizard">
+          <nav class="rail" aria-label="Setup steps">
+            <div class="rail-progress"><span class="mono-label" id="rail-count">Step 1 of 6</span></div>
+            <div class="meter" aria-hidden="true"><span id="meter" style="width:16.6%"></span></div>
+            <ol class="steps" id="steps"></ol>
+            <p class="rail-note">Your answers stay on this page while you move between steps. Nothing is written to a client's config until you press Apply on the review step.</p>
+          </nav>
 
-        <section id="tab-profiles" class="tab">
-          <div class="panel">
-            <h2>Connection profiles</h2>
-            <p class="lede">Named Postgres targets in <code>~/.config/nexql-mcp/config.toml</code> — passwords go to the OS keyring or an encrypted local file, never plaintext in config.</p>
-            <div class="toolbar">
-              <button type="button" class="btn-primary" id="btn-new-profile">New profile</button>
-              <button type="button" class="btn-secondary" id="btn-refresh">Refresh</button>
+          <div class="card" id="wizard-card">
+            <!-- Step 1: connection -->
+            <section class="step" data-step="1" aria-labelledby="s1-title">
+              <header>
+                <p class="k">Step 1 · Connection</p>
+                <h2 id="s1-title" tabindex="-1">Which database should the assistant use?</h2>
+                <p>A <strong>profile</strong> is a saved connection: where the database is, who to log in as, and the rules for it. Pick one you saved before, or add a new one.</p>
+              </header>
+
+              <div class="section" id="pick-section">
+                <h3>Start from</h3>
+                <div class="choices" id="pick-list" role="radiogroup" aria-label="Start from"></div>
+              </div>
+
+              <div class="section" id="detected-section" hidden>
+                <h3>Found in this project</h3>
+                <p>These look like Postgres connections from files in your workspace. Pick one to fill in the fields below. Its password isn't copied: you type it yourself.</p>
+                <div class="tags" id="detected-list" style="margin-top:10px"></div>
+              </div>
+
+              <div class="section">
+                <h3>Name it</h3>
+                <div class="grid">
+                  <div class="field wide">
+                    <label for="f-name">Profile name</label>
+                    <input id="f-name" type="text" autocomplete="off" spellcheck="false" placeholder="local" aria-describedby="f-name-help" />
+                    <p class="help" id="f-name-help">A short label you'll use in commands and see in your app, like <code>local</code> or <code>billing-prod</code>.</p>
+                    <p class="field-error" id="f-name-err" hidden></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <h3>Where is the database?</h3>
+                <div class="grid grid-3">
+                  <div class="field">
+                    <label for="f-host">Host</label>
+                    <input id="f-host" type="text" autocomplete="off" spellcheck="false" placeholder="localhost" aria-describedby="f-host-help" />
+                    <p class="help" id="f-host-help"><code>localhost</code> for a database on this computer or in Docker, or a name like <code>db.example.com</code>.</p>
+                    <p class="field-error" id="f-host-err" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="f-port">Port</label>
+                    <input id="f-port" type="number" inputmode="numeric" min="1" max="65535" placeholder="5432" aria-describedby="f-port-help" />
+                    <p class="help" id="f-port-help">5432 unless it was changed. Docker uses the host side of <code>-p</code>.</p>
+                  </div>
+                  <div class="field">
+                    <label for="f-dbname">Database</label>
+                    <input id="f-dbname" type="text" autocomplete="off" spellcheck="false" placeholder="postgres" aria-describedby="f-dbname-help" />
+                    <p class="help" id="f-dbname-help">The database inside the server. <code>psql -l</code> lists them.</p>
+                  </div>
+                </div>
+                <div class="grid">
+                  <div class="field">
+                    <label for="f-user">User</label>
+                    <input id="f-user" type="text" autocomplete="off" spellcheck="false" placeholder="postgres" aria-describedby="f-user-help" />
+                    <p class="help" id="f-user-help">The Postgres role to log in as. For real data, use a role that can only read what the assistant needs, not a superuser.</p>
+                  </div>
+                  <div class="field">
+                    <label for="f-sslmode">SSL mode</label>
+                    <select id="f-sslmode" aria-describedby="f-sslmode-help">
+                      <option value="">prefer (default)</option>
+                      <option value="disable">disable</option>
+                      <option value="require">require</option>
+                      <option value="verify-ca">verify-ca</option>
+                      <option value="verify-full">verify-full</option>
+                    </select>
+                    <p class="help" id="f-sslmode-help"></p>
+                  </div>
+                </div>
+                <details class="more" id="url-details">
+                  <summary>Paste a connection URL instead <span class="sum-sub">for hosted databases that hand you one</span></summary>
+                  <div class="more-body">
+                    <div class="field">
+                      <label for="f-url">Connection URL</label>
+                      <input id="f-url" type="text" autocomplete="off" spellcheck="false" placeholder="postgres://user@host:5432/dbname?sslmode=require" aria-describedby="f-url-help" />
+                      <p class="help" id="f-url-help">When a URL is set it wins over the fields above. If it contains a password, the password is moved to safe storage and removed from the saved URL.</p>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="section">
+                <h3>Password</h3>
+                <p id="pw-storage-desc">Checking where passwords can be stored…</p>
+                <div class="grid">
+                  <div class="field wide">
+                    <label for="f-password">Password <span class="opt" id="pw-opt"></span></label>
+                    <div class="input-row">
+                      <input id="f-password" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="pw-help" />
+                      <button type="button" class="btn btn-sm" id="btn-pw-show" aria-pressed="false" aria-controls="f-password">Show</button>
+                    </div>
+                    <p class="help" id="pw-help">It goes straight to safe storage when you press Continue. It is never written to <code>config.toml</code> or to any app's config, and the assistant never sees it.</p>
+                  </div>
+                </div>
+                <details class="more" id="pwcmd-details">
+                  <summary>Use a password manager instead <span class="sum-sub">1Password, pass, Vault…</span></summary>
+                  <div class="more-body">
+                    <div class="field">
+                      <label for="f-password-command">Password command</label>
+                      <input id="f-password-command" type="text" autocomplete="off" spellcheck="false" placeholder="op read op://vault/postgres/password" aria-describedby="f-pwcmd-help" />
+                      <p class="help" id="f-pwcmd-help">A command that prints the password. nexql-mcp runs it each time it connects, so nothing is stored here. It takes priority over a stored password.</p>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="step-nav">
+                <span class="hint">Continue saves the profile and tests it.</span>
+                <div class="grow"><button type="button" class="btn btn-primary" id="s1-next">Save and test</button></div>
+              </div>
+            </section>
+
+            <!-- Step 2: test -->
+            <section class="step" data-step="2" aria-labelledby="s2-title" hidden>
+              <header>
+                <p class="k">Step 2 · Test</p>
+                <h2 id="s2-title" tabindex="-1">Checking the connection</h2>
+                <p>nexql-mcp logs in the way your app will, runs <code>SELECT version()</code>, and checks whether the user is a superuser.</p>
+              </header>
+              <div class="test-box" id="s2-result" aria-live="polite"></div>
+              <div class="step-nav">
+                <button type="button" class="btn" data-back>Back to connection</button>
+                <div class="grow">
+                  <button type="button" class="btn" id="s2-retry">Test again</button>
+                  <button type="button" class="btn btn-primary" id="s2-next">Continue</button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Step 3: access & safety -->
+            <section class="step" data-step="3" aria-labelledby="s3-title" hidden>
+              <header>
+                <p class="k">Step 3 · Access &amp; safety</p>
+                <h2 id="s3-title" tabindex="-1">What may the assistant do?</h2>
+                <p>These rules are checked on every call. Start with read: you can raise it later for a single profile.</p>
+              </header>
+
+              <div class="section">
+                <h3>Access mode</h3>
+                <div class="choices stack" role="radiogroup" aria-label="Access mode">
+                  <label class="choice"><input type="radio" name="access" value="read" checked /><span class="face"><span class="tick"></span><span class="body"><span class="title">Read <span class="badge ok">recommended</span></span><span class="desc">Queries, schema browsing and diagnostics. Every connection is also set read-only in Postgres itself, so nothing can change even if a query is cleverly written.</span></span></span></label>
+                  <label class="choice"><input type="radio" name="access" value="write" /><span class="face"><span class="tick"></span><span class="body"><span class="title">Write</span><span class="desc">Also <code>INSERT</code>, <code>UPDATE</code> and <code>DELETE</code> through <code>execute_sql</code>, <code>edit_row</code> and <code>import_data</code>. Changes run in a transaction and can be previewed first.</span></span></span></label>
+                  <label class="choice"><input type="radio" name="access" value="admin" /><span class="face"><span class="tick"></span><span class="body"><span class="title">Admin</span><span class="desc">Also schema changes and server operations: <code>apply_ddl</code>, <code>create_index_concurrently</code>, <code>run_maintenance</code>, <code>terminate_query</code>.</span></span></span></label>
+                </div>
+                <div class="notice warn" id="elevate-box" style="margin-top:12px" hidden>
+                  <div class="n-body">
+                    <p><strong>This lets the assistant change your data.</strong> Destructive statements like <code>DROP TABLE</code> still need your confirmation in the chat, but a mistaken <code>UPDATE</code> doesn't. Use it on a development database, or connect as a role whose privileges you've limited.</p>
+                    <label class="check-inline"><input type="checkbox" id="f-confirm-elevate" /> I understand, allow <span id="elevate-mode">write</span> access for this profile</label>
+                    <p class="field-error" id="elevate-err" hidden>Tick the box to confirm, or choose Read.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <h3>Personal data</h3>
+                <label class="toggle" style="margin-top:12px">
+                  <input type="checkbox" id="f-mask-personal" checked />
+                  <span class="track" aria-hidden="true"></span>
+                  <span><span class="t-title">Mask personal data</span>
+                    <span class="t-desc">Query results become part of your conversation, and your AI provider sees them. With this on, columns holding emails, phone numbers, addresses, people's names and dates of birth come back as <code>&lt;redacted&gt;</code>. You can still count, group and filter on them. Secrets such as password hashes and tokens stay masked either way.</span></span>
+                </label>
+                <div class="notice warn" id="mask-off-box" style="margin-top:12px" hidden><div class="n-body"><p>Turn this off only for a database full of fake or test data. Real people's details would be sent to your AI provider.</p></div></div>
+              </div>
+
+              <details class="more" id="limits-details">
+                <summary>Schemas, tables and limits <span class="sum-sub">optional</span></summary>
+                <div class="more-body">
+                  <div class="grid">
+                    <div class="field">
+                      <label for="f-schemas">Only these schemas <span class="opt">comma-separated</span></label>
+                      <input id="f-schemas" type="text" autocomplete="off" spellcheck="false" placeholder="public, billing" aria-describedby="h-schemas" />
+                      <p class="help" id="h-schemas">The assistant sees only these. Leave empty for every schema the user can read.</p>
+                    </div>
+                    <div class="field">
+                      <label for="f-deny-schemas">Hide these schemas</label>
+                      <input id="f-deny-schemas" type="text" autocomplete="off" spellcheck="false" placeholder="audit, internal" aria-describedby="h-deny-schemas" />
+                      <p class="help" id="h-deny-schemas">Hidden even when the user could read them.</p>
+                    </div>
+                    <div class="field">
+                      <label for="f-deny-tables">Hide these tables</label>
+                      <input id="f-deny-tables" type="text" autocomplete="off" spellcheck="false" placeholder="auth.*, public.api_keys" aria-describedby="h-deny-tables" />
+                      <p class="help" id="h-deny-tables"><code>schema.table</code>, with <code>*</code> to match many.</p>
+                    </div>
+                    <div class="field">
+                      <label for="f-pii-columns">Also mask these columns</label>
+                      <input id="f-pii-columns" type="text" autocomplete="off" spellcheck="false" placeholder="public.users.notes" aria-describedby="h-pii" />
+                      <p class="help" id="h-pii"><code>schema.table.column</code>, on top of the automatic rules.</p>
+                    </div>
+                    <div class="field">
+                      <label for="f-max-rows">Row cap</label>
+                      <input id="f-max-rows" type="number" inputmode="numeric" min="1" placeholder="500" aria-describedby="h-rows" />
+                      <p class="help" id="h-rows">Most rows one query returns. Empty means 500.</p>
+                    </div>
+                    <div class="field">
+                      <label for="f-timeout">Statement timeout (ms)</label>
+                      <input id="f-timeout" type="number" inputmode="numeric" min="1" placeholder="30000" aria-describedby="h-timeout" />
+                      <p class="help" id="h-timeout">Postgres cancels a query that runs longer. Empty means 30 seconds.</p>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <div class="section">
+                <label class="check-inline"><input type="checkbox" id="f-default" /> Make this my default profile</label>
+                <p class="help">The default is used when an app starts nexql-mcp without <code>--profile</code>.</p>
+              </div>
+
+              <div class="step-nav">
+                <button type="button" class="btn" data-back>Back</button>
+                <div class="grow"><button type="button" class="btn btn-primary" id="s3-next">Save and continue</button></div>
+              </div>
+            </section>
+
+            <!-- Step 4: clients -->
+            <section class="step" data-step="4" aria-labelledby="s4-title" hidden>
+              <header>
+                <p class="k">Step 4 · Apps</p>
+                <h2 id="s4-title" tabindex="-1">Which apps should use it?</h2>
+                <p>nexql-mcp is added to each app's MCP config as a server called <code>nexql-mcp</code>. Other servers in those files are left alone. The config holds the command and the profile name, never a password.</p>
+              </header>
+
+              <div class="section">
+                <h3>How apps start nexql-mcp</h3>
+                <div class="choices" role="radiogroup" aria-label="Launch mode" id="launch-list"></div>
+                <div class="field" id="pin-field" style="margin-top:12px" hidden>
+                  <label for="w-npx-version">Version to pin</label>
+                  <input id="w-npx-version" type="text" autocomplete="off" spellcheck="false" />
+                </div>
+              </div>
+
+              <div class="section">
+                <h3>Apps with a config file</h3>
+                <p>You'll see the exact change to each file on the next step.</p>
+                <div class="choices" id="client-list"></div>
+                <p class="field-error" id="client-err" hidden>Pick at least one app, or a snippet below.</p>
+              </div>
+
+              <div class="section" id="copy-section">
+                <h3>Copy a snippet instead</h3>
+                <p>These apps keep their MCP settings somewhere nexql-mcp can't safely edit. You'll get text to paste.</p>
+                <div class="choices" id="copy-list"></div>
+              </div>
+
+              <details class="more" id="more-profiles">
+                <summary>Give the apps more than one profile <span class="sum-sub">optional</span></summary>
+                <div class="more-body">
+                  <p class="help" style="margin-top:0">Each profile becomes a database the assistant can switch to. The first one is used at start-up.</p>
+                  <div class="choices" id="wire-profiles"></div>
+                </div>
+              </details>
+
+              <div class="step-nav">
+                <button type="button" class="btn" data-back>Back</button>
+                <div class="grow"><button type="button" class="btn btn-primary" id="s4-next">Preview changes</button></div>
+              </div>
+            </section>
+
+            <!-- Step 5: review -->
+            <section class="step" data-step="5" aria-labelledby="s5-title" hidden>
+              <header>
+                <p class="k">Step 5 · Review</p>
+                <h2 id="s5-title" tabindex="-1">Check the changes</h2>
+                <p>Green lines are added, red lines removed. Untick a file to leave it as it is. Each file you apply is backed up first.</p>
+              </header>
+              <div id="review-list"></div>
+              <div class="step-nav">
+                <button type="button" class="btn" data-back>Back</button>
+                <div class="grow"><button type="button" class="btn btn-primary" id="s5-apply">Apply changes</button></div>
+              </div>
+            </section>
+
+            <!-- Step 6: done -->
+            <section class="step" data-step="6" aria-labelledby="s6-title" hidden>
+              <header>
+                <p class="k">Step 6 · Done</p>
+                <h2 id="s6-title" tabindex="-1">nexql-mcp is wired in</h2>
+                <p id="s6-lede">Two more things and you can ask your first question.</p>
+              </header>
+              <div id="apply-results"></div>
+              <div class="section">
+                <h3>Next steps</h3>
+                <ol class="next-list" id="next-steps"></ol>
+              </div>
+              <div class="step-nav">
+                <button type="button" class="btn" id="s6-saved">See saved profiles</button>
+                <div class="grow">
+                  <button type="button" class="btn" id="s6-again">Set up another connection</button>
+                  <button type="button" class="btn btn-primary" id="s6-finish">Finish &amp; close</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ Saved ============ -->
+      <section id="view-saved" role="tabpanel" aria-labelledby="tab-saved" hidden>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Saved profiles</h2>
+              <p>Everything in <code id="cfg-path">config.toml</code>. Passwords are never in that file: the Password column says where each one is kept.</p>
             </div>
-            <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th><span>NAME</span></th>
-                  <th><span>TARGET</span></th>
-                  <th><span>ACCESS</span></th>
-                  <th><span></span></th>
-                </tr>
-              </thead>
-              <tbody id="profiles-table"></tbody>
-            </table>
+            <div class="row-actions">
+              <button type="button" class="btn btn-sm" id="btn-refresh">Refresh</button>
+              <button type="button" class="btn btn-sm btn-primary" id="btn-new">Add a connection</button>
             </div>
           </div>
-        </section>
+          <div class="table-wrap" id="profiles-wrap"></div>
+        </div>
 
-        <section id="tab-editor" class="tab hidden">
-          <div class="panel editor-panel">
-            <header class="editor-header">
-              <h2 id="editor-title">Profile</h2>
-              <p class="lede" id="editor-lede">Set up a named Postgres connection in five guided steps.</p>
-            </header>
-
-            <nav class="stepper" id="editor-stepper" aria-label="Profile setup steps">
-              <button type="button" class="step-pill active" data-step="1" aria-current="step"><span class="step-num">1</span><span>Basics</span></button>
-              <button type="button" class="step-pill" data-step="2" disabled><span class="step-num">2</span><span>Connection</span></button>
-              <button type="button" class="step-pill" data-step="3" disabled><span class="step-num">3</span><span>Credentials</span></button>
-              <button type="button" class="step-pill" data-step="4" disabled><span class="step-num">4</span><span>Policy</span></button>
-              <button type="button" class="step-pill" data-step="5" disabled><span class="step-num">5</span><span>Review</span></button>
-            </nav>
-
-            <form id="profile-form">
-              <div class="form-step active" data-step="1">
-                <div class="form-section">
-                  <h3 class="form-section-heading">Profile identity</h3>
-                  <p class="form-section-desc">Choose a short, memorable name and how much access MCP tools get for this database.</p>
-                  <div class="grid">
-                    <div>
-                      <label class="field-label" for="f-name">Profile name</label>
-                      <input id="f-name" required placeholder="local-dev" />
-                    </div>
-                    <div>
-                      <label class="field-label" for="f-access">Access mode</label>
-                      <select id="f-access"><option>read</option><option>write</option><option>admin</option></select>
-                      <p class="field-hint">Read is recommended for most MCP use. Write/admin need explicit confirmation.</p>
-                    </div>
-                  </div>
-                  <hr class="form-divider" />
-                  <div class="grid">
-                    <label class="check-row"><input type="checkbox" id="f-default" /> Set as default profile</label>
-                    <label class="check-row"><input type="checkbox" id="f-confirm-elevate" /> I confirm elevated access (write/admin)</label>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-step" data-step="2">
-                <div class="form-section">
-                  <h3 class="form-section-heading">Connection target</h3>
-                  <p class="form-section-desc">Paste a full URL, or fill host fields below. URL takes precedence when both are set.</p>
-                  <div>
-                    <label class="field-label" for="f-url">Connection URL</label>
-                    <input id="f-url" placeholder="postgres://user@host:5432/db" />
-                  </div>
-                </div>
-                <div class="form-section">
-                  <h3 class="form-section-heading">Host details</h3>
-                  <p class="form-section-desc">Used when no URL is provided.</p>
-                  <div class="grid">
-                    <div><label class="field-label" for="f-host">Host</label><input id="f-host" placeholder="127.0.0.1" /></div>
-                    <div><label class="field-label" for="f-port">Port</label><input id="f-port" type="number" placeholder="5432" /></div>
-                    <div><label class="field-label" for="f-dbname">Database</label><input id="f-dbname" placeholder="postgres" /></div>
-                    <div>
-                      <label class="field-label" for="f-sslmode">SSL mode</label>
-                      <select id="f-sslmode"><option value="">prefer</option><option>disable</option><option>prefer</option><option>require</option><option>verify-full</option></select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-step" data-step="3">
-                <div class="form-section">
-                  <h3 class="form-section-heading">Authentication</h3>
-                  <p class="form-section-desc">Passwords are stored in the OS keyring or an encrypted file — never in config.toml. Use a password command for secret managers.</p>
-                  <div class="grid">
-                    <div><label class="field-label" for="f-user">User</label><input id="f-user" placeholder="postgres" /></div>
-                    <div><label class="field-label" for="f-password">Password</label><input id="f-password" type="password" autocomplete="new-password" /></div>
-                    <div style="grid-column:1/-1">
-                      <label class="field-label" for="f-password-command">Password command</label>
-                      <input id="f-password-command" placeholder="op read op://vault/item/password" />
-                      <p class="field-hint">Optional shell command that prints the password to stdout (1Password, pass, etc.).</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-step" data-step="4">
-                <div class="form-section">
-                  <h3 class="form-section-heading">Schema access</h3>
-                  <p class="form-section-desc">Restrict which schemas and tables MCP can see. Leave blank to allow all (subject to access mode).</p>
-                  <div class="grid">
-                    <div><label class="field-label" for="f-schemas">Allowed schemas</label><input id="f-schemas" placeholder="public, billing" /></div>
-                    <div><label class="field-label" for="f-deny-schemas">Denied schemas</label><input id="f-deny-schemas" placeholder="pg_catalog" /></div>
-                    <div><label class="field-label" for="f-deny-tables">Denied tables</label><input id="f-deny-tables" placeholder="auth.*" /></div>
-                    <div><label class="field-label" for="f-pii-columns">PII columns</label><input id="f-pii-columns" placeholder="public.users.email" /></div>
-                  </div>
-                  <label class="check-row"><input type="checkbox" id="f-mask-personal" checked /> Mask personal data (emails, phones, addresses, people's names, dates of birth). Query results go to your AI provider.</label>
-                </div>
-                <div class="form-section">
-                  <h3 class="form-section-heading">Query limits</h3>
-                  <p class="form-section-desc">Optional guardrails for result size and statement duration.</p>
-                  <div class="grid">
-                    <div><label class="field-label" for="f-max-rows">Max rows</label><input id="f-max-rows" type="number" placeholder="1000" /></div>
-                    <div><label class="field-label" for="f-timeout">Statement timeout (ms)</label><input id="f-timeout" type="number" placeholder="30000" /></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-step" data-step="5">
-                <div class="form-section">
-                  <h3 class="form-section-heading">Review &amp; save</h3>
-                  <p class="form-section-desc">Confirm the settings below, test the connection, then save.</p>
-                  <div id="editor-review" class="review-summary" aria-live="polite"></div>
-                </div>
-                <div id="test-result"></div>
-              </div>
-
-              <div class="form-nav">
-                <div class="form-nav-group">
-                  <button type="button" class="btn-secondary hidden" id="btn-step-back">Back</button>
-                </div>
-                <div class="form-nav-group">
-                  <button type="button" class="btn-primary" id="btn-step-next">Continue</button>
-                  <div id="editor-final-actions" class="form-nav-group hidden">
-                    <button type="button" class="btn-secondary btn-danger hidden" id="btn-delete">Delete profile</button>
-                    <button type="button" class="btn-secondary" id="btn-test">Test connection</button>
-                    <button type="submit" class="btn-primary">Save profile</button>
-                  </div>
-                </div>
-              </div>
-            </form>
-          </div>
-        </section>
-
-        <section id="tab-wire" class="tab hidden">
-          <div class="panel">
-            <h2>Wire MCP clients</h2>
-            <p class="lede">Merge into on-disk client configs with a diff preview — or copy snippets for clients without a safe merge target.</p>
-            <nav class="subnav" aria-label="Wire sections">
-              <a href="#wire-launch">Launch</a>
-              <a href="#wire-profiles-section">Profiles</a>
-              <a href="#wire-mergeable-section">Mergeable</a>
-              <a href="#wire-copy-section">Copy-only</a>
-              <a href="#wire-preview-section">Preview</a>
-            </nav>
-            <div id="wire-launch" class="grid" style="margin-bottom:0.5rem">
-              <div><label class="field-label" for="w-launch">Launch mode</label>
-                <select id="w-launch">
-                  <option value="path">PATH binary (nexql-mcp)</option>
-                  <option value="npx">npx (pinned version)</option>
-                  <option value="npx_latest">npx (latest)</option>
-                </select>
-              </div>
-              <div><label class="field-label" for="w-npx-version">npx version pin</label><input id="w-npx-version" placeholder="0.3.3" /></div>
-            </div>
-            <p id="wire-profiles-section" class="section-title">Profiles to wire</p>
-            <div id="wire-profiles" class="client-list"></div>
-            <p id="wire-mergeable-section" class="section-title">Mergeable clients</p>
-            <div id="wire-mergeable" class="client-list"></div>
-            <p id="wire-copy-section" class="section-title">Copy-only snippets</p>
-            <div id="wire-copy" class="client-list"></div>
-            <div class="toolbar" style="margin-top:1.25rem">
-              <button type="button" class="btn-primary" id="btn-preview-wire">Preview changes</button>
-              <button type="button" class="btn-secondary hidden" id="btn-apply-wire">Apply selected</button>
-            </div>
-            <div id="wire-preview-section">
-            <div id="wire-preview"></div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Apps</h2>
+              <p>What each app's config file says about nexql-mcp right now. Open a row to see the exact entry.</p>
             </div>
           </div>
-        </section>
+          <div class="client-rows" id="entries-list"></div>
+        </div>
+      </section>
 
-        <section id="tab-import" class="tab hidden">
-          <div class="panel">
+      <!-- ============ Import / export ============ -->
+      <section id="view-transfer" role="tabpanel" aria-labelledby="tab-transfer" hidden>
+        <div class="card">
+          <div class="card-head"><div>
             <h2>Import profiles</h2>
-            <p class="lede">Paste TOML with a <code>[profiles.*]</code> section. Secrets are routed to the keyring or encrypted file on import.</p>
-            <label class="field-label" for="import-toml">TOML</label>
-            <textarea id="import-toml" placeholder="[profiles.local]&#10;url = &quot;postgres://…&quot;"></textarea>
-            <div class="toolbar"><button type="button" class="btn-primary" id="btn-import">Import</button></div>
+            <p>Paste TOML with one or more <code>[profiles.name]</code> tables, for example from a teammate's export. Profiles with the same name are replaced. Any password in it goes to safe storage, not to <code>config.toml</code>.</p>
+          </div></div>
+          <div class="field">
+            <label for="import-toml">TOML</label>
+            <textarea id="import-toml" spellcheck="false" placeholder="[profiles.local]&#10;host = &quot;localhost&quot;&#10;port = 5432&#10;dbname = &quot;app&quot;&#10;user = &quot;app_reader&quot;"></textarea>
           </div>
-          <div class="panel">
-            <h2>Export profile</h2>
-            <p class="lede meta">Select a profile in the list, then export secret-sanitized TOML.</p>
-            <textarea id="export-toml" readonly placeholder="Exported TOML appears here…"></textarea>
-            <div class="toolbar"><button type="button" class="btn-secondary" id="btn-export">Export selected</button></div>
+          <div class="step-nav"><span class="hint">A backup of the current config is kept.</span><div class="grow"><button type="button" class="btn btn-primary" id="btn-import">Import</button></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div>
+            <h2>Export a profile</h2>
+            <p>Gives you TOML you can share. Passwords and where they're stored are left out, so whoever imports it sets their own.</p>
+          </div></div>
+          <div class="grid">
+            <div class="field">
+              <label for="export-pick">Profile</label>
+              <select id="export-pick"></select>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <button type="button" class="btn" id="btn-export">Export</button>
+            </div>
           </div>
-        </section>
+          <div id="export-out"></div>
+        </div>
+      </section>
+
+      <footer class="page-foot">
+        <p id="foot-config"></p>
+        <p>This page talks only to nexql-mcp on <code>127.0.0.1</code> and stops by itself after a while with nothing to do. The terminal that started it shows the link again.</p>
+      </footer>
+    </div>
+  </main>
+
+  <dialog id="dlg" aria-labelledby="dlg-title">
+    <form method="dialog">
+      <h2 id="dlg-title"></h2>
+      <div class="d-body" id="dlg-body"></div>
+      <div class="d-actions">
+        <button type="submit" class="btn" value="cancel" id="dlg-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" value="ok" id="dlg-ok">OK</button>
       </div>
-    </main>
-  </div>
+    </form>
+  </dialog>
 
   <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+    // ---------- Token ----------
     const params = new URLSearchParams(location.search);
-    let token = params.get('token') || sessionStorage.getItem('nexql_setup_token') || '';
-    if (params.get('token')) sessionStorage.setItem('nexql_setup_token', token);
+    let token = params.get('token') || '';
+    try {
+      if (token) sessionStorage.setItem('nexql_setup_token', token);
+      else token = sessionStorage.getItem('nexql_setup_token') || '';
+    } catch (e) { /* storage blocked: the URL token is enough */ }
 
-    let requestInFlight = 0;
-    let shuttingDown = false;
-
-    const THEME_KEY = 'nexql_setup_theme';
-
-    function getTheme() {
-      return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-    }
-
-    function applyTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem(THEME_KEY, theme);
-      const meta = document.getElementById('theme-color-meta');
-      if (meta) meta.setAttribute('content', theme === 'light' ? '#faf9f5' : '#0B0E14');
-      const toggle = document.getElementById('theme-toggle');
-      if (toggle) {
-        const next = theme === 'light' ? 'dark' : 'light';
-        const label = `Switch to ${next} mode`;
-        toggle.setAttribute('aria-label', label);
-        toggle.setAttribute('title', label);
-      }
-    }
-
-    document.getElementById('theme-toggle')?.addEventListener('click', () => {
-      applyTheme(getTheme() === 'light' ? 'dark' : 'light');
-    });
-
+    // ---------- State ----------
+    const STEPS = [
+      { n: 1, title: 'Connection', sub: 'Pick or add a database' },
+      { n: 2, title: 'Test', sub: 'Make sure it connects' },
+      { n: 3, title: 'Access & safety', sub: 'What the assistant may do' },
+      { n: 4, title: 'Apps', sub: 'Where to add nexql-mcp' },
+      { n: 5, title: 'Review', sub: 'See each file change' },
+      { n: 6, title: 'Done', sub: 'Restart and check' },
+    ];
     let meta = null;
+    let detected = [];
     let profiles = [];
-    let selectedProfile = null;
-    let editingExisting = false;
-    let wirePreview = null;
+    let entries = [];
     let clients = { mergeable: [], copy_only: [] };
-    const EDITOR_STEP_COUNT = 5;
-    let editorStep = 1;
-    let editorMaxStep = 1;
+    let inFlight = 0;
+    let closed = false;
 
-    function editorField(id) {
-      return document.getElementById(id)?.value.trim() || '';
-    }
+    // The wizard's working copy. `loaded` is the saved profile as the server
+    // returned it, so fields this page doesn't show (TLS files, heuristics,
+    // where the password lives) survive a save.
+    const draft = {
+      mode: 'new',          // 'new' until the first successful save, then 'edit'
+      name: null,           // saved name once the profile exists
+      loaded: {},
+      step: 1,
+      maxStep: 1,
+      dirty: false,
+      test: null,           // last test result for this profile
+      preview: null,
+      results: null,
+      launch: null,
+    };
 
-    function editorDisplay(value, fallback = '—') {
-      const v = value?.trim?.() ?? value;
-      return v ? escapeHtml(v) : `<span style="color:var(--muted)">${fallback}</span>`;
-    }
-
-    function validateEditorStep(step) {
-      if (step === 1) {
-        if (!editorField('f-name')) {
-          flash('Enter a profile name to continue', 'err');
-          document.getElementById('f-name')?.focus();
-          return false;
-        }
-        const access = document.getElementById('f-access').value;
-        if ((access === 'write' || access === 'admin') && !document.getElementById('f-confirm-elevate').checked) {
-          flash('Confirm elevated access for write/admin mode', 'err');
-          return false;
-        }
-      }
-      if (step === 2) {
-        const hasUrl = !!editorField('f-url');
-        const hasHost = !!editorField('f-host');
-        if (!hasUrl && !hasHost) {
-          flash('Provide a connection URL or at least a host', 'err');
-          document.getElementById(hasUrl ? 'f-url' : 'f-host')?.focus();
-          return false;
-        }
-      }
-      return true;
-    }
-
-    function renderEditorReview() {
-      const box = document.getElementById('editor-review');
-      if (!box) return;
-      const target = editorField('f-url')
-        || [editorField('f-host') || 'host', editorField('f-port') || '5432', editorField('f-dbname') || 'db'].join(':');
-      const auth = editorField('f-password-command')
-        ? 'password command'
-        : (editorField('f-password') ? 'password set' : 'none');
-      box.innerHTML = `
-        <div class="review-block">
-          <h3>Basics</h3>
-          <dl>
-            <div class="review-row"><dt>Name</dt><dd>${editorDisplay(editorField('f-name'))}</dd></div>
-            <div class="review-row"><dt>Access</dt><dd>${editorDisplay(document.getElementById('f-access').value)}</dd></div>
-            <div class="review-row"><dt>Default</dt><dd>${document.getElementById('f-default').checked ? 'yes' : 'no'}</dd></div>
-          </dl>
-        </div>
-        <div class="review-block">
-          <h3>Connection</h3>
-          <dl>
-            <div class="review-row"><dt>Target</dt><dd>${editorDisplay(target)}</dd></div>
-            <div class="review-row"><dt>SSL</dt><dd>${editorDisplay(document.getElementById('f-sslmode').value || 'prefer')}</dd></div>
-            <div class="review-row"><dt>User</dt><dd>${editorDisplay(editorField('f-user'))}</dd></div>
-            <div class="review-row"><dt>Auth</dt><dd>${auth}</dd></div>
-          </dl>
-        </div>
-        <div class="review-block">
-          <h3>Policy</h3>
-          <dl>
-            <div class="review-row"><dt>Schemas</dt><dd>${editorDisplay(editorField('f-schemas'), 'all')}</dd></div>
-            <div class="review-row"><dt>Denied</dt><dd>${editorDisplay([editorField('f-deny-schemas'), editorField('f-deny-tables')].filter(Boolean).join(', '), 'none')}</dd></div>
-            <div class="review-row"><dt>PII cols</dt><dd>${editorDisplay(editorField('f-pii-columns'), 'none')}</dd></div>
-            <div class="review-row"><dt>Personal data</dt><dd>${document.getElementById('f-mask-personal').checked ? 'masked' : 'returned unmasked'}</dd></div>
-            <div class="review-row"><dt>Limits</dt><dd>${editorDisplay([editorField('f-max-rows') && `max ${editorField('f-max-rows')} rows`, editorField('f-timeout') && `${editorField('f-timeout')} ms`].filter(Boolean).join(', '), 'default')}</dd></div>
-          </dl>
-        </div>`;
-    }
-
-    function setEditorStep(step, { focus = true } = {}) {
-      editorStep = Math.max(1, Math.min(EDITOR_STEP_COUNT, step));
-      editorMaxStep = Math.max(editorMaxStep, editorStep);
-      document.querySelectorAll('.form-step').forEach(el => {
-        el.classList.toggle('active', Number(el.dataset.step) === editorStep);
-      });
-      document.querySelectorAll('.step-pill').forEach(el => {
-        const n = Number(el.dataset.step);
-        const reachable = n <= editorMaxStep;
-        el.disabled = !reachable;
-        el.classList.toggle('active', n === editorStep);
-        el.classList.toggle('done', n < editorStep);
-        el.setAttribute('aria-current', n === editorStep ? 'step' : 'false');
-      });
-      document.getElementById('btn-step-back')?.classList.toggle('hidden', editorStep === 1);
-      const isLast = editorStep === EDITOR_STEP_COUNT;
-      document.getElementById('btn-step-next')?.classList.toggle('hidden', isLast);
-      document.getElementById('editor-final-actions')?.classList.toggle('hidden', !isLast);
-      if (isLast) renderEditorReview();
-      if (focus) {
-        const panel = document.querySelector(`.form-step[data-step="${editorStep}"]`);
-        const focusable = panel?.querySelector('input:not([readonly]), select, textarea, button');
-        focusable?.focus({ preventScroll: true });
-      }
-      document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function resetEditorWizard() {
-      editorStep = 1;
-      editorMaxStep = 1;
-      setEditorStep(1, { focus: false });
-    }
-
-    document.querySelectorAll('.step-pill').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = Number(btn.dataset.step);
-        if (target > editorMaxStep || target === editorStep) return;
-        if (target > editorStep) {
-          for (let s = editorStep; s < target; s++) {
-            if (!validateEditorStep(s)) return;
-          }
-        }
-        setEditorStep(target);
-      });
-    });
-
-    document.getElementById('btn-step-next')?.addEventListener('click', () => {
-      if (!validateEditorStep(editorStep)) return;
-      setEditorStep(editorStep + 1);
-    });
-
-    document.getElementById('btn-step-back')?.addEventListener('click', () => {
-      setEditorStep(editorStep - 1);
-    });
-
-    function headers() {
-      return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'X-Setup-Token': token,
-      };
-    }
-
-    function updateFinishCloseButton() {
-      const btn = document.getElementById('btn-finish-close');
-      if (!btn) return;
-      btn.disabled = shuttingDown || requestInFlight > 0;
-    }
-
-    async function api(path, opts = {}) {
-      requestInFlight += 1;
-      updateFinishCloseButton();
+    // ---------- API ----------
+    async function api(path, opts = {}, raw = false) {
+      inFlight += 1;
+      updateFinish();
       try {
-        const res = await fetch(`/api/v1${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+        const res = await fetch(`/api/v1${path}`, {
+          ...opts,
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-Setup-Token': token },
+        });
         const text = await res.text();
         let data = null;
         try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
-        if (!res.ok) throw new Error(data?.error || res.statusText);
-        return data;
+        if (!res.ok) {
+          const err = new Error(data?.error || res.statusText || `HTTP ${res.status}`);
+          err.status = res.status;
+          throw err;
+        }
+        return raw ? { data, res } : data;
+      } catch (e) {
+        if (e instanceof TypeError) {
+          const err = new Error('Lost contact with nexql-mcp. It may have stopped after being idle: run nexql-mcp setup again and open the new link.');
+          err.status = 0;
+          throw err;
+        }
+        throw e;
       } finally {
-        requestInFlight -= 1;
-        updateFinishCloseButton();
+        inFlight -= 1;
+        updateFinish();
       }
     }
 
-    function flash(msg, kind = 'info') {
-      const el = document.getElementById('flash');
-      el.className = `status ${kind}`;
-      el.textContent = msg;
-      setTimeout(() => { el.textContent = ''; el.className = ''; }, 6000);
+    // ---------- Notices ----------
+    function notice(kind, html, { dismiss = true } = {}) {
+      return `<div class="notice ${kind}"><div class="n-body">${html}</div>${dismiss ? '<button type="button" class="btn btn-sm btn-ghost close" aria-label="Dismiss">✕</button>' : ''}</div>`;
+    }
+    let flashTimer = null;
+    function flash(html, kind = 'info') {
+      const el = $('flash');
+      el.innerHTML = notice(kind, html);
+      el.querySelector('.close')?.addEventListener('click', () => { el.innerHTML = ''; });
+      clearTimeout(flashTimer);
+      if (kind === 'ok' || kind === 'info') flashTimer = setTimeout(() => { el.innerHTML = ''; }, 7000);
+    }
+    function flashError(err) { flash(`<p>${esc(err.message || err)}</p>`, 'err'); }
+
+    // ---------- Dialog ----------
+    function ask({ title, body, ok = 'OK', danger = false }) {
+      const dlg = $('dlg');
+      $('dlg-title').textContent = title;
+      $('dlg-body').innerHTML = body;
+      const okBtn = $('dlg-ok');
+      okBtn.textContent = ok;
+      okBtn.classList.toggle('btn-danger', danger);
+      return new Promise((resolve) => {
+        dlg.addEventListener('close', () => resolve(dlg.returnValue === 'ok'), { once: true });
+        dlg.returnValue = 'cancel';
+        dlg.showModal();
+        $('dlg-cancel').focus();
+      });
     }
 
-    function showTab(name) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.add('hidden'));
-      document.getElementById(`tab-${name}`).classList.remove('hidden');
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-      document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+    // ---------- Copy ----------
+    function codeBlock(text, label = 'Copy') {
+      return `<div class="code"><pre>${esc(text)}</pre><button type="button" class="copy" data-copy>${label}</button></div>`;
     }
-
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => showTab(btn.dataset.tab));
-    });
-
-    function splitCsv(v) {
-      return v.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    let sensitiveNameHeuristics = null;
-
-    function profilePayload() {
-      const profile = {
-          url: document.getElementById('f-url').value || null,
-          host: document.getElementById('f-host').value || null,
-          port: document.getElementById('f-port').value ? Number(document.getElementById('f-port').value) : null,
-          dbname: document.getElementById('f-dbname').value || null,
-          user: document.getElementById('f-user').value || null,
-          password_command: document.getElementById('f-password-command').value || null,
-          sslmode: document.getElementById('f-sslmode').value || null,
-          access_mode: document.getElementById('f-access').value || 'read',
-          schemas: splitCsv(document.getElementById('f-schemas').value),
-          deny_schemas: splitCsv(document.getElementById('f-deny-schemas').value),
-          deny_tables: splitCsv(document.getElementById('f-deny-tables').value),
-          pii_columns: splitCsv(document.getElementById('f-pii-columns').value),
-          max_rows: document.getElementById('f-max-rows').value ? Number(document.getElementById('f-max-rows').value) : null,
-          statement_timeout_ms: document.getElementById('f-timeout').value ? Number(document.getElementById('f-timeout').value) : null,
-          password_stored: false,
-          has_inline_password: false,
-      };
-      if (sensitiveNameHeuristics !== null && sensitiveNameHeuristics !== undefined) {
-        profile.sensitive_name_heuristics = sensitiveNameHeuristics;
-      }
-      if (!document.getElementById('f-mask-personal').checked) {
-        profile.personal_data_heuristics = false;
-      }
-      return {
-        profile,
-        password: document.getElementById('f-password').disabled ? null : (document.getElementById('f-password').value || null),
-        set_default: document.getElementById('f-default').checked,
-        confirm_elevated_access: document.getElementById('f-confirm-elevate').checked,
-      };
-    }
-
-    function fillForm(p) {
-      document.getElementById('f-name').value = p.name;
-      document.getElementById('f-name').readOnly = editingExisting;
-      const pr = p.profile || {};
-      document.getElementById('f-url').value = pr.url || '';
-      document.getElementById('f-host').value = pr.host || '';
-      document.getElementById('f-port').value = pr.port || '';
-      document.getElementById('f-dbname').value = pr.dbname || '';
-      document.getElementById('f-user').value = pr.user || '';
-      document.getElementById('f-password').value = '';
-      document.getElementById('f-password-command').value = pr.password_command || '';
-      document.getElementById('f-sslmode').value = pr.sslmode || '';
-      document.getElementById('f-access').value = pr.access_mode || 'read';
-      document.getElementById('f-schemas').value = (pr.schemas || []).join(', ');
-      document.getElementById('f-deny-schemas').value = (pr.deny_schemas || []).join(', ');
-      document.getElementById('f-deny-tables').value = (pr.deny_tables || []).join(', ');
-      document.getElementById('f-pii-columns').value = (pr.pii_columns || []).join(', ');
-      sensitiveNameHeuristics = Object.prototype.hasOwnProperty.call(pr, 'sensitive_name_heuristics')
-        ? pr.sensitive_name_heuristics
-        : null;
-      document.getElementById('f-mask-personal').checked = pr.personal_data_heuristics !== false;
-      document.getElementById('f-max-rows').value = pr.max_rows || '';
-      document.getElementById('f-timeout').value = pr.statement_timeout_ms || '';
-      document.getElementById('f-default').checked = !!p.is_default;
-      document.getElementById('btn-delete').classList.toggle('hidden', !editingExisting);
-      document.getElementById('editor-title').textContent = editingExisting ? `Edit · ${p.name}` : 'New profile';
-      document.getElementById('editor-lede').textContent = editingExisting
-        ? 'Update this profile step by step, then test and save.'
-        : 'Set up a named Postgres connection in five guided steps.';
-      resetEditorWizard();
-      if (editingExisting) {
-        editorMaxStep = EDITOR_STEP_COUNT;
-        document.querySelectorAll('.step-pill').forEach(el => { el.disabled = false; });
-      }
-    }
-
-    async function loadMeta() {
-      meta = await api('/meta');
-      const parts = [`v${meta.version}`, meta.config_path];
-      if (meta.workspace_root) parts.push(meta.workspace_root);
-      document.getElementById('header-meta').textContent = parts.join(' · ');
-      document.getElementById('w-npx-version').placeholder = meta.version;
-      renderKeyringBanner();
-      renderMobileMeta(parts.join(' · '));
-    }
-
-    function renderMobileMeta(text) {
-      let el = document.getElementById('mobile-meta');
-      if (!el) {
-        el = document.createElement('p');
-        el.id = 'mobile-meta';
-        el.className = 'meta mobile-meta';
-        document.querySelector('.content')?.prepend(el);
-      }
-      el.textContent = text;
-    }
-
-    function renderKeyringBanner() {
-      const el = document.getElementById('keyring-banner');
-      const pw = document.getElementById('f-password');
-      const pwLabel = document.querySelector('label[for="f-password"]');
-      if (!meta || meta.keyring_available) {
-        el.className = 'hidden';
-        el.innerHTML = '';
-        if (pw) { pw.disabled = false; pw.placeholder = ''; }
-        if (pwLabel) pwLabel.textContent = 'Password';
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-copy]');
+      if (!btn) return;
+      const text = btn.parentElement.querySelector('pre')?.textContent || '';
+      try { await navigator.clipboard.writeText(text); }
+      catch {
+        const r = document.createRange(); r.selectNodeContents(btn.parentElement.querySelector('pre'));
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
         return;
       }
-      el.className = 'status err';
-      const secretsHint = meta.secrets_dir
-        ? ` Encrypted files: <code>${escapeHtml(meta.secrets_dir)}</code>.`
-        : '';
-      el.innerHTML =
-        '<strong>OS keyring unavailable</strong> (common on WSL without gnome-keyring). ' +
-        'Passwords you enter here will be stored in an <strong>encrypted local file</strong> — not plaintext, but weaker than the OS keyring.' +
-        secretsHint +
-        ' Prefer <code>password_command</code> for production, or install gnome-keyring: ' +
-        '<code>sudo apt install gnome-keyring dbus-x11</code> then <code>gnome-keyring-daemon --start --components=secrets</code>.';
-      if (pw) { pw.disabled = false; pw.placeholder = 'stored encrypted on disk'; }
-      if (pwLabel) pwLabel.textContent = 'Password';
-    }
+      btn.textContent = 'Copied'; btn.setAttribute('data-done', '');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.removeAttribute('data-done'); }, 1600);
+    });
 
-    async function loadProfiles() {
-      profiles = await api('/profiles');
-      const tbody = document.getElementById('profiles-table');
-      tbody.innerHTML = '';
-      profiles.forEach(p => {
-        const tr = document.createElement('tr');
-        if (p.name === selectedProfile) tr.classList.add('selected');
-        tr.innerHTML = `
-          <td>${escapeHtml(p.name)} ${p.is_default ? '<span class="badge default">default</span>' : ''}</td>
-          <td class="mono">${escapeHtml(p.host_or_url)}</td>
-          <td><span class="badge">${escapeHtml(p.access_mode)}</span></td>
-          <td><button type="button" class="btn-secondary" data-edit="${encodeURIComponent(p.name)}">Edit</button></td>`;
-        tr.addEventListener('click', () => { selectedProfile = p.name; loadProfiles(); });
-        tr.querySelector('[data-edit]').addEventListener('click', (e) => {
-          e.stopPropagation(); openEditor(p.name);
+    // ---------- Theme switch ----------
+    (function () {
+      const group = document.querySelector('.theme-switch');
+      const btns = [...group.querySelectorAll('button')];
+      const sync = () => {
+        const choice = document.documentElement.getAttribute('data-theme-choice') || 'system';
+        btns.forEach((b) => { const on = b.dataset.choice === choice; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+      };
+      btns.forEach((b, i) => {
+        b.addEventListener('click', () => { window.__nexqlSetTheme(b.dataset.choice); sync(); });
+        b.addEventListener('keydown', (e) => {
+          const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+          if (!d) return;
+          e.preventDefault();
+          const next = btns[(i + d + btns.length) % btns.length];
+          next.click(); next.focus();
         });
-        tbody.appendChild(tr);
       });
-      renderWireProfileChecks();
+      sync();
+    })();
+
+    // ---------- Views ----------
+    const VIEWS = ['wizard', 'saved', 'transfer'];
+    function showView(name, { focus = false } = {}) {
+      VIEWS.forEach((v) => {
+        const on = v === name;
+        $(`view-${v}`).hidden = !on;
+        const tab = $(`tab-${v}`);
+        tab.setAttribute('aria-selected', String(on));
+        tab.tabIndex = on ? 0 : -1;
+        if (on && focus) tab.focus();
+      });
+      if (name === 'saved') loadSaved().catch(flashError);
+      if (name === 'transfer') renderExportPick();
     }
-
-    function escapeHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    async function openEditor(name) {
-      if (name) {
-        editingExisting = true;
-        const p = await api(`/profiles/${encodeURIComponent(name)}`);
-        fillForm(p);
-      } else {
-        editingExisting = false;
-        selectedProfile = null;
-        fillForm({ name: '', profile: {}, is_default: false });
-        document.getElementById('f-name').readOnly = false;
-      }
-      showTab('editor');
-    }
-
-    document.getElementById('btn-new-profile').addEventListener('click', () => openEditor(null));
-    document.getElementById('btn-refresh').addEventListener('click', () => loadProfiles().catch(e => flash(e.message, 'err')));
-
-    document.getElementById('profile-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      for (let s = 1; s <= 2; s++) {
-        if (!validateEditorStep(s)) {
-          setEditorStep(s);
-          return;
-        }
-      }
-      try {
-        const name = document.getElementById('f-name').value.trim();
-        const body = profilePayload();
-        let resp;
-        if (editingExisting) {
-          resp = await api(`/profiles/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(body) });
-        } else {
-          resp = await api('/profiles', { method: 'POST', body: JSON.stringify({ name, ...body }) });
-        }
-        flash(`Saved profile "${name}"`, 'ok');
-        if (resp.credential_warning) flash(resp.credential_warning, 'info');
-        selectedProfile = name;
-        await loadProfiles();
-        editingExisting = true;
-      } catch (err) { flash(err.message, 'err'); }
+    VIEWS.forEach((v, i) => {
+      const tab = $(`tab-${v}`);
+      tab.addEventListener('click', () => showView(v));
+      tab.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); showView(VIEWS[e.key === 'Home' ? 0 : VIEWS.length - 1], { focus: true }); return; }
+        if (!d) return;
+        e.preventDefault();
+        showView(VIEWS[(i + d + VIEWS.length) % VIEWS.length], { focus: true });
+      });
     });
 
-    document.getElementById('btn-test').addEventListener('click', async () => {
-      const name = document.getElementById('f-name').value.trim();
-      if (!name) return flash('Enter a profile name first', 'err');
-      const box = document.getElementById('test-result');
-      box.className = 'status info';
-      box.textContent = 'Testing connection…';
-      try {
-        if (!editingExisting) {
-          await api('/profiles', { method: 'POST', body: JSON.stringify({ name, ...profilePayload() }) });
-          editingExisting = true;
-          document.getElementById('f-name').readOnly = true;
-        } else {
-          await api(`/profiles/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(profilePayload()) });
-        }
-        const start = await api(`/profiles/${encodeURIComponent(name)}/test`, { method: 'POST' });
-        let result = null;
-        for (let i = 0; i < 40; i++) {
-          await new Promise(r => setTimeout(r, 500));
-          result = await api(`/profiles/${encodeURIComponent(name)}/test/${start.job_id}`);
-          if (result.status !== 'running') break;
-        }
-        if (result.status === 'ok') {
-          if (result.is_superuser) {
-            box.className = 'status err';
-            box.textContent = `WARNING: connected as a superuser. A prompt-injected query can read server files (pg_read_file). Create role nexql_readonly with GRANT pg_read_all_data and reconnect as that role. SQL: nexql-mcp profile readonly-role`;
-          } else {
-            box.className = 'status ok';
-            box.textContent = `Connected · ${result.server_version} · ${Math.round(result.latency_ms)}ms · superuser=false`;
-          }
-        } else {
-          box.className = 'status err';
-          box.textContent = result.error || 'Connection failed';
-        }
-      } catch (err) {
-        box.className = 'status err';
-        box.textContent = err.message;
-      }
-    });
+    // ---------- Helpers ----------
+    const val = (id) => $(id).value.trim();
+    const csv = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
+    const numOrNull = (id) => { const v = val(id); return v ? Number(v) : null; };
+    const accessValue = () => document.querySelector('input[name="access"]:checked')?.value || 'read';
+    const isElevated = (m) => m === 'write' || m === 'admin';
 
-    document.getElementById('btn-delete').addEventListener('click', async () => {
-      const name = document.getElementById('f-name').value.trim();
-      if (!confirm(`Delete profile "${name}"?`)) return;
-      try {
-        await api(`/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
-        flash(`Deleted "${name}"`, 'ok');
-        selectedProfile = null;
-        showTab('profiles');
-        await loadProfiles();
-      } catch (err) { flash(err.message, 'err'); }
-    });
-
-    function renderWireProfileChecks() {
-      const el = document.getElementById('wire-profiles');
-      el.innerHTML = profiles.map(p => `
-        <label class="client-item"><input type="checkbox" value="${escapeHtml(p.name)}" ${p.name === selectedProfile ? 'checked' : ''} /> ${escapeHtml(p.name)}</label>
-      `).join('');
-    }
-
-    async function loadClients() {
-      clients = await api('/clients');
-      document.getElementById('wire-mergeable').innerHTML = clients.mergeable.map(c => `
-        <label class="client-item"><input type="checkbox" value="${escapeHtml(c.key)}" data-mergeable="1" />
-          <span>${escapeHtml(c.display_name)}<span class="path">${escapeHtml(c.config_path || 'n/a')}${c.exists ? '' : ' · new'}</span></span></label>
-      `).join('');
-      document.getElementById('wire-copy').innerHTML = clients.copy_only.map(c => `
-        <label class="client-item"><input type="checkbox" value="${escapeHtml(c.key)}" data-copy="1" /> ${escapeHtml(c.display_name)}</label>
-      `).join('');
-    }
-
-    function launchConfig() {
-      const mode = document.getElementById('w-launch').value;
-      const ver = document.getElementById('w-npx-version').value.trim();
+    function storageLabel(src) {
       return {
-        mode: mode === 'npx_latest' ? 'npx_latest' : mode,
-        npx_version: ver || meta?.version || null,
+        keyring: 'OS keyring',
+        encrypted_file: 'encrypted file',
+        command: 'password command',
+        file: 'password file',
+        inline: 'plain text in config',
+        none: 'not stored',
+      }[src] || src;
+    }
+    function targetOf(p) {
+      if (p.url) return p.url;
+      const host = p.host || 'localhost';
+      return `${host}${p.port ? `:${p.port}` : ''}${p.dbname ? `/${p.dbname}` : ''}`;
+    }
+    function launchLine(mode, version) {
+      if (mode === 'path') return 'nexql-mcp';
+      if (mode === 'npx') return `npx -y nexql-mcp@${version || meta?.version || '<version>'}`;
+      return 'npx -y nexql-mcp@latest';
+    }
+    function setFieldError(id, msg) {
+      const input = $(id);
+      const err = $(`${id}-err`);
+      if (input) input.setAttribute('aria-invalid', msg ? 'true' : 'false');
+      if (err) { err.textContent = msg || ''; err.hidden = !msg; }
+      if (input && err) {
+        const ids = (input.getAttribute('aria-describedby') || '').split(' ').filter((x) => x && x !== err.id);
+        if (msg) ids.push(err.id);
+        input.setAttribute('aria-describedby', ids.join(' '));
+      }
+    }
+
+    // ---------- Meta / facts ----------
+    async function loadMeta() {
+      const { data, res } = await api('/meta', {}, true);
+      meta = data;
+      try { detected = JSON.parse(res.headers.get('x-detected-connections') || '[]') || []; } catch { detected = []; }
+      $('ver').textContent = `v${meta.version}`;
+      $('cfg-path').textContent = meta.config_path;
+      $('foot-config').innerHTML = `Config file: <code>${esc(meta.config_path)}</code>${meta.workspace_root ? ` · Project folder: <code>${esc(meta.workspace_root)}</code>` : ''}`;
+      const keyring = meta.password_storage === 'keyring';
+      $('facts').innerHTML = [
+        `<li><strong>Passwords</strong> → ${keyring ? 'your OS keyring' : 'an encrypted file (no OS keyring found)'}</li>`,
+        `<li><strong>Read-only</strong> unless you choose otherwise</li>`,
+        `<li><strong>Personal data</strong> masked by default</li>`,
+        `<li><strong>Config</strong> ${esc(meta.config_path)}</li>`,
+      ].join('');
+      $('pw-storage-desc').innerHTML = keyring
+        ? 'Saved in your <strong>OS keyring</strong> (macOS Keychain, Windows Credential Manager or Secret Service on Linux), under this profile\'s name.'
+        : `This computer has no OS keyring running, so the password is saved in an <strong>encrypted file</strong>${meta.secrets_dir ? ` in <code>${esc(meta.secrets_dir)}</code>` : ''}. That's much better than plain text, but weaker than a keyring. For production databases, a password manager command (below) is stronger. On Linux you can start a keyring with <code>gnome-keyring-daemon --start --components=secrets</code>.`;
+    }
+
+    // ---------- Step rail ----------
+    function renderRail() {
+      $('steps').innerHTML = STEPS.map((s) => {
+        const current = s.n === draft.step;
+        const done = s.n < draft.step || (s.n < draft.maxStep && !current);
+        // Unsaved edits must go through Save before the app steps use them.
+        const reachable = s.n <= draft.maxStep && !(s.n === 6 && !draft.results) && !(draft.dirty && s.n > 3);
+        return `<li><button type="button" data-goto="${s.n}" ${current ? 'aria-current="step"' : ''} ${reachable ? '' : 'disabled'} class="${done ? 'done' : ''}">
+          <span class="num" aria-hidden="true">${done ? '✓' : s.n}</span>
+          <span><span class="sr-only">Step ${s.n}: </span>${esc(s.title)}${done ? '<span class="sr-only"> (done)</span>' : ''}<span class="sub">${esc(s.sub)}</span></span></button></li>`;
+      }).join('');
+      $('rail-count').textContent = `Step ${draft.step} of ${STEPS.length} · ${STEPS[draft.step - 1].title}`;
+      $('meter').style.width = `${(draft.step / STEPS.length) * 100}%`;
+    }
+    $('steps').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-goto]');
+      if (!b || b.disabled) return;
+      goStep(Number(b.dataset.goto));
+    });
+    document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => goStep(draft.step - 1)));
+
+    function goStep(n, { focus = true } = {}) {
+      draft.step = Math.max(1, Math.min(STEPS.length, n));
+      draft.maxStep = Math.max(draft.maxStep, draft.step);
+      document.querySelectorAll('#wizard-card .step').forEach((s) => { s.hidden = Number(s.dataset.step) !== draft.step; });
+      renderRail();
+      if (draft.step === 2 && !draft.test && draft.name) runWizardTest();
+      if (focus) {
+        const h = document.querySelector(`#wizard-card .step[data-step="${draft.step}"] h2`);
+        h?.focus({ preventScroll: true });
+        $('wizard-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    // ---------- Step 1: connection ----------
+    function renderPickList() {
+      const items = [`<label class="choice"><input type="radio" name="pick" value="" ${draft.mode === 'new' ? 'checked' : ''} /><span class="face"><span class="tick"></span><span class="body"><span class="title">New connection</span><span class="desc">Add a database that isn't saved yet.</span></span></span></label>`];
+      profiles.forEach((p) => {
+        const on = draft.mode === 'edit' && draft.name === p.name;
+        items.push(`<label class="choice"><input type="radio" name="pick" value="${esc(p.name)}" ${on ? 'checked' : ''} /><span class="face"><span class="tick"></span><span class="body">
+          <span class="title">${esc(p.name)} ${p.is_default ? '<span class="badge accent">default</span>' : ''} <span class="badge${isElevated(p.access_mode) ? ' warn' : ''}">${esc(p.access_mode)}</span></span>
+          <span class="path">${esc(targetOf(p))}${p.user ? ` · ${esc(p.user)}` : ''}</span></span></span></label>`);
+      });
+      $('pick-list').innerHTML = items.join('');
+      $('pick-section').hidden = profiles.length === 0;
+    }
+    $('pick-list').addEventListener('change', async (e) => {
+      const name = e.target.value;
+      if (draft.dirty && !(await ask({ title: 'Discard your changes?', body: '<p>You\'ve typed changes on this page that aren\'t saved yet.</p>', ok: 'Discard' }))) {
+        renderPickList();
+        return;
+      }
+      if (name) await loadIntoDraft(name, 'edit').catch(flashError);
+      else resetDraft();
+    });
+
+    function renderDetected() {
+      const usable = detected.filter((d) => d.url || d.host).slice(0, 6);
+      $('detected-section').hidden = usable.length === 0;
+      $('detected-list').innerHTML = usable.map((d, i) => {
+        const label = d.url ? safeUrlLabel(d.url) : targetOf(d);
+        return `<button type="button" class="btn btn-sm" data-detected="${i}"><span>${esc(label)}</span><span class="badge">${esc(d.source)}</span></button>`;
+      }).join('');
+      $('detected-list').querySelectorAll('[data-detected]').forEach((b) => b.addEventListener('click', () => applyDetected(usable[Number(b.dataset.detected)])));
+    }
+    function parsePgUrl(url) {
+      try {
+        const u = new URL(url);
+        return {
+          host: decodeURIComponent(u.hostname) || null,
+          port: u.port ? Number(u.port) : null,
+          dbname: decodeURIComponent(u.pathname.replace(/^\//, '')) || null,
+          user: decodeURIComponent(u.username) || null,
+          sslmode: u.searchParams.get('sslmode'),
+        };
+      } catch { return null; }
+    }
+    function safeUrlLabel(url) {
+      const p = parsePgUrl(url);
+      return p ? targetOf(p) : 'connection URL';
+    }
+    function applyDetected(d) {
+      const p = d.url ? (parsePgUrl(d.url) || {}) : d;
+      $('f-host').value = p.host || '';
+      $('f-port').value = p.port || '';
+      $('f-dbname').value = p.dbname || '';
+      $('f-user').value = p.user || '';
+      $('f-sslmode').value = ['disable', 'require', 'verify-ca', 'verify-full'].includes(p.sslmode || d.sslmode) ? (p.sslmode || d.sslmode) : '';
+      if (!val('f-name') && p.dbname && draft.mode === 'new') $('f-name').value = p.dbname.toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+      updateSslHelp();
+      draft.dirty = true;
+      flash(`<p>Filled in from <code>${esc(d.source)}</code>. Type the password yourself below.</p>`, 'info');
+      $('f-password').focus();
+    }
+
+    const SSL_HELP = {
+      '': 'Uses SSL when the server offers it, plain otherwise. Fine for most setups.',
+      disable: 'Never encrypt. Only for a database on this computer or in local Docker.',
+      require: 'Always encrypt, without checking the certificate. Most hosted databases (RDS, Supabase, Neon…) need at least this.',
+      'verify-ca': 'Encrypt and check the certificate is signed by a CA you trust.',
+      'verify-full': 'Encrypt, check the certificate and that it matches the host name. The strongest choice.',
+    };
+    function updateSslHelp() { $('f-sslmode-help').textContent = SSL_HELP[$('f-sslmode').value] ?? ''; }
+    $('f-sslmode').addEventListener('change', updateSslHelp);
+
+    $('btn-pw-show').addEventListener('click', () => {
+      const input = $('f-password');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      $('btn-pw-show').textContent = show ? 'Hide' : 'Show';
+      $('btn-pw-show').setAttribute('aria-pressed', String(show));
+    });
+
+    function updatePasswordHint() {
+      const src = draft.loaded?.password_command ? 'command' : (draft.loaded?.password_stored ? (draft.loaded.credential_provider === 'encrypted_file' ? 'encrypted_file' : 'keyring') : null);
+      const pw = $('f-password');
+      if (draft.mode === 'edit' && src) {
+        $('pw-opt').textContent = '(optional)';
+        pw.placeholder = src === 'command' ? 'Comes from the password command' : `Saved in the ${storageLabel(src)}. Leave empty to keep it`;
+      } else {
+        $('pw-opt').textContent = '';
+        pw.placeholder = meta?.password_storage === 'keyring' ? 'Goes to your OS keyring' : 'Stored encrypted on this computer';
+      }
+    }
+
+    function fillForm(name, p, isDefault) {
+      $('f-name').value = name || '';
+      $('f-name').readOnly = draft.mode === 'edit';
+      $('f-name-help').innerHTML = draft.mode === 'edit'
+        ? 'Saved profiles keep their name. To rename one, duplicate it from <em>Saved profiles</em> and delete the old one.'
+        : 'A short label you\'ll use in commands and see in your app, like <code>local</code> or <code>billing-prod</code>.';
+      $('f-host').value = p.host || '';
+      $('f-port').value = p.port || '';
+      $('f-dbname').value = p.dbname || '';
+      $('f-user').value = p.user || '';
+      $('f-sslmode').value = p.sslmode && SSL_HELP[p.sslmode] !== undefined ? p.sslmode : '';
+      $('f-url').value = p.url || '';
+      $('url-details').open = !!p.url;
+      $('f-password').value = '';
+      $('f-password-command').value = p.password_command || '';
+      $('pwcmd-details').open = !!p.password_command;
+      const mode = p.access_mode || 'read';
+      document.querySelectorAll('input[name="access"]').forEach((r) => { r.checked = r.value === mode; });
+      // An already-elevated profile isn't being elevated now: keep its confirmation.
+      $('f-confirm-elevate').checked = draft.mode === 'edit' && isElevated(mode);
+      $('f-mask-personal').checked = p.personal_data_heuristics !== false;
+      $('f-schemas').value = (p.schemas || []).join(', ');
+      $('f-deny-schemas').value = (p.deny_schemas || []).join(', ');
+      $('f-deny-tables').value = (p.deny_tables || []).join(', ');
+      $('f-pii-columns').value = (p.pii_columns || []).join(', ');
+      $('f-max-rows').value = p.max_rows || '';
+      $('f-timeout').value = p.statement_timeout_ms || '';
+      $('limits-details').open = !!((p.schemas || []).length || (p.deny_schemas || []).length || (p.deny_tables || []).length || (p.pii_columns || []).length || p.max_rows || p.statement_timeout_ms);
+      $('f-default').checked = !!isDefault || profiles.length === 0;
+      ['f-name', 'f-host'].forEach((id) => setFieldError(id, ''));
+      updateSslHelp();
+      updateAccessUi();
+      updatePasswordHint();
+      $('s1-next').textContent = 'Save and test';
+      $('s1-title').textContent = draft.mode === 'edit' ? `Editing ${name}` : 'Which database should the assistant use?';
+    }
+
+    function resetDraft() {
+      Object.assign(draft, { mode: 'new', name: null, loaded: {}, step: 1, maxStep: 1, dirty: false, test: null, preview: null, results: null });
+      fillForm('', {}, false);
+      renderPickList();
+      renderDetected();
+      goStep(1, { focus: false });
+    }
+
+    async function loadIntoDraft(name, mode) {
+      const resp = await api(`/profiles/${encodeURIComponent(name)}`);
+      Object.assign(draft, { mode: 'edit', name, loaded: resp.profile, step: 1, maxStep: mode === 'edit' ? 3 : 1, dirty: false, test: null, preview: null, results: null });
+      fillForm(name, resp.profile, resp.is_default);
+      renderPickList();
+      renderDetected();
+      goStep(1, { focus: false });
+    }
+
+    function startDuplicate(src, isDefault) {
+      const copy = { ...src };
+      // The password belongs to the original profile; a command can be shared.
+      if (copy.credential_provider) {
+        if (copy.credential_provider === 'encrypted_file') copy.password_file = null;
+        copy.credential_provider = null;
+      }
+      copy.password_stored = false;
+      copy.has_inline_password = false;
+      Object.assign(draft, { mode: 'new', name: null, loaded: copy, step: 1, maxStep: 1, dirty: true, test: null, preview: null, results: null });
+      let base = `${src.__name}-copy`;
+      let i = 2;
+      while (profiles.some((p) => p.name === base)) base = `${src.__name}-copy-${i++}`;
+      delete copy.__name;
+      fillForm(base, copy, false);
+      $('f-default').checked = false;
+      renderPickList();
+      goStep(1, { focus: false });
+      showView('wizard');
+      flash('<p>Copied every setting except the password. Type it below, change what you need, and save.</p>', 'info');
+      $('f-name').focus();
+      $('f-name').select();
+    }
+
+    document.querySelectorAll('#view-wizard input, #view-wizard select').forEach((el) => {
+      el.addEventListener('input', () => {
+        const step = Number(el.closest('.step')?.dataset.step);
+        if (step <= 3 && !draft.dirty) { draft.dirty = true; renderRail(); }
+        // A changed app selection makes the old preview stale.
+        if (step === 4 && draft.maxStep > 4) { draft.maxStep = 4; draft.results = null; renderRail(); }
+      });
+    });
+
+    function validateStep1() {
+      let ok = true;
+      const name = val('f-name');
+      if (!name) { setFieldError('f-name', 'Give the profile a name.'); ok = false; }
+      else if (draft.mode === 'new' && profiles.some((p) => p.name === name)) { setFieldError('f-name', `There's already a profile called "${name}". Pick another name, or choose it under Start from.`); ok = false; }
+      else setFieldError('f-name', '');
+      if (!val('f-host') && !val('f-url')) { setFieldError('f-host', 'Enter a host, or paste a connection URL below.'); ok = false; }
+      else setFieldError('f-host', '');
+      if (!ok) document.querySelector('#wizard-card [aria-invalid="true"]')?.focus();
+      return ok;
+    }
+
+    function buildPayload() {
+      const p = { ...draft.loaded };
+      Object.assign(p, {
+        url: val('f-url') || null,
+        host: val('f-host') || null,
+        port: numOrNull('f-port'),
+        dbname: val('f-dbname') || null,
+        user: val('f-user') || null,
+        sslmode: $('f-sslmode').value || null,
+        password_command: val('f-password-command') || null,
+        access_mode: accessValue(),
+        schemas: csv($('f-schemas').value),
+        deny_schemas: csv($('f-deny-schemas').value),
+        deny_tables: csv($('f-deny-tables').value),
+        pii_columns: csv($('f-pii-columns').value),
+        max_rows: numOrNull('f-max-rows'),
+        statement_timeout_ms: numOrNull('f-timeout'),
+        password_stored: !!p.password_stored,
+        has_inline_password: !!p.has_inline_password,
+      });
+      if ($('f-mask-personal').checked) delete p.personal_data_heuristics;
+      else p.personal_data_heuristics = false;
+      return {
+        profile: p,
+        password: $('f-password').value || null,
+        set_default: $('f-default').checked,
+        confirm_elevated_access: $('f-confirm-elevate').checked,
       };
     }
 
-    document.getElementById('btn-preview-wire').addEventListener('click', async () => {
+    async function saveDraft() {
+      const name = val('f-name');
+      const body = buildPayload();
+      const resp = draft.mode === 'edit'
+        ? await api(`/profiles/${encodeURIComponent(draft.name)}`, { method: 'PUT', body: JSON.stringify(body) })
+        : await api('/profiles', { method: 'POST', body: JSON.stringify({ name, ...body }) });
+      Object.assign(draft, { mode: 'edit', name, loaded: resp.profile, dirty: false });
+      $('f-password').value = '';
+      $('f-name').readOnly = true;
+      updatePasswordHint();
+      if (resp.credential_warning) flash(`<p>${esc(resp.credential_warning)}</p>`, 'warn');
+      await loadProfiles();
+      renderPickList();
+      return resp;
+    }
+
+    $('s1-next').addEventListener('click', async () => {
+      if (!validateStep1()) return;
+      const btn = $('s1-next');
+      btn.disabled = true;
       try {
-        const profileNames = [...document.querySelectorAll('#wire-profiles input:checked')].map(i => i.value);
-        const clientKeys = [...document.querySelectorAll('#wire-mergeable input:checked')].map(i => i.value);
-        const copyOnly = [...document.querySelectorAll('#wire-copy input:checked')].map(i => i.value);
-        wirePreview = await api('/clients/preview', {
-          method: 'POST',
-          body: JSON.stringify({ profile_names: profileNames, client_keys: clientKeys, copy_only_keys: copyOnly, launch: launchConfig() }),
-        });
-        const box = document.getElementById('wire-preview');
-        let html = '';
-        wirePreview.diffs.forEach((d, i) => {
-          html += `<div class="panel panel-compact" style="margin-top:1rem"><h2>${escapeHtml(d.display_name)}</h2><p class="meta">${escapeHtml(d.config_path)}</p>`;
-          if (d.valid) {
-            html += `<label class="diff-apply"><input type="checkbox" class="apply-diff" data-idx="${i}" data-key="${escapeHtml(d.client_key)}" checked /> Apply this change</label>`;
-            html += `<pre class="diff">${escapeHtml(d.unified_diff)}</pre>`;
-          } else {
-            html += `<div class="status err">${escapeHtml(d.error)}</div>`;
-          }
-          html += '</div>';
-        });
-        wirePreview.snippets.forEach(s => {
-          html += `<div class="panel panel-compact" style="margin-top:1rem"><h2>${escapeHtml(s.display_name)} <span class="badge">copy</span></h2>`;
-          if (s.error) html += `<div class="status err">${escapeHtml(s.error)}</div>`;
-          else html += `<textarea readonly>${escapeHtml(s.content)}</textarea>`;
-          html += '</div>';
-        });
-        box.innerHTML = html || '<p class="meta">No changes to preview.</p>';
-        document.getElementById('btn-apply-wire').classList.toggle('hidden', !wirePreview.diffs.some(d => d.valid));
-      } catch (err) { flash(err.message, 'err'); }
+        await saveDraft();
+        goStep(2);
+        await runWizardTest();
+      } catch (err) {
+        if (err.status === 409) setFieldError('f-name', err.message);
+        else if (/confirm_elevated_access/.test(err.message)) { goStep(3); $('elevate-err').hidden = false; }
+        else flashError(err);
+      } finally { btn.disabled = false; }
     });
 
-    document.getElementById('btn-apply-wire').addEventListener('click', async () => {
-      if (!wirePreview) return;
-      const apply_keys = [...document.querySelectorAll('.apply-diff:checked')].map(i => i.dataset.key);
+    // ---------- Step 2: test ----------
+    async function runTest(name) {
+      const start = await api(`/profiles/${encodeURIComponent(name)}/test`, { method: 'POST' });
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, i < 4 ? 250 : 500));
+        const r = await api(`/profiles/${encodeURIComponent(name)}/test/${start.job_id}`);
+        if (r.status !== 'running') return r;
+      }
+      return { status: 'error', error: 'The test took longer than 30 seconds and was abandoned. The server may be unreachable from here (firewall, VPN or an allow-list).' };
+    }
+
+    // Turn a backend error into what happened and how to fix it.
+    function diagnose(msg, p) {
+      const m = String(msg || '');
+      const where = p ? `${p.host || 'the host'}${p.port ? `:${p.port}` : ':5432'}` : 'that address';
+      if (/password authentication failed/i.test(m)) return {
+        title: 'The password was rejected',
+        fixes: ['Go back, type the password again and press Save and test. A stored password is only replaced when you type a new one.',
+          `Check the user name. Postgres reports a wrong user the same way as a wrong password.`,
+          'If you use a password command, run it in a terminal and check it prints only the password.'],
+      };
+      if (/no pg_hba\.conf entry/i.test(m) && /no encryption|SSL off/i.test(m)) return {
+        title: 'The server requires SSL',
+        fixes: ['Go back and set SSL mode to <strong>require</strong> (or verify-full if you have the server\'s certificate).'],
+      };
+      if (/no pg_hba\.conf entry/i.test(m)) return {
+        title: 'The server doesn\'t allow this login from your computer',
+        fixes: ['The server\'s <code>pg_hba.conf</code> has no rule for this user, database and address. Ask whoever runs it to add one, or connect through the VPN or bastion they expect.',
+          'For a hosted database, check its network allow-list includes your IP address.'],
+      };
+      if (/server does not support (SSL|TLS)|SSL is not enabled/i.test(m)) return {
+        title: 'The server doesn\'t offer SSL',
+        fixes: ['Go back and set SSL mode to <strong>prefer</strong> or <strong>disable</strong>. That\'s normal for a database on this computer or in Docker.'],
+      };
+      if (/certificate|x509|self.signed|unknown ?issuer|CA/i.test(m) && /ssl|tls|cert/i.test(m)) return {
+        title: 'The server\'s certificate couldn\'t be checked',
+        fixes: ['With <strong>verify-full</strong> or <strong>verify-ca</strong>, the server\'s CA must be trusted on this computer. Set <code>sslrootcert</code> in config.toml to its certificate file.',
+          'Or set SSL mode to <strong>require</strong>: still encrypted, without checking who you\'re talking to.'],
+      };
+      if (/refused|ECONNREFUSED/i.test(m)) return {
+        title: `Nothing answered at ${esc(where)}`,
+        fixes: ['Check Postgres is running. For Docker, <code>docker ps</code> should list the container with a port mapping like <code>0.0.0.0:5432-&gt;5432</code>.',
+          'Check the host and port. Docker and hosted poolers often use a port other than 5432.',
+          'On a remote server, Postgres may only listen on localhost: see <code>listen_addresses</code> in <code>postgresql.conf</code>.'],
+      };
+      if (/failed to lookup|name or service not known|nodename nor servname|no such host|dns|resolve/i.test(m)) return {
+        title: 'The host name couldn\'t be found',
+        fixes: ['Check the spelling of the host. If it\'s an internal name, you may need to be on the company VPN.'],
+      };
+      if (/timed? ?out|timeout/i.test(m)) return {
+        title: 'The server didn\'t answer in time',
+        fixes: ['A firewall, security group or allow-list is probably dropping the connection. Check the database accepts connections from your IP address.',
+          'If it\'s behind a VPN, connect to it first.'],
+      };
+      if (/database ".*" does not exist/i.test(m)) return {
+        title: 'That database doesn\'t exist on this server',
+        fixes: ['Check the database name. <code>psql -l</code> lists the databases, or connect to <code>postgres</code> to look around.'],
+      };
+      if (/role ".*" does not exist/i.test(m)) return {
+        title: 'That user doesn\'t exist on this server',
+        fixes: ['Check the user name. Hosted databases often add a prefix or suffix to it.'],
+      };
+      if (/password_command/i.test(m)) return {
+        title: 'The password command failed',
+        fixes: ['Run the command in a terminal. It must print only the password and exit successfully. Password managers often need you to sign in first.'],
+      };
+      if (/password|keyring|secret|credential/i.test(m)) return {
+        title: 'No password could be found for this profile',
+        fixes: ['Go back, type the password and press Save and test.', 'Or run <code>nexql-mcp profile set-password ' + esc(draft.name || '<name>') + '</code> in a terminal.'],
+      };
+      return { title: 'The connection failed', fixes: ['Check the host, port, database, user and SSL mode, then test again. The full error is below.'] };
+    }
+
+    function testResultHtml(r, p, name) {
+      if (r.status === 'ok' && r.is_superuser) {
+        return notice('warn', `<p><strong>Connected, but as a superuser.</strong> ${esc(r.server_version)} · ${Math.round(r.latency_ms)} ms</p>
+          <p>A superuser can read files on the server and bypass every permission. If a prompt-injected query slipped through, that's what it would get. Create a login that can only read, then edit this profile to use it:</p>
+          ${codeBlock(meta?.readonly_role_sql || 'nexql-mcp profile readonly-role')}
+          <p class="help">Fine to continue for a throwaway local database.</p>`, { dismiss: false });
+      }
+      if (r.status === 'ok') {
+        return notice('ok', `<p><strong>Connected.</strong> nexql-mcp can reach the database as ${esc(p?.user || 'this user')}.</p>
+          <dl class="kv"><dt>Server</dt><dd>${esc(r.server_version)}</dd><dt>Round trip</dt><dd>${Math.round(r.latency_ms)} ms</dd><dt>Superuser</dt><dd>no</dd></dl>`, { dismiss: false });
+      }
+      const d = diagnose(r.error, p);
+      return notice('err', `<p><strong>${d.title}</strong></p><ul>${d.fixes.map((f) => `<li>${f}</li>`).join('')}</ul>
+        <details class="raw"><summary>Full error</summary><pre>${esc(r.error)}</pre></details>`, { dismiss: false });
+    }
+
+    async function runWizardTest() {
+      const box = $('s2-result');
+      box.innerHTML = notice('info', `<div style="display:flex;gap:12px"><span class="spinner" aria-hidden="true"></span><p>Connecting to <code>${esc(targetOf(draft.loaded))}</code>…</p></div>`, { dismiss: false });
+      $('s2-retry').disabled = true;
       try {
-        const res = await api('/clients/apply', {
-          method: 'POST',
-          body: JSON.stringify({ preview: wirePreview, apply_keys }),
-        });
-        const applied = res.results.filter(r => r.applied).length;
-        flash(`Applied ${applied} client config(s)`, 'ok');
-      } catch (err) { flash(err.message, 'err'); }
+        draft.test = await runTest(draft.name);
+      } catch (err) {
+        draft.test = { status: 'error', error: err.message };
+      } finally { $('s2-retry').disabled = false; }
+      box.innerHTML = testResultHtml(draft.test, draft.loaded, draft.name);
+      $('s2-next').textContent = draft.test.status === 'ok' ? 'Continue' : 'Continue anyway';
+      $('s2-title').textContent = draft.test.status !== 'ok' ? 'It didn\'t connect' : draft.test.is_superuser ? 'It connects, as a superuser' : 'It connects';
+      $('s2-title').focus({ preventScroll: true });
+    }
+    $('s2-retry').addEventListener('click', () => runWizardTest());
+    $('s2-next').addEventListener('click', () => goStep(3));
+
+    // ---------- Step 3: access & safety ----------
+    function updateAccessUi() {
+      const m = accessValue();
+      $('elevate-box').hidden = !isElevated(m);
+      $('elevate-mode').textContent = m;
+      $('elevate-err').hidden = true;
+      $('mask-off-box').hidden = $('f-mask-personal').checked;
+    }
+    document.querySelectorAll('input[name="access"]').forEach((r) => r.addEventListener('change', () => { $('f-confirm-elevate').checked = false; updateAccessUi(); }));
+    $('f-mask-personal').addEventListener('change', updateAccessUi);
+    $('f-confirm-elevate').addEventListener('change', () => { $('elevate-err').hidden = true; });
+
+    $('s3-next').addEventListener('click', async () => {
+      if (isElevated(accessValue()) && !$('f-confirm-elevate').checked) {
+        $('elevate-err').hidden = false;
+        $('f-confirm-elevate').focus();
+        return;
+      }
+      if (!validateStep1()) { goStep(1); return; }
+      const btn = $('s3-next');
+      btn.disabled = true;
+      try {
+        await saveDraft();
+        flash(`<p>Saved <strong>${esc(draft.name)}</strong> to <code>${esc(meta.config_path)}</code>.</p>`, 'ok');
+        await prepareClients();
+        goStep(4);
+      } catch (err) { flashError(err); }
+      finally { btn.disabled = false; }
     });
 
-    document.getElementById('btn-import').addEventListener('click', async () => {
+    // ---------- Step 4: clients ----------
+    const LAUNCH = {
+      npx_latest: { title: 'npx, always the latest', desc: 'Needs Node.js. Picks up new releases when the app restarts.' },
+      npx: { title: 'npx, pinned version', desc: 'Needs Node.js. Stays on one version until you change it.' },
+      path: { title: 'Installed binary', desc: 'Runs nexql-mcp from your PATH. No Node.js needed.' },
+    };
+    function renderLaunch() {
+      const modes = meta?.launch_modes?.length ? meta.launch_modes : ['npx_latest', 'npx', 'path'];
+      const order = ['npx_latest', 'npx', 'path'];
+      const sorted = [...modes].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+      if (!draft.launch) draft.launch = sorted.includes('npx_latest') ? 'npx_latest' : sorted[0];
+      $('launch-list').innerHTML = sorted.map((m) => {
+        const info = LAUNCH[m] || { title: m, desc: '' };
+        let extra = '';
+        if (m === 'path') extra = meta?.installed_binary_version ? `<span class="badge ok">found v${esc(meta.installed_binary_version)}</span>` : '<span class="badge warn">not found on PATH</span>';
+        if (m === 'npx_latest') extra = '<span class="badge ok">recommended</span>';
+        return `<label class="choice"><input type="radio" name="launch" value="${esc(m)}" ${draft.launch === m ? 'checked' : ''} /><span class="face"><span class="tick"></span><span class="body">
+          <span class="title">${esc(info.title)} ${extra}</span><span class="desc">${esc(info.desc)}</span><span class="path">${esc(launchLine(m, val('w-npx-version')))}</span></span></span></label>`;
+      }).join('');
+      $('pin-field').hidden = draft.launch !== 'npx';
+      $('w-npx-version').placeholder = meta?.version || '';
+      if (!$('w-npx-version').value && meta?.version) $('w-npx-version').value = meta.version;
+    }
+    $('launch-list').addEventListener('change', (e) => { draft.launch = e.target.value; renderLaunch(); document.querySelector(`input[name="launch"][value="${CSS.escape(draft.launch)}"]`)?.focus(); });
+    $('w-npx-version').addEventListener('input', () => {
+      const path = document.querySelector('input[name="launch"][value="npx"]')?.closest('.choice')?.querySelector('.path');
+      if (path) path.textContent = launchLine('npx', val('w-npx-version'));
+    });
+
+    function entryFor(key) { return entries.find((e) => e.key === key); }
+    function renderClients(keep) {
+      const checked = new Set(keep || []);
+      $('client-list').innerHTML = clients.mergeable.map((c) => {
+        const e = entryFor(c.key);
+        let status = c.exists ? '<span class="badge">config found</span>' : '<span class="badge">new file</span>';
+        if (e?.entry) {
+          const ps = e.profiles.length ? e.profiles.join(', ') : 'default profile';
+          status = e.profiles.includes(draft.name)
+            ? `<span class="badge ok">already uses ${esc(draft.name)}</span>`
+            : `<span class="badge warn">uses ${esc(ps)}</span>`;
+        }
+        if (e?.error) status = '<span class="badge hot">can\'t read config</span>';
+        return `<label class="choice"><input type="checkbox" name="client" value="${esc(c.key)}" ${checked.has(c.key) ? 'checked' : ''} /><span class="face"><span class="tick"></span><span class="body">
+          <span class="title">${esc(c.display_name)} ${status}</span><span class="path">${esc(c.config_path || 'no config path on this OS')}</span></span></span></label>`;
+      }).join('') || '<p class="help">No apps with a config file are known to this version.</p>';
+      $('copy-list').innerHTML = clients.copy_only.map((c) => `<label class="choice"><input type="checkbox" name="copy" value="${esc(c.key)}" ${checked.has(`copy:${c.key}`) ? 'checked' : ''} /><span class="face"><span class="tick"></span><span class="body"><span class="title">${esc(c.display_name.replace(/\s*\((copy[^)]*)\)\s*$/i, ''))}</span><span class="desc">${esc((c.display_name.match(/\((copy[^)]*)\)\s*$/i) || [])[1] || 'copy a snippet')}</span></span></span></label>`).join('');
+      $('copy-section').hidden = clients.copy_only.length === 0;
+      $('wire-profiles').innerHTML = profiles.map((p) => `<label class="choice"><input type="checkbox" name="wire-profile" value="${esc(p.name)}" ${p.name === draft.name ? 'checked disabled' : ''} /><span class="face"><span class="tick"></span><span class="body"><span class="title">${esc(p.name)} ${p.name === draft.name ? '<span class="badge accent">this profile</span>' : ''}</span><span class="path">${esc(targetOf(p))}</span></span></span></label>`).join('');
+    }
+    function selectedClients() {
+      return {
+        mergeable: [...document.querySelectorAll('input[name="client"]:checked')].map((i) => i.value),
+        copy: [...document.querySelectorAll('input[name="copy"]:checked')].map((i) => i.value),
+        profiles: [draft.name, ...[...document.querySelectorAll('input[name="wire-profile"]:checked:not(:disabled)')].map((i) => i.value)],
+      };
+    }
+    async function prepareClients() {
+      const keep = [...document.querySelectorAll('input[name="client"]:checked')].map((i) => i.value)
+        .concat([...document.querySelectorAll('input[name="copy"]:checked')].map((i) => `copy:${i.value}`));
+      [clients, entries] = await Promise.all([api('/clients'), api('/clients/entries').catch(() => [])]);
+      renderLaunch();
+      renderClients(keep);
+    }
+    document.getElementById('view-wizard').addEventListener('change', (e) => {
+      if (e.target.name === 'client' || e.target.name === 'copy') $('client-err').hidden = true;
+    });
+
+    $('s4-next').addEventListener('click', async () => {
+      const sel = selectedClients();
+      if (!sel.mergeable.length && !sel.copy.length) { $('client-err').hidden = false; document.querySelector('input[name="client"]')?.focus(); return; }
+      const btn = $('s4-next');
+      btn.disabled = true;
       try {
-        const res = await api('/profiles/import', {
+        draft.preview = await api('/clients/preview', {
           method: 'POST',
-          body: JSON.stringify({ toml: document.getElementById('import-toml').value }),
+          body: JSON.stringify({
+            profile_names: sel.profiles,
+            client_keys: sel.mergeable,
+            copy_only_keys: sel.copy,
+            launch: { mode: draft.launch, npx_version: draft.launch === 'npx' ? (val('w-npx-version') || meta?.version || null) : null },
+          }),
         });
-        flash(`Imported ${res.imported} profile(s)`, 'ok');
+        draft.results = null;
+        renderReview();
+        goStep(5);
+      } catch (err) { flashError(err); }
+      finally { btn.disabled = false; }
+    });
+
+    // ---------- Step 5: review ----------
+    function diffHtml(text) {
+      const lines = String(text || '').split('\n');
+      if (lines.length && lines[lines.length - 1] === '') lines.pop();
+      return lines.map((l) => {
+        const cls = l.startsWith('+++') || l.startsWith('---') || l.startsWith('\\') ? 'meta' : l.startsWith('@@') ? 'hunk' : l.startsWith('+') ? 'add' : l.startsWith('-') ? 'del' : '';
+        return `<span class="l ${cls}">${esc(l) || ' '}</span>`;
+      }).join('');
+    }
+    function renderReview() {
+      const pv = draft.preview || { diffs: [], snippets: [] };
+      const parts = [];
+      pv.diffs.forEach((d, i) => {
+        if (!d.valid) {
+          parts.push(`<div class="diff-card"><div class="diff-head"><h3>${esc(d.display_name)} <span class="badge hot">can't change</span></h3></div>
+            <p class="diff-path">${esc(d.config_path || '')}</p>
+            ${notice('err', `<p>${esc(d.error)}</p><p class="help">Fix the file by hand (it must be valid JSON with an object at the top), then go back and preview again. Nothing will be written to it.</p>`, { dismiss: false })}</div>`);
+          return;
+        }
+        const noChange = !d.unified_diff.trim();
+        const isNew = (d.unified_diff.match(/^-/gm) || []).length <= 1 && /^@@ -0,0 /m.test(d.unified_diff);
+        parts.push(`<div class="diff-card"><div class="diff-head">
+            <h3>${esc(d.display_name)} ${noChange ? '<span class="badge ok">already up to date</span>' : isNew ? '<span class="badge">creates the file</span>' : '<span class="badge accent">updates the file</span>'}</h3>
+            ${noChange ? '' : `<label class="check-inline"><input type="checkbox" class="apply-diff" data-key="${esc(d.client_key)}" checked /> Apply</label>`}
+          </div>
+          <p class="diff-path">${esc(d.config_path)}</p>
+          ${noChange ? '' : `<div class="code"><pre class="diff" tabindex="0" aria-label="Changes to ${esc(d.display_name)} config">${diffHtml(d.unified_diff)}</pre></div>`}</div>`);
+      });
+      pv.snippets.forEach((s) => {
+        parts.push(`<div class="diff-card"><div class="diff-head"><h3>${esc(s.display_name.replace(/\s*\(copy[^)]*\)\s*$/i, ''))} <span class="badge">copy and paste</span></h3></div>
+          ${s.error ? notice('err', `<p>${esc(s.error)}</p>`, { dismiss: false }) : `<p class="help">Paste this into the app's MCP settings yourself. nexql-mcp doesn't edit this one.</p>${codeBlock(s.content)}`}</div>`);
+      });
+      $('review-list').innerHTML = parts.join('') || notice('info', '<p>Nothing to change.</p>', { dismiss: false });
+      updateApplyButton();
+    }
+    function updateApplyButton() {
+      const n = document.querySelectorAll('.apply-diff:checked').length;
+      const btn = $('s5-apply');
+      btn.textContent = n ? `Apply ${n} change${n === 1 ? '' : 's'}` : 'Continue';
+    }
+    $('review-list').addEventListener('change', updateApplyButton);
+
+    $('s5-apply').addEventListener('click', async () => {
+      const keys = [...document.querySelectorAll('.apply-diff:checked')].map((i) => i.dataset.key);
+      const btn = $('s5-apply');
+      btn.disabled = true;
+      try {
+        const res = keys.length
+          ? await api('/clients/apply', { method: 'POST', body: JSON.stringify({ preview: draft.preview, apply_keys: keys }) })
+          : { results: [] };
+        draft.results = res.results;
+        renderDone();
+        entries = await api('/clients/entries').catch(() => entries);
+        goStep(6);
+      } catch (err) { flashError(err); }
+      finally { btn.disabled = false; }
+    });
+
+    // ---------- Step 6: done ----------
+    const RESTART = {
+      'claude-desktop': 'Quit Claude Desktop completely (from the menu bar or tray, not just the window) and open it again.',
+      'claude-code': 'Start a new Claude Code session in this project. <code>/mcp</code> lists nexql-mcp when it\'s connected.',
+      cursor: 'Open Cursor Settings → MCP and switch nexql-mcp on, or reload the window.',
+      vscode: 'Run <strong>MCP: List Servers</strong> from the Command Palette and start nexql-mcp, or reload the window.',
+      'vscode-copilot': 'Run <strong>MCP: List Servers</strong> from the Command Palette and start nexql-mcp, or reload the window.',
+      zed: 'Zed reloads its settings. Check nexql-mcp is listed in the Agent panel\'s settings.',
+      windsurf: 'Press refresh in Windsurf\'s MCP servers panel, or restart Windsurf.',
+    };
+    function renderDone() {
+      const results = draft.results || [];
+      const applied = results.filter((r) => r.applied);
+      const failed = results.filter((r) => r.error);
+      const snippets = (draft.preview?.snippets || []).filter((s) => !s.error);
+      const items = [];
+      applied.forEach((r) => items.push(`<li><span class="badge ok">written</span><span><strong>${esc(r.display_name)}</strong><span class="path" style="display:block">${esc(r.config_path || '')}${r.backup ? `<br>backup: ${esc(r.backup)}` : ''}</span></span></li>`));
+      failed.forEach((r) => items.push(`<li><span class="badge hot">failed</span><span><strong>${esc(r.display_name)}</strong>: ${esc(r.error)}</span></li>`));
+      snippets.forEach((s) => items.push(`<li><span class="badge">snippet</span><span style="flex:1;min-width:0"><strong>${esc(s.display_name.replace(/\s*\(copy[^)]*\)\s*$/i, ''))}</strong>: paste this into its MCP settings yourself.${codeBlock(s.content)}</span></li>`));
+      $('apply-results').innerHTML = items.length
+        ? `<div class="section"><h3>What changed</h3><ul class="result-list" style="margin-top:10px">${items.join('')}</ul></div>`
+        : notice('info', '<p>No files were changed. Your profile is saved and ready to wire later.</p>', { dismiss: false });
+      $('s6-title').textContent = applied.length ? 'nexql-mcp is wired in' : 'Your profile is saved';
+      $('s6-lede').textContent = failed.length ? 'Some files couldn\'t be written. The rest are ready.' : 'Two more things and you can ask your first question.';
+
+      const restartFor = applied.map((r) => `<li><strong>${esc(r.display_name)}</strong>: ${RESTART[r.client_key] || `restart or reload ${esc(r.display_name)} so it reads its config again.`}</li>`).join('');
+      const quoted = /^[\w.@-]+$/.test(draft.name) ? draft.name : `"${draft.name.replace(/"/g, '\\"')}"`;
+      const doctor = `${launchLine(draft.launch, val('w-npx-version'))} --profile ${quoted} doctor`;
+      $('next-steps').innerHTML = `
+        <li><div><strong>Restart your app</strong><p class="help">Apps read their MCP config when they start.</p>${restartFor ? `<ul class="help" style="padding-left:18px;margin-top:6px">${restartFor}</ul>` : ''}</div></li>
+        <li><div><strong>Run doctor</strong><p class="help">It resolves the profile, connects, and checks the read-only and masking guards, so problems show up here rather than in the chat.</p>${codeBlock(doctor)}</div></li>
+        <li><div><strong>Ask your first question</strong><p class="help">For example: “What tables do we have, and how do orders relate to customers?” The assistant starts with <code>orient</code> to learn the schema.</p></div></li>`;
+    }
+    $('s6-again').addEventListener('click', () => { resetDraft(); $('s1-title').focus(); });
+    $('s6-saved').addEventListener('click', () => showView('saved', { focus: true }));
+    $('s6-finish').addEventListener('click', () => finish());
+
+    // ---------- Saved view ----------
+    async function loadProfiles() {
+      profiles = await api('/profiles');
+      $('saved-count').textContent = profiles.length ? String(profiles.length) : '';
+    }
+    async function loadSaved() {
+      await loadProfiles();
+      entries = await api('/clients/entries').catch(() => entries);
+      renderProfilesTable();
+      renderEntries();
+    }
+    function usedBy(name) {
+      return entries.filter((e) => e.entry && (e.profiles.includes(name) || (!e.profiles.length && profiles.find((p) => p.name === name)?.is_default)));
+    }
+    function renderProfilesTable() {
+      const wrap = $('profiles-wrap');
+      if (!profiles.length) {
+        wrap.innerHTML = `<div class="empty"><strong>No profiles yet</strong>Add your first connection and it'll show up here.<br><button type="button" class="btn btn-primary" data-act="new">Add a connection</button></div>`;
+        return;
+      }
+      const rows = profiles.map((p) => {
+        const users = usedBy(p.name);
+        const pwBadge = p.password_source === 'none' ? '<span class="badge warn">none</span>'
+          : p.password_source === 'inline' ? '<span class="badge hot">plain text</span>'
+          : `<span class="badge ok">${esc(storageLabel(p.password_source))}</span>`;
+        const n = esc(p.name);
+        return `<tr data-name="${n}">
+          <td data-label="Name"><span class="p-name">${n} ${p.is_default ? '<span class="badge accent">default</span>' : ''}</span></td>
+          <td data-label="Database"><div><span class="mono">${esc(targetOf(p))}</span><span class="sub">${p.user ? `as ${esc(p.user)}` : 'no user set'}${p.sslmode ? ` · ssl ${esc(p.sslmode)}` : ''}</span></div></td>
+          <td data-label="Access"><div><span class="badge${isElevated(p.access_mode) ? ' warn' : ''}">${esc(p.access_mode)}</span></div></td>
+          <td data-label="Password"><div>${pwBadge}</div></td>
+          <td data-label="Used by"><span class="tags">${users.length ? users.map((u) => `<span class="badge">${esc(u.display_name)}</span>`).join('') : '<span class="sub" style="margin:0">no app yet</span>'}</span></td>
+          <td class="no-label"><div class="row-actions" role="group" aria-label="Actions for ${n}">
+            <button type="button" class="btn btn-sm" data-act="edit">Edit</button>
+            <button type="button" class="btn btn-sm" data-act="test">Test</button>
+            <button type="button" class="btn btn-sm" data-act="dup">Duplicate</button>
+            ${p.is_default ? '' : '<button type="button" class="btn btn-sm" data-act="default">Make default</button>'}
+            <button type="button" class="btn btn-sm btn-danger" data-act="delete">Delete</button>
+          </div></td></tr>
+          <tr class="test-row" data-test-for="${n}" hidden><td colspan="6" class="no-label"></td></tr>`;
+      }).join('');
+      wrap.innerHTML = `<table class="profiles"><caption class="sr-only">Saved connection profiles</caption><thead><tr>
+        <th scope="col">Name</th><th scope="col">Database</th><th scope="col">Access</th><th scope="col">Password</th><th scope="col">Used by</th><th scope="col"><span class="sr-only">Actions</span></th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    $('profiles-wrap').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === 'new') { await newConnection(); return; }
+      const name = btn.closest('tr')?.dataset.name;
+      if (!name) return;
+      try {
+        if (act === 'edit') await editProfile(name);
+        if (act === 'test') await testFromList(name, btn);
+        if (act === 'dup') {
+          const r = await api(`/profiles/${encodeURIComponent(name)}`);
+          if (!(await confirmDiscard())) return;
+          startDuplicate({ ...r.profile, __name: name }, r.is_default);
+        }
+        if (act === 'default') {
+          await api(`/profiles/${encodeURIComponent(name)}/default`, { method: 'POST' });
+          flash(`<p><strong>${esc(name)}</strong> is now the default profile.</p>`, 'ok');
+          await loadSaved();
+        }
+        if (act === 'delete') await deleteProfile(name);
+      } catch (err) { flashError(err); }
+    });
+
+    async function confirmDiscard() {
+      if (!draft.dirty) return true;
+      return ask({ title: 'Discard your changes?', body: '<p>The connection you were setting up has changes that aren\'t saved yet.</p>', ok: 'Discard' });
+    }
+    async function newConnection() {
+      if (!(await confirmDiscard())) return;
+      resetDraft();
+      showView('wizard');
+      $('s1-title').focus();
+    }
+    async function editProfile(name) {
+      if (!(await confirmDiscard())) return;
+      await loadIntoDraft(name, 'edit');
+      showView('wizard');
+      $('s1-title').focus();
+    }
+    async function testFromList(name, btn) {
+      const row = document.querySelector(`tr[data-test-for="${CSS.escape(name)}"]`);
+      const cell = row.querySelector('td');
+      row.hidden = false;
+      cell.innerHTML = notice('info', `<div style="display:flex;gap:12px"><span class="spinner" aria-hidden="true"></span><p>Testing ${esc(name)}…</p></div>`, { dismiss: false });
+      btn.disabled = true;
+      let r;
+      try { r = await runTest(name); } catch (err) { r = { status: 'error', error: err.message }; }
+      finally { btn.disabled = false; }
+      const p = profiles.find((x) => x.name === name) || {};
+      cell.innerHTML = testResultHtml(r, p, name).replace('class="notice ', 'role="status" class="notice ');
+    }
+    async function deleteProfile(name) {
+      const users = usedBy(name);
+      const p = profiles.find((x) => x.name === name);
+      const ok = await ask({
+        title: `Delete ${name}?`,
+        body: `<p>This removes <strong>${esc(name)}</strong> (${esc(targetOf(p || {}))}) from <code>${esc(meta.config_path)}</code>. A backup of the file is kept. The database itself isn't touched.</p>
+          ${users.length ? `<p><strong>${users.map((u) => esc(u.display_name)).join(', ')}</strong> still start${users.length === 1 ? 's' : ''} nexql-mcp with this profile and won't connect until you wire another one.</p>` : ''}
+          ${p?.is_default && profiles.length > 1 ? '<p>It\'s your default profile, so another one becomes the default.</p>' : ''}`,
+        ok: 'Delete profile', danger: true,
+      });
+      if (!ok) return;
+      const resp = await api(`/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      flash(`<p>Deleted <strong>${esc(name)}</strong>.${resp.backup ? ` Backup: <code>${esc(resp.backup)}</code>` : ''}</p>`, 'ok');
+      if (draft.name === name) resetDraft();
+      await loadSaved();
+      renderPickList();
+    }
+    $('btn-refresh').addEventListener('click', () => loadSaved().then(() => flash('<p>Refreshed.</p>', 'ok')).catch(flashError));
+    $('btn-new').addEventListener('click', () => newConnection());
+
+    function renderEntries() {
+      $('entries-list').innerHTML = entries.map((e) => {
+        let status = e.exists ? '<span class="badge">not set up</span>' : '<span class="badge">no config file</span>';
+        if (e.entry) status = `<span class="badge ok">${e.profiles.length ? `profile ${esc(e.profiles.join(', '))}` : 'default profile'}</span>`;
+        if (e.error) status = '<span class="badge hot">can\'t read</span>';
+        const stale = e.entry ? e.profiles.filter((n) => !profiles.some((p) => p.name === n)) : [];
+        let body;
+        if (e.error) body = `<p>The file couldn't be read: ${esc(e.error)}. nexql-mcp won't change it until it's valid again.</p>`;
+        else if (e.entry) body = `${stale.length ? notice('warn', `<p>This entry uses <strong>${esc(stale.join(', '))}</strong>, which isn't a saved profile any more. Wire it to another profile from the setup steps.</p>`, { dismiss: false }) : ''}
+          <p>The <code>nexql-mcp</code> entry in this file:</p>${codeBlock(JSON.stringify(e.entry, null, 2))}`;
+        else body = `<p>${e.exists ? 'The file exists but has no nexql-mcp entry.' : 'This app has no config file at that path yet. Wiring it creates one.'} Choose it on the Apps step to add nexql-mcp.</p>`;
+        return `<details class="client-row"><summary><span class="c-name">${esc(e.display_name)} ${status}</span><span class="c-path">${esc(e.config_path || 'no config path on this OS')}</span></summary><div class="c-body">${body}</div></details>`;
+      }).join('') || '<p class="help">No apps with a config file are known to this version.</p>';
+    }
+
+    // ---------- Import / export ----------
+    function renderExportPick() {
+      $('export-pick').innerHTML = profiles.map((p) => `<option value="${esc(p.name)}" ${p.name === draft.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+      $('btn-export').disabled = profiles.length === 0;
+    }
+    $('btn-import').addEventListener('click', async () => {
+      const toml = $('import-toml').value;
+      if (!toml.trim()) { flash('<p>Paste some TOML first.</p>', 'err'); $('import-toml').focus(); return; }
+      try {
+        const res = await api('/profiles/import', { method: 'POST', body: JSON.stringify({ toml }) });
+        flash(`<p>Imported ${res.imported} profile${res.imported === 1 ? '' : 's'}.${res.backup ? ` Backup: <code>${esc(res.backup)}</code>` : ''} Test ${res.imported === 1 ? 'it' : 'them'} from Saved profiles.</p>`, 'ok');
+        $('import-toml').value = '';
         await loadProfiles();
-      } catch (err) { flash(err.message, 'err'); }
+        renderPickList();
+        renderExportPick();
+      } catch (err) { flashError(err); }
     });
-
-    document.getElementById('btn-export').addEventListener('click', async () => {
-      if (!selectedProfile) return flash('Select a profile first', 'err');
+    $('btn-export').addEventListener('click', async () => {
+      const name = $('export-pick').value;
+      if (!name) return;
       try {
-        const res = await api(`/profiles/${encodeURIComponent(selectedProfile)}/export`);
-        document.getElementById('export-toml').value = res.toml;
-      } catch (err) { flash(err.message, 'err'); }
+        const res = await api(`/profiles/${encodeURIComponent(name)}/export`);
+        $('export-out').innerHTML = codeBlock(res.toml);
+      } catch (err) { flashError(err); }
     });
 
-    document.getElementById('btn-finish-close').addEventListener('click', async () => {
-      if (shuttingDown || requestInFlight > 0) return;
-      shuttingDown = true;
-      updateFinishCloseButton();
+    // ---------- Finish ----------
+    function updateFinish() {
+      ['btn-finish', 's6-finish'].forEach((id) => { const b = $(id); if (b) b.disabled = closed || inFlight > 0; });
+    }
+    async function finish() {
+      if (closed || inFlight > 0) return;
+      if (draft.dirty && !(await ask({ title: 'Close without saving?', body: '<p>The connection you were setting up has changes that aren\'t saved.</p>', ok: 'Close anyway' }))) return;
       try {
         await api('/shutdown', { method: 'POST' });
-        flash('Setup finished. You can close this tab — the terminal is ready.', 'ok');
-      } catch (err) {
-        shuttingDown = false;
-        updateFinishCloseButton();
-        flash(err.message, 'err');
-      }
-    });
+        closed = true;
+        updateFinish();
+        document.querySelector('#main > .wrap').innerHTML = `<div class="card closed" style="margin-top:8px"><h2>All done</h2>
+          <p>nexql-mcp setup has stopped and the terminal is free again. You can close this tab. Run <code>nexql-mcp setup</code> whenever you want to come back.</p></div>`;
+      } catch (err) { flashError(err); }
+    }
+    $('btn-finish').addEventListener('click', () => finish());
 
+    // ---------- Boot ----------
     async function boot() {
-      applyTheme(getTheme());
+      renderRail();
       if (!token) {
-        flash('Missing setup token — run `nexql-mcp setup` and open the printed URL', 'err');
+        $('facts').innerHTML = '';
+        flash('<p><strong>This page needs its secret link.</strong> Run <code>nexql-mcp setup</code> and open the address it prints, including the <code>?token=…</code> part.</p>', 'err');
         return;
       }
       try {
         await loadMeta();
         await loadProfiles();
-        await loadClients();
+        [clients, entries] = await Promise.all([api('/clients'), api('/clients/entries').catch(() => [])]);
+        resetDraft();
+        renderLaunch();
+        renderClients();
+        if (params.get('view') === 'saved') showView('saved');
       } catch (err) {
-        flash(err.message, 'err');
+        if (err.status === 401) flash('<p><strong>This link has expired.</strong> Each run of <code>nexql-mcp setup</code> makes a new one. Open the address the terminal printed most recently.</p>', 'err');
+        else flashError(err);
       }
     }
     boot();

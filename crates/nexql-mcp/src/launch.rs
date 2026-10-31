@@ -27,7 +27,7 @@ pub struct Launch {
 
 /// Resolve `command` (`nexql-mcp` or `npx`) to an absolute path using the
 /// current `PATH` and executable. `nexql-mcp` that only exists in a
-/// throwaway npx cache falls back to an absolute `npx -y nexql-mcp`. When
+/// throwaway npx cache falls back to an absolute `npx -y nexql-mcp@latest`. When
 /// nothing resolves, the launch is returned unchanged.
 pub fn absolute_launch(command: &str, args: &[String]) -> Launch {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
@@ -58,7 +58,7 @@ fn absolute_launch_with(
                     ..unchanged
                 };
             }
-            let mut npx_args = vec!["-y".to_owned(), "nexql-mcp".to_owned()];
+            let mut npx_args = vec!["-y".to_owned(), "nexql-mcp@latest".to_owned()];
             npx_args.extend_from_slice(args);
             match npx_launch(&npx_args, path_var) {
                 Some(launch) => launch,
@@ -195,7 +195,7 @@ mod tests {
         let args = vec!["--profile".to_owned(), "shop".to_owned()];
         let launch = absolute_launch_with("nexql-mcp", &args, &path_of(&[&node_bin]), Some(exe));
         assert_eq!(launch.command, node_bin.join("npx").display().to_string());
-        assert_eq!(launch.args, ["-y", "nexql-mcp", "--profile", "shop"]);
+        assert_eq!(launch.args, ["-y", "nexql-mcp@latest", "--profile", "shop"]);
         let (key, value) = &launch.env[0];
         assert_eq!(key, "PATH");
         assert!(

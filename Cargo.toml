@@ -65,6 +65,9 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 getrandom = "0.3"
+semver = "1"
+# Update check only (registry.npmjs.org); rustls + ring like the Postgres TLS stack.
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 # `version` is required for `cargo publish` (path-only deps are rejected on crates.io).
 # Keep these in sync with [workspace.package] version above on every release bump.
