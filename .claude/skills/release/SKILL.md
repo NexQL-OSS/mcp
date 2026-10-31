@@ -28,7 +28,7 @@ Guide for adding new LLM clients, multi-profile database support, quality verifi
 
 ## 2. Adding Support for New LLMs & AI Clients
 
-When onboarding new LLM tools or AI clients (e.g. `antigravity`, `deepseek`, `kimi`, `ollama`, `qwen`):
+When onboarding new LLM tools or AI clients (e.g. `gemini-cli`, `codex`, `kiro`). Look up the client's current official docs for the path and shape first; don't add a client that has no documented MCP config file:
 
 ### Steps & File Locations
 1. **[init_clients.rs](file:///home/ric-v/projects/nexql-oss/mcp/crates/nexql-mcp/src/init_clients.rs)**:
@@ -36,9 +36,9 @@ When onboarding new LLM tools or AI clients (e.g. `antigravity`, `deepseek`, `ki
    - Add match arm in `init_snippet()` returning paste-ready MCP JSON/YAML snippet with target file comments.
 
 2. **[client_targets.rs](file:///home/ric-v/projects/nexql-oss/mcp/crates/nexql-mcp/src/client_targets.rs)**:
-   - Implement path resolution function (e.g. `antigravity_config_path()`, `deepseek_config_path()`).
+   - Implement path resolution function (e.g. `kimi_mcp_path()`), or a new `ConfigShape` if the file isn't the Claude `mcpServers` shape.
    - Add `ClientTarget` to `mergeable_targets()`.
-   - Update unit test `mergeable_targets_cover_twelve_clients` to assert the target key count.
+   - Update unit test `mergeable_targets_cover_sixteen_clients` to assert the target key count.
 
 3. **[docs/clients/README.md](file:///home/ric-v/projects/nexql-oss/mcp/docs/clients/README.md)**:
    - Document client key in `Supported clients` list and add copy-paste snippet examples.

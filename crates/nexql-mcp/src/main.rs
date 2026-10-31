@@ -232,7 +232,7 @@ enum Commands {
     Doctor,
     /// Onboard to AI models / client setup (interactive wizard or snippet printing).
     Init {
-        /// Target client (e.g. claude, cursor, zed, windsurf, vscode). If omitted, opens the TUI wizard.
+        #[arg(help = init_clients::client_arg_help())]
         client: Option<String>,
 
         /// Force interactive TUI onboarding wizard.
@@ -245,8 +245,8 @@ enum Commands {
         /// saved as a profile first (password goes to the keyring, never the
         /// client JSON) and then wired. Without a URL, pass --profile or have
         /// a default profile. Only supported for clients with a real mergeable
-        /// config file (i.e. not the copy/paste-only ones: continue, jetbrains,
-        /// openai-agents). Prints the diff applied and any backup path.
+        /// config file (i.e. not the copy/paste-only ones: continue, goose,
+        /// opencode, jetbrains, openai-agents). Prints the diff applied and any backup path.
         #[arg(long)]
         apply: bool,
     },
