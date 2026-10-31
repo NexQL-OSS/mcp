@@ -206,7 +206,7 @@ Extract and put `nexql-mcp` (or `nexql-mcp.exe`) on your `PATH`.
 Prebuilt, published on every release to [GHCR](https://github.com/NexQL-OSS/mcp/pkgs/container/mcp):
 
 ```bash
-docker run --rm -i ghcr.io/nexql-oss/mcp:0.6.0 postgres://dev@host.docker.internal:5432/appdb
+docker run --rm -i ghcr.io/nexql-oss/mcp:v0.6.0 postgres://dev@host.docker.internal:5432/appdb
 # or: ghcr.io/nexql-oss/mcp:latest
 ```
 
