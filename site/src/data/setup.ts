@@ -5,30 +5,27 @@
  *
  * Each scene replays a recorded dry run of PROMPT_INSTALL in Claude Code
  * against the ecommerce_core sample schema. Output is real, trimmed with "…"
- * and with npm's "npm notice" lines left out; profile add and doctor show the
- * 0.6.0 output, the rest is from 0.5.0.
+ * and with npm's "npm notice" lines left out; profile add, init and doctor
+ * show the 0.6.0 output, the rest is from 0.5.0.
  */
 
 import { HUE, type Replay, type Scene } from "./scenes";
 
 const PROFILE = "mydb";
 const NPX = "npx -y nexql-mcp@latest";
-const CLIENTS = "claude-code, claude-desktop, cursor, vscode-copilot, windsurf, zed or antigravity";
+const CLIENTS =
+  "claude-code, claude-desktop, cursor, vscode-copilot, windsurf, zed, antigravity, gemini-cli, codex, copilot-cli, cline, lm-studio, kiro, kimi or qwen";
 
 /** Repeated in every prompt that touches a connection: the agent never handles the password. */
 const PASSWORD_RULE = `Never ask me for my database password, and never put one in a command, a file or this chat. If I paste one by accident, don't use it, and tell me to change it.`;
 
 const PROFILE_COMMAND = `${NPX} profile add ${PROFILE} --host <host> --port <port> --dbname <database> --user <user> --access-mode read`;
 
-/** profile add has no --sslmode flag; SSL goes in the URL, which never holds the password. */
-const PROFILE_COMMAND_SSL = `${NPX} profile add ${PROFILE} --url "postgres://<user>@<host>:<port>/<database>?sslmode=require" --access-mode read`;
+const SSL_NOTE = "If it needs SSL, add --sslmode require to the end.";
 
 const SAVED = `✓ Profile '${PROFILE}' saved`;
 
-const INIT_STEP = `Run \`${NPX} --profile ${PROFILE} init <client> --apply\`, with <client> set to my app (${CLIENTS}). It prints "✓ wrote <app> (<path>)", plus a backup path if the file already existed. Show me the file it wrote, and the backup path if there is one.`;
-
-// TODO(init-launch): drop once init writes npx
-const NPX_FIX = `Run \`command -v nexql-mcp\`. If it prints nothing, nexql-mcp isn't on my PATH and my app can't start it as written. Edit the nexql-mcp entry in that file to "command": "npx" with "args": ["-y", "nexql-mcp@latest", "--profile", "${PROFILE}"], and show me the change.`;
+const INIT_STEP = `Run \`${NPX} --profile ${PROFILE} init <client> --apply\`, with <client> set to my app (${CLIENTS}). It prints a diff of the app's MCP config, then "✓ wrote <app> (<path>)", plus a backup path if the file already existed. Show me the diff, and the backup path if there is one.`;
 
 const numbered = (steps: string[]) => steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
 
@@ -41,12 +38,9 @@ ${numbered([
   "Ask me for my database's host, port (5432 if I don't know), database name and user, whether it needs SSL (hosted databases usually do), and which app I'm using you in. Not the password.",
   `Write out this command filled in with my details, and ask me to run it in my own terminal window, not yours:
    ${PROFILE_COMMAND}
-   If it needs SSL, use this one instead, with no password in the URL:
-   ${PROFILE_COMMAND_SSL}
+   ${SSL_NOTE}
    It asks me for the password without showing it, tests the connection and saves the password in my OS keyring. It needs a real terminal, so it can't work in yours. Wait until I tell you it printed "${SAVED}".`,
   INIT_STEP,
-  // TODO(init-launch): drop once init writes npx
-  NPX_FIX,
   `Run \`${NPX} --profile ${PROFILE} doctor\` and tell me what it reports.`,
   "Tell me how to restart or reload my app so it picks up NexQL.",
 ])}`;
@@ -57,9 +51,7 @@ Ask me for the host, port, database name and user, and whether it needs SSL. The
 
 ${PROFILE_COMMAND}
 
-If it needs SSL, use this one instead, with no password in the URL:
-
-${PROFILE_COMMAND_SSL}
+${SSL_NOTE}
 
 Don't run it yourself: it asks for the password without showing it, and that only works in a real terminal. Wait for me to tell you it printed "${SAVED}". If it says the connection failed, help me check the host, port, user and SSL setting, not the password.`;
 
@@ -69,9 +61,7 @@ ${NPX} --profile ${PROFILE} init <client> --apply
 
 with <client> set to my app (${CLIENTS}). Ask me if you're not sure which. Use the profile name we saved, if it isn't "${PROFILE}".
 
-It merges NexQL into the app's existing MCP config and prints "✓ wrote <app> (<path>)", plus a backup path if the file already existed. Show me the file it wrote, and the backup path if there is one.
-
-${/* TODO(init-launch): drop once init writes npx */ NPX_FIX}
+It merges NexQL into the app's existing MCP config, prints a diff of the change, then "✓ wrote <app> (<path>)", plus a backup path if the file already existed. Show me the diff, and the backup path if there is one.
 
 Then tell me how to restart or reload the app so it loads NexQL.`;
 
@@ -101,15 +91,6 @@ const STANDING_RULE = `Whenever you need to read, search, or modify data in this
 - nexql-mcp is read-only by default. Check \`get_current_context\` before assuming you can write.
 - Never ask me for a database password, or put one in a command, a file or the chat. To connect another database, call \`add_database\`; I'll type the password on the page it opens.`;
 
-const EXAMPLE_MCP_CONFIG = `{
-  "mcpServers": {
-    "nexql-mcp": {
-      "command": "npx",
-      "args": ["-y", "nexql-mcp@latest", "--profile", "${PROFILE}"]
-    }
-  }
-}`;
-
 /* ---------- From the dry run ---------- */
 
 const RUN_NODE = `$ node --version
@@ -121,27 +102,24 @@ password for '${PROFILE}' (hidden; leave empty if none):
 ${SAVED} to ~/.config/nexql-mcp/config.toml`;
 
 const RUN_INIT = `$ ${NPX} --profile ${PROFILE} init claude-code --apply
-✓ wrote Claude Code (./.mcp.json)
-
-$ cat .mcp.json
-{
-  "mcpServers": {
-    "nexql-mcp": {
-      "args": [
-        "--profile",
-        "${PROFILE}"
-      ],
-      "command": "nexql-mcp"
-    }
-  }
-}`;
-
-// TODO(init-launch): drop once init writes npx
-const RUN_NPX_FIX = `$ command -v nexql-mcp || echo "nexql-mcp: not on PATH"
-nexql-mcp: not on PATH
-
-.mcp.json after the edit:
-${EXAMPLE_MCP_CONFIG}`;
+--- /dev/null
++++ ~/shop/.mcp.json
+@@ -0,0 +1,13 @@
++{
++  "mcpServers": {
++    "nexql-mcp": {
++      "args": [
++        "-y",
++        "nexql-mcp@latest",
++        "--profile",
++        "${PROFILE}"
++      ],
++      "command": "npx"
++    }
++  }
++}
+\\ No newline at end of file
+✓ wrote Claude Code (~/shop/.mcp.json)`;
 
 const RUN_DOCTOR = `$ ${NPX} --profile ${PROFILE} doctor
 resolved source=Profile profile=Some("${PROFILE}")
@@ -239,7 +217,7 @@ const scenes: Scene[] = [
       ["3", "it tests the connection and saves the profile", "84ms"],
     ],
     insight:
-      "Thanks. It's local with no SSL, so the first command is the right one. Please run this in your own terminal window, not mine. It asks for your password without showing it, tests the connection, and saves the password in your OS keyring. Let me know when it prints \"✓ Profile 'mydb' saved\".",
+      "Thanks. It's local with no SSL, so it doesn't need --sslmode. Please run this in your own terminal window, not mine. It asks for your password without showing it, tests the connection, and saves the password in your OS keyring. Let me know when it prints \"✓ Profile 'mydb' saved\".",
     figures: [
       ["0", "PASSWORDS IN CHAT"],
       ["read", "ACCESS MODE"],
@@ -261,7 +239,7 @@ const scenes: Scene[] = [
         {
           label: "OR RUN IT YOURSELF",
           code: PROFILE_COMMAND,
-          hint: 'Replace the <placeholders>. If the database needs SSL, use --url "postgres://<user>@<host>:<port>/<database>?sslmode=require" in place of --host, --port, --dbname and --user, with no password in the URL.',
+          hint: "Replace the <placeholders>. If the database needs SSL, add --sslmode require.",
         },
       ],
     },
@@ -274,11 +252,10 @@ const scenes: Scene[] = [
     prompt: `OK, that worked: ${SAVED} to ~/.config/nexql-mcp/config.toml`,
     steps: [
       ["1", "runs init claude-code --apply", "✓ wrote"],
-      ["2", "shows you the .mcp.json it wrote", "new file, no backup"],
-      ["3", "nexql-mcp isn't on PATH, so it switches the entry to npx", "—"],
+      ["2", "shows you the diff it printed", "new file, no backup"],
     ],
     insight:
-      "The profile is saved and the connection test passed, so I've wired NexQL into Claude Code. This project had no .mcp.json before, so there's no backup. The file names the profile only. No connection string or password. It launched nexql-mcp directly, which isn't on your PATH, so I changed it to start through npx.",
+      "The profile is saved and the connection test passed, so I've wired NexQL into Claude Code. This project had no .mcp.json before, so there's no backup. The entry starts NexQL through npx and names the profile only. No connection string or password.",
     figures: [
       ["1 file", "APP MCP CONFIG"],
       ["0", "SECRETS IN IT"],
@@ -295,13 +272,7 @@ const scenes: Scene[] = [
         {
           label: "WHAT YOUR AGENT RAN",
           code: RUN_INIT,
-          hint: "init merges NexQL into your app's existing MCP config and keeps the other servers. If the file already existed, it also prints where it backed up the old one.",
-        },
-        // TODO(init-launch): drop once init writes npx
-        {
-          label: "THEN IT FIXED THE LAUNCH COMMAND",
-          code: RUN_NPX_FIX,
-          hint: 'For now init writes "command": "nexql-mcp", which only works if NexQL is installed globally (npm i -g nexql-mcp). If you run it through npx, the entry needs this change, and the prompts ask your agent to make it.',
+          hint: "init merges NexQL into your app's existing MCP config and keeps the other servers, hiding their secrets in the diff. Run through npx, the entry starts npx; with NexQL installed, it starts that copy. If the file already existed, it also prints where it backed up the old one.",
         },
         {
           label: "OR PICK APPS IN THE BROWSER",
