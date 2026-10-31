@@ -5,6 +5,7 @@
 
 mod client_targets;
 mod init_clients;
+mod init_diff;
 mod launch;
 mod password_page;
 mod setup;
@@ -246,7 +247,10 @@ enum Commands {
         /// client JSON) and then wired. Without a URL, pass --profile or have
         /// a default profile. Only supported for clients with a real mergeable
         /// config file (i.e. not the copy/paste-only ones: continue, goose,
-        /// opencode, jetbrains, openai-agents). Prints the diff applied and any backup path.
+        /// opencode, jetbrains, openai-agents). Prints a unified diff of the
+        /// config file (secret values in other entries redacted) and any backup
+        /// path. When `nexql-mcp` is not installed on PATH (e.g. run via npx),
+        /// the entry launches `npx -y nexql-mcp@latest`.
         #[arg(long)]
         apply: bool,
     },
@@ -353,6 +357,8 @@ enum IndexAction {
     },
 }
 
+// Parsed once per run; `Add` is big because it carries every profile field.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum ProfileAction {
     List,
@@ -381,6 +387,8 @@ enum ProfileAction {
         credential_provider: Option<String>,
         #[arg(long)]
         access_mode: Option<String>,
+        #[command(flatten)]
+        ssl: Box<SslArgs>,
         /// Set this profile as the default.
         #[arg(long)]
         set_default: bool,
@@ -410,6 +418,37 @@ enum ProfileAction {
     MigrateSecrets,
     /// Print SQL that creates a least-privilege `nexql_readonly` login.
     ReadonlyRole,
+}
+
+/// TLS settings for `profile add` with `--host`. A `--url` carries its own
+/// `?sslmode=`, so these can't be combined with it.
+#[derive(clap::Args, Debug, Default)]
+struct SslArgs {
+    /// TLS mode, as in libpq. Hosted databases usually need `require`.
+    #[arg(
+        long,
+        conflicts_with = "url",
+        value_parser = ["disable", "prefer", "require", "verify-ca", "verify-full"]
+    )]
+    sslmode: Option<String>,
+    /// Client certificate (PEM) for certificate authentication.
+    #[arg(long, conflicts_with = "url", requires = "sslkey")]
+    sslcert: Option<String>,
+    /// Private key (PEM) for `--sslcert`.
+    #[arg(long, conflicts_with = "url", requires = "sslcert")]
+    sslkey: Option<String>,
+    /// CA certificate (PEM) used to verify the server.
+    #[arg(long, conflicts_with = "url")]
+    sslrootcert: Option<String>,
+}
+
+impl SslArgs {
+    fn apply_to(&self, profile: &mut nexql_conn::ProfileConfig) {
+        profile.sslmode = self.sslmode.clone();
+        profile.sslcert = self.sslcert.clone();
+        profile.sslkey = self.sslkey.clone();
+        profile.sslrootcert = self.sslrootcert.clone();
+    }
 }
 
 struct RouterBackend {
@@ -1655,7 +1694,7 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
         }
     }
 
-    let launch = setup::wire::LaunchConfig::default();
+    let launch = init_launch_config(&key, launch::bare_command_resolves());
     let preview = setup::wire::preview_wire(
         &config,
         &profile_names,
@@ -1664,6 +1703,11 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
         &launch,
         cli.connection.workspace_root.as_deref(),
     );
+    let existed: Vec<bool> = preview
+        .diffs
+        .iter()
+        .map(|d| std::path::Path::new(&d.config_path).exists())
+        .collect();
     let results = setup::wire::apply_wire(&preview, std::slice::from_ref(&key));
 
     let mut had_error = false;
@@ -1674,6 +1718,14 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
             continue;
         }
         if r.applied {
+            if let Some((diff, existed)) = preview
+                .diffs
+                .iter()
+                .zip(&existed)
+                .find(|(d, _)| d.client_key == r.client_key)
+            {
+                print!("{}", init_diff::render(diff, *existed));
+            }
             let path = r.config_path.as_deref().unwrap_or("?");
             println!("✓ wrote {} ({path})", r.display_name);
             if let Some(ref backup) = r.backup {
@@ -1687,6 +1739,23 @@ fn run_init_apply(cli: &Cli, client_name: &str) -> Result<(), String> {
         return Err(format!("failed to apply config for \"{client_name}\""));
     }
     Ok(())
+}
+
+/// The launch `init --apply` writes. A bare `nexql-mcp` only starts when an
+/// installed copy is on `PATH`. Run from npx, pnpm dlx or bunx, or with
+/// nothing installed, the config runs `npx -y nexql-mcp@latest` instead.
+/// Claude Desktop keeps `Path`, which `preview_wire` turns into an absolute
+/// command (or an absolute `npx`).
+fn init_launch_config(client_key: &str, bare_command_resolves: bool) -> setup::wire::LaunchConfig {
+    let mode = if bare_command_resolves || launch::needs_absolute_command(client_key) {
+        setup::wire::LaunchMode::Path
+    } else {
+        setup::wire::LaunchMode::NpxLatest
+    };
+    setup::wire::LaunchConfig {
+        mode,
+        npx_version: None,
+    }
 }
 
 fn emit_secret_migration_report(report: &nexql_conn::SecretMigrationReport) {
@@ -1783,6 +1852,7 @@ async fn run_profile_action(
             password_file,
             credential_provider,
             access_mode,
+            ssl,
             set_default,
             no_test,
         } => {
@@ -1807,7 +1877,7 @@ async fn run_profile_action(
                 }
                 None => None,
             };
-            let profile = nexql_conn::ProfileConfig {
+            let mut profile = nexql_conn::ProfileConfig {
                 url: url.clone(),
                 host: host.clone(),
                 port: *port,
@@ -1820,6 +1890,7 @@ async fn run_profile_action(
                 access_mode: access_mode.clone(),
                 ..Default::default()
             };
+            ssl.apply_to(&mut profile);
             if !*no_test {
                 let params = nexql_conn::resolve_profile(name, &profile)?;
                 let report = nexql_conn::test_connection(&params).await?;
@@ -2636,6 +2707,110 @@ mod main_cli_tests {
         assert!(content.contains("nexql-mcp"), "{content}");
         assert!(content.contains("--profile"), "{content}");
         assert!(content.contains("local"), "{content}");
+    }
+
+    /// Run from npx with nothing installed, `init claude-code --apply` must
+    /// write a launch that works without `nexql-mcp` on PATH.
+    #[test]
+    fn init_apply_without_an_install_writes_npx_latest() {
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let launch = init_launch_config("claude-code", false);
+        let preview = setup::wire::preview_wire(
+            &ConfigFile::default(),
+            &["mydb".to_string()],
+            &["claude-code".to_string()],
+            &[],
+            &launch,
+            Some(workspace_dir.path()),
+        );
+        let written: Value = serde_json::from_str(&preview.diffs[0].new_content).unwrap();
+        let entry = &written["mcpServers"]["nexql-mcp"];
+        assert_eq!(entry["command"], "npx");
+        assert_eq!(
+            entry["args"],
+            json!(["-y", "nexql-mcp@latest", "--profile", "mydb"])
+        );
+    }
+
+    #[test]
+    fn init_apply_keeps_bare_command_when_installed_and_path_for_claude_desktop() {
+        let (cmd, args) =
+            init_launch_config("claude-code", true).command_and_args(&["mydb".into()]);
+        assert_eq!(cmd, "nexql-mcp");
+        assert_eq!(args, ["--profile", "mydb"]);
+        // preview_wire makes Claude Desktop's launch absolute (or absolute npx).
+        assert_eq!(
+            init_launch_config("claude-desktop", false).mode,
+            setup::wire::LaunchMode::Path
+        );
+    }
+
+    fn profile_add_ssl(args: &[&str]) -> Result<Box<SslArgs>, clap::Error> {
+        let argv = ["nexql-mcp", "profile", "add", "mydb"]
+            .iter()
+            .chain(args)
+            .copied();
+        match Cli::try_parse_from(argv)?.command {
+            Some(Commands::Profile {
+                action: ProfileAction::Add { ssl, .. },
+            }) => Ok(ssl),
+            _ => panic!("expected profile add"),
+        }
+    }
+
+    #[test]
+    fn profile_add_takes_sslmode_and_certs_with_host() {
+        let ssl = profile_add_ssl(&[
+            "--host",
+            "db.example.com",
+            "--user",
+            "app",
+            "--sslmode",
+            "verify-full",
+            "--sslrootcert",
+            "/etc/ssl/ca.pem",
+            "--sslcert",
+            "/home/u/client.pem",
+            "--sslkey",
+            "/home/u/client.key",
+        ])
+        .unwrap();
+        let mut profile = nexql_conn::ProfileConfig {
+            host: Some("db.example.com".into()),
+            user: Some("app".into()),
+            ..Default::default()
+        };
+        ssl.apply_to(&mut profile);
+        assert_eq!(profile.sslmode.as_deref(), Some("verify-full"));
+        assert_eq!(profile.sslrootcert.as_deref(), Some("/etc/ssl/ca.pem"));
+        assert_eq!(profile.sslcert.as_deref(), Some("/home/u/client.pem"));
+        assert_eq!(profile.sslkey.as_deref(), Some("/home/u/client.key"));
+        let params = nexql_conn::resolve_profile("mydb", &profile).unwrap();
+        assert_eq!(params.sslmode.as_deref(), Some("verify-full"));
+        assert_eq!(params.sslrootcert.as_deref(), Some("/etc/ssl/ca.pem"));
+    }
+
+    #[test]
+    fn profile_add_rejects_unknown_sslmode_and_lone_client_cert() {
+        assert!(profile_add_ssl(&["--host", "h", "--sslmode", "on"]).is_err());
+        assert!(profile_add_ssl(&["--host", "h", "--sslcert", "c.pem"]).is_err());
+    }
+
+    /// `--url` carries its own `?sslmode=`; a separate flag would be ignored,
+    /// so the combination is refused and the URL form keeps working.
+    #[test]
+    fn profile_add_url_keeps_its_sslmode_and_refuses_ssl_flags() {
+        let url = "postgres://app@db.example.com:5432/shop?sslmode=require";
+        assert!(profile_add_ssl(&["--url", url, "--sslmode", "require"]).is_err());
+        let ssl = profile_add_ssl(&["--url", url]).unwrap();
+        assert!(ssl.sslmode.is_none());
+        let mut profile = nexql_conn::ProfileConfig {
+            url: Some(url.into()),
+            ..Default::default()
+        };
+        ssl.apply_to(&mut profile);
+        let params = nexql_conn::resolve_profile("mydb", &profile).unwrap();
+        assert_eq!(params.sslmode.as_deref(), Some("require"));
     }
 
     fn cli_with_config(cfg_path: &std::path::Path) -> Cli {
