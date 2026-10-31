@@ -29,7 +29,7 @@ const named = new Set(replay.scenes.flatMap((s) => s.steps.map((st) => st[0])));
 const used = TOOLS.filter((t) => named.has(t.name));
 const other =
   current === "story"
-    ? { href: "/setup", k: "Agent prompts", t: "Let your AI agent set it up", s: "Six prompts to paste into Claude Code, Cursor and others." }
+    ? { href: "/setup", k: "Agent prompts", t: "Let your AI agent set it up", s: "Six prompts to paste into Claude Code, Cursor, Codex and others." }
     : { href: "/story", k: "See a session", t: "Watch NexQL answer a real question", s: "A sales drop, traced to one slow request and fixed." };
 ---
 

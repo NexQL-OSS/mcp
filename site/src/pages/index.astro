@@ -25,7 +25,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 
 <BaseLayout
   title="NexQL MCP — a guided tour from install to your first answer"
-  description="Connect Claude, Cursor, VS Code or another AI app to your Postgres database in about five minutes. A stop-by-stop tour: pick your app, install, connect, ask, add more databases, and stay in control. Read-only by default, personal data masked."
+  description="Connect Claude, Cursor, VS Code, Codex, Gemini CLI or another AI app to your Postgres database in about five minutes. A stop-by-stop tour: pick your app, install, connect, ask, add more databases, and stay in control. Read-only by default, personal data masked."
 >
   <SiteHeader current="tour" />
 
@@ -135,7 +135,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
           </div>
           <p class="picked">
             <span class="ok-dot"></span> Touring with <b data-fill="app">{defaultApp.name}</b>.
-            <span data-for="other">Your app needs to support local (stdio) MCP servers. Most desktop and editor apps do; ChatGPT doesn't yet.</span>
+            <span data-for="other">Your app needs to support local (stdio) MCP servers. Most desktop and editor apps do. ChatGPT chat doesn't yet; for Codex in the ChatGPT desktop app, pick Codex.</span>
           </p>
 
           <a class="next" href={`#${nextOf("app").id}`}>Next stop <b>{nextOf("app").label}</b> <span aria-hidden="true">→</span></a>
@@ -916,7 +916,7 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
   /* ---------- Stop 1: apps ---------- */
   .apps {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
     gap: 12px;
     margin-top: 28px;
   }

@@ -20,8 +20,17 @@ export const APPS: TourApp[] = [
   { id: "claude-code", name: "Claude Code", client: "claude-code", kind: "cli", hint: "Terminal" },
   { id: "cursor", name: "Cursor", client: "cursor", kind: "cli", hint: "Editor" },
   { id: "vscode", name: "VS Code", client: "vscode", kind: "cli", hint: "Copilot agent mode" },
+  { id: "codex", name: "Codex", client: "codex", kind: "cli", hint: "CLI, IDE and ChatGPT desktop app" },
+  { id: "gemini-cli", name: "Gemini CLI", client: "gemini-cli", kind: "cli", hint: "Terminal" },
   { id: "windsurf", name: "Windsurf", client: "windsurf", kind: "cli", hint: "Editor" },
+  { id: "antigravity", name: "Antigravity", client: "antigravity", kind: "cli", hint: "Editor" },
   { id: "zed", name: "Zed", client: "zed", kind: "cli", hint: "Editor" },
+  { id: "copilot-cli", name: "Copilot CLI", client: "copilot-cli", kind: "cli", hint: "GitHub's terminal agent" },
+  { id: "cline", name: "Cline", client: "cline", kind: "cli", hint: "Cline CLI" },
+  { id: "kiro", name: "Kiro", client: "kiro", kind: "cli", hint: "Editor and CLI" },
+  { id: "lm-studio", name: "LM Studio", client: "lm-studio", kind: "cli", hint: "Local models" },
+  { id: "qwen", name: "Qwen Code", client: "qwen", kind: "cli", hint: "Terminal" },
+  { id: "kimi", name: "Kimi Code", client: "kimi", kind: "cli", hint: "Terminal" },
   { id: "other", name: "Something else", kind: "other", hint: "Any app that runs local MCP servers" },
 ];
 
