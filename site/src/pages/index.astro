@@ -523,6 +523,11 @@ const URL_CMD = `'postgres://${fill("user", "app_reader")}@${fill("host", "local
 </BaseLayout>
 
 <style>
+  /* The hero's dot grid bleeds past its box; clip, not hidden, so sticky still works. */
+  main {
+    overflow-x: clip;
+  }
+
   /* ---------- Hero ---------- */
   .hero {
     position: relative;
