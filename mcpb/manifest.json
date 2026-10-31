@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "nexql-mcp",
   "display_name": "NexQL Postgres MCP",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Ask questions about your Postgres database in plain English. Read-only by default, with personal data masked.",
   "long_description": "NexQL connects Claude to a PostgreSQL database. It indexes the schema locally so Claude finds the right tables instead of guessing, runs read-only queries by default, and masks columns that look like personal data or secrets (emails, phone numbers, names, password hashes) before results reach the model. Use a least-privilege database role where you can, for example one granted pg_read_all_data.",
   "author": {
