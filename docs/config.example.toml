@@ -3,6 +3,8 @@
 # Override path: NEXQL_MCP_CONFIG=/path/to/config.toml
 
 default_profile = "local"
+# Stop the once-a-day check for a newer nexql-mcp release (default: on).
+# update_check = false
 
 [profiles.local]
 url = "postgres://dev@localhost:5432/appdb"

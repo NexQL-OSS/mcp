@@ -17,6 +17,10 @@ If you discover a security vulnerability within `nexql-mcp`, please report it pr
 
 Please do not open public GitHub issues for security vulnerabilities.
 
+## Network access
+
+Besides the databases you connect, nexql-mcp makes one outbound request: at most once a day it fetches `https://registry.npmjs.org/nexql-mcp/latest` to see whether a newer release is out. It sends only a `nexql-mcp/<version>` user agent, honours `HTTPS_PROXY`, and caches the answer in `~/.local/share/nexql-mcp/update-check.json`. The upgrade command in the notice is built from the binary's own install path, never from the response. The model is told to ask before running it. Turn it off with `--no-update-check`, `NEXQL_MCP_NO_UPDATE_CHECK=1`, `update_check = false` or `DO_NOT_TRACK=1`; it is off under `CI`.
+
 ## Query guards
 
 Read-mode statements run inside `BEGIN READ ONLY`. A second `BEGIN` is only a warning; it still flips an open read-write transaction to read-only, so the server's later `COMMIT` would commit work it did not start. An open transaction is detected in the same round trip by comparing `transaction_timestamp()` with `statement_timestamp()` (they are equal only during a transaction's first command), rolled back, and the call is refused. The probe raises no server-side error, so it does not add an `ERROR` line to the Postgres log for every query. That rollback is intentional: a connection returned to the pool must not stay in a transaction the next caller did not open.

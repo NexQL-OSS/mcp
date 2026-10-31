@@ -36,6 +36,9 @@ pub struct McpHandler {
     /// field a client's session/discovery UI actually shows, distinct from `server_name`
     /// (a stable machine identifier). `None` omits the field entirely.
     server_title: Option<String>,
+    /// Appended to [`MCP_SERVER_INSTRUCTIONS`] at `initialize` (e.g. an
+    /// update notice). `None` sends the instructions verbatim.
+    instructions_note: Option<String>,
     client_capabilities: Arc<RwLock<ClientCapabilities>>,
     outbound_tx: Arc<RwLock<Option<mpsc::Sender<String>>>>,
     pending_responses: Arc<Mutex<HashMap<Value, oneshot::Sender<JsonRpcResponse>>>>,
@@ -52,6 +55,7 @@ impl McpHandler {
             server_name: "nexql-mcp".into(),
             server_version: env!("CARGO_PKG_VERSION").into(),
             server_title: None,
+            instructions_note: None,
             client_capabilities: Arc::new(RwLock::new(ClientCapabilities::default())),
             outbound_tx: Arc::new(RwLock::new(None)),
             pending_responses: Arc::new(Mutex::new(HashMap::new())),
@@ -73,6 +77,12 @@ impl McpHandler {
     /// discovery/session UI, distinct from the stable `server_name` identifier.
     pub fn with_server_title(mut self, title: impl Into<String>) -> Self {
         self.server_title = Some(title.into());
+        self
+    }
+
+    /// Append `note` to the server instructions sent at `initialize`.
+    pub fn with_instructions_note(mut self, note: impl Into<String>) -> Self {
+        self.instructions_note = Some(note.into());
         self
     }
 
@@ -211,13 +221,18 @@ impl McpHandler {
             server_info["title"] = json!(title);
         }
 
+        let instructions = match &self.instructions_note {
+            Some(note) => format!("{MCP_SERVER_INSTRUCTIONS}\n{note}"),
+            None => MCP_SERVER_INSTRUCTIONS.to_owned(),
+        };
+
         JsonRpcResponse::ok(
             id,
             json!({
                 "protocolVersion": version,
                 "capabilities": capabilities,
                 "serverInfo": server_info,
-                "instructions": MCP_SERVER_INSTRUCTIONS
+                "instructions": instructions
             }),
         )
     }
@@ -627,6 +642,21 @@ mod tests {
         let resp = handler.handle_json(req).await.unwrap();
         let server_info = resp.result.unwrap()["serverInfo"].clone();
         assert_eq!(server_info["title"], "NexQL Postgres MCP");
+    }
+
+    #[tokio::test]
+    async fn initialize_appends_instructions_note() {
+        let handler = McpHandler::new(Arc::new(FakeTools)).with_instructions_note("Update: 9.9.9");
+        let req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}"#;
+        let resp = handler.handle_json(req).await.unwrap();
+        let instructions = resp.result.unwrap()["instructions"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            instructions,
+            format!("{MCP_SERVER_INSTRUCTIONS}\nUpdate: 9.9.9")
+        );
     }
 
     #[tokio::test]

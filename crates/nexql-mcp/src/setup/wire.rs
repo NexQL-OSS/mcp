@@ -55,7 +55,7 @@ impl LaunchConfig {
                 ("npx".into(), args)
             }
             LaunchMode::NpxLatest => {
-                let mut args = vec!["-y".into(), "nexql-mcp".into()];
+                let mut args = vec!["-y".into(), "nexql-mcp@latest".into()];
                 args.extend(profile_args);
                 ("npx".into(), args)
             }

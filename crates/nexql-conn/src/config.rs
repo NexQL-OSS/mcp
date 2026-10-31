@@ -13,6 +13,8 @@ use crate::error::ConnError;
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ConfigFile {
     pub default_profile: Option<String>,
+    /// `false` stops the once-a-day check for a newer nexql-mcp release.
+    pub update_check: Option<bool>,
     #[serde(default)]
     pub profiles: HashMap<String, ProfileConfig>,
 }
